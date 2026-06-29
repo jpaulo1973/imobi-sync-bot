@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedImoveisRouteImport } from './routes/_authenticated/imoveis'
 import { Route as AuthenticatedCruzarRouteImport } from './routes/_authenticated/cruzar'
+import { Route as AuthenticatedClientesRouteImport } from './routes/_authenticated/clientes'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -39,16 +40,23 @@ const AuthenticatedCruzarRoute = AuthenticatedCruzarRouteImport.update({
   path: '/cruzar',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedClientesRoute = AuthenticatedClientesRouteImport.update({
+  id: '/clientes',
+  path: '/clientes',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/clientes': typeof AuthenticatedClientesRoute
   '/cruzar': typeof AuthenticatedCruzarRoute
   '/imoveis': typeof AuthenticatedImoveisRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/clientes': typeof AuthenticatedClientesRoute
   '/cruzar': typeof AuthenticatedCruzarRoute
   '/imoveis': typeof AuthenticatedImoveisRoute
 }
@@ -57,19 +65,21 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/auth': typeof AuthRoute
+  '/_authenticated/clientes': typeof AuthenticatedClientesRoute
   '/_authenticated/cruzar': typeof AuthenticatedCruzarRoute
   '/_authenticated/imoveis': typeof AuthenticatedImoveisRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/cruzar' | '/imoveis'
+  fullPaths: '/' | '/auth' | '/clientes' | '/cruzar' | '/imoveis'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/cruzar' | '/imoveis'
+  to: '/' | '/auth' | '/clientes' | '/cruzar' | '/imoveis'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/auth'
+    | '/_authenticated/clientes'
     | '/_authenticated/cruzar'
     | '/_authenticated/imoveis'
   fileRoutesById: FileRoutesById
@@ -117,15 +127,24 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCruzarRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/clientes': {
+      id: '/_authenticated/clientes'
+      path: '/clientes'
+      fullPath: '/clientes'
+      preLoaderRoute: typeof AuthenticatedClientesRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
   }
 }
 
 interface AuthenticatedRouteChildren {
+  AuthenticatedClientesRoute: typeof AuthenticatedClientesRoute
   AuthenticatedCruzarRoute: typeof AuthenticatedCruzarRoute
   AuthenticatedImoveisRoute: typeof AuthenticatedImoveisRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedClientesRoute: AuthenticatedClientesRoute,
   AuthenticatedCruzarRoute: AuthenticatedCruzarRoute,
   AuthenticatedImoveisRoute: AuthenticatedImoveisRoute,
 }
