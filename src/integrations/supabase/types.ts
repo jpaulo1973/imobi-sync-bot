@@ -14,7 +14,63 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      properties: {
+        Row: {
+          area_m2: number | null
+          ativo: boolean
+          caracteristicas: string | null
+          casas_banho: number | null
+          concelho: string | null
+          created_at: string
+          descricao: string | null
+          finalidade: Database["public"]["Enums"]["finalidade_tipo"]
+          id: string
+          preco: number
+          quartos: number | null
+          referencia: string | null
+          tipologia: string
+          updated_at: string
+          user_id: string
+          zona: string
+        }
+        Insert: {
+          area_m2?: number | null
+          ativo?: boolean
+          caracteristicas?: string | null
+          casas_banho?: number | null
+          concelho?: string | null
+          created_at?: string
+          descricao?: string | null
+          finalidade?: Database["public"]["Enums"]["finalidade_tipo"]
+          id?: string
+          preco: number
+          quartos?: number | null
+          referencia?: string | null
+          tipologia: string
+          updated_at?: string
+          user_id: string
+          zona: string
+        }
+        Update: {
+          area_m2?: number | null
+          ativo?: boolean
+          caracteristicas?: string | null
+          casas_banho?: number | null
+          concelho?: string | null
+          created_at?: string
+          descricao?: string | null
+          finalidade?: Database["public"]["Enums"]["finalidade_tipo"]
+          id?: string
+          preco?: number
+          quartos?: number | null
+          referencia?: string | null
+          tipologia?: string
+          updated_at?: string
+          user_id?: string
+          zona?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +79,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      finalidade_tipo: "venda" | "arrendamento"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +206,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      finalidade_tipo: ["venda", "arrendamento"],
+    },
   },
 } as const
