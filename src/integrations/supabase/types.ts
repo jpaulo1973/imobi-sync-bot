@@ -14,6 +14,156 @@ export type Database = {
   }
   public: {
     Tables: {
+      buyer_clients: {
+        Row: {
+          andar_min: number | null
+          area_min: number | null
+          ativo: boolean
+          budget_max: number | null
+          budget_min: number | null
+          created_at: string
+          elevador_obrigatorio: boolean
+          email: string | null
+          finalidade: Database["public"]["Enums"]["finalidade_tipo"]
+          garagem_obrigatoria: boolean
+          id: string
+          nome: string
+          notas: string | null
+          quartos_min: number | null
+          telefone: string | null
+          tipo_imovel: string | null
+          tipologia: string | null
+          updated_at: string
+          user_id: string
+          zona: string | null
+        }
+        Insert: {
+          andar_min?: number | null
+          area_min?: number | null
+          ativo?: boolean
+          budget_max?: number | null
+          budget_min?: number | null
+          created_at?: string
+          elevador_obrigatorio?: boolean
+          email?: string | null
+          finalidade?: Database["public"]["Enums"]["finalidade_tipo"]
+          garagem_obrigatoria?: boolean
+          id?: string
+          nome: string
+          notas?: string | null
+          quartos_min?: number | null
+          telefone?: string | null
+          tipo_imovel?: string | null
+          tipologia?: string | null
+          updated_at?: string
+          user_id: string
+          zona?: string | null
+        }
+        Update: {
+          andar_min?: number | null
+          area_min?: number | null
+          ativo?: boolean
+          budget_max?: number | null
+          budget_min?: number | null
+          created_at?: string
+          elevador_obrigatorio?: boolean
+          email?: string | null
+          finalidade?: Database["public"]["Enums"]["finalidade_tipo"]
+          garagem_obrigatoria?: boolean
+          id?: string
+          nome?: string
+          notas?: string | null
+          quartos_min?: number | null
+          telefone?: string | null
+          tipo_imovel?: string | null
+          tipologia?: string | null
+          updated_at?: string
+          user_id?: string
+          zona?: string | null
+        }
+        Relationships: []
+      }
+      portal_listings: {
+        Row: {
+          andar: number | null
+          area_m2: number | null
+          casas_banho: number | null
+          concelho: string | null
+          created_at: string
+          descricao: string | null
+          finalidade: Database["public"]["Enums"]["finalidade_tipo"]
+          id: string
+          imagem_url: string | null
+          portal: string | null
+          preco: number | null
+          preco_anterior: number | null
+          quartos: number | null
+          raw_extract: Json | null
+          tem_elevador: boolean | null
+          tem_garagem: boolean | null
+          tipo_imovel: string | null
+          tipologia: string | null
+          titulo: string | null
+          ultima_verificacao: string
+          updated_at: string
+          url: string
+          user_id: string
+          zona: string | null
+        }
+        Insert: {
+          andar?: number | null
+          area_m2?: number | null
+          casas_banho?: number | null
+          concelho?: string | null
+          created_at?: string
+          descricao?: string | null
+          finalidade?: Database["public"]["Enums"]["finalidade_tipo"]
+          id?: string
+          imagem_url?: string | null
+          portal?: string | null
+          preco?: number | null
+          preco_anterior?: number | null
+          quartos?: number | null
+          raw_extract?: Json | null
+          tem_elevador?: boolean | null
+          tem_garagem?: boolean | null
+          tipo_imovel?: string | null
+          tipologia?: string | null
+          titulo?: string | null
+          ultima_verificacao?: string
+          updated_at?: string
+          url: string
+          user_id: string
+          zona?: string | null
+        }
+        Update: {
+          andar?: number | null
+          area_m2?: number | null
+          casas_banho?: number | null
+          concelho?: string | null
+          created_at?: string
+          descricao?: string | null
+          finalidade?: Database["public"]["Enums"]["finalidade_tipo"]
+          id?: string
+          imagem_url?: string | null
+          portal?: string | null
+          preco?: number | null
+          preco_anterior?: number | null
+          quartos?: number | null
+          raw_extract?: Json | null
+          tem_elevador?: boolean | null
+          tem_garagem?: boolean | null
+          tipo_imovel?: string | null
+          tipologia?: string | null
+          titulo?: string | null
+          ultima_verificacao?: string
+          updated_at?: string
+          url?: string
+          user_id?: string
+          zona?: string | null
+        }
+        Relationships: []
+      }
       properties: {
         Row: {
           area_m2: number | null
