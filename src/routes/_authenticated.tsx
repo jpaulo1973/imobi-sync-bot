@@ -1,6 +1,6 @@
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
-import { Building2, Home, Sparkles, LogOut } from "lucide-react";
+import { Building2, Home, Sparkles, LogOut, Users, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/_authenticated")({
@@ -34,6 +34,20 @@ function Layout() {
               activeProps={{ className: "active" }}
             >
               <Home className="w-4 h-4" /> Imóveis
+            </Link>
+            <Link
+              to="/clientes"
+              className="px-3 py-2 rounded-md text-sm font-medium hover:bg-secondary inline-flex items-center gap-2 [&.active]:bg-secondary [&.active]:text-primary"
+              activeProps={{ className: "active" }}
+            >
+              <Users className="w-4 h-4" /> Clientes
+            </Link>
+            <Link
+              to="/portais"
+              className="px-3 py-2 rounded-md text-sm font-medium hover:bg-secondary inline-flex items-center gap-2 [&.active]:bg-secondary [&.active]:text-primary"
+              activeProps={{ className: "active" }}
+            >
+              <Link2 className="w-4 h-4" /> Portais
             </Link>
             <Link
               to="/cruzar"
