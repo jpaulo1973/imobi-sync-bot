@@ -271,7 +271,7 @@ function ClientesPage() {
               </div>
               <div className="flex flex-wrap gap-1">
                 {c.tipologia && <Badge variant="outline">{c.tipologia}</Badge>}
-                {c.tipo_imovel && <Badge variant="outline">{c.tipo_imovel}</Badge>}
+                {(c.tipo_imovel ?? []).map((t) => <Badge key={t} variant="outline">{t}</Badge>)}
                 {c.area_min && <Badge variant="outline">≥{c.area_min}m²</Badge>}
                 {c.quartos_min && <Badge variant="outline">≥{c.quartos_min} quartos</Badge>}
                 {c.andar_min && <Badge variant="outline">≥{c.andar_min}º andar</Badge>}

@@ -160,7 +160,8 @@ export const matchBuyersWithListings = createServerFn({ method: "POST" })
               reasons.push(`Zona ${l.zona}`);
             }
           }
-          if (b.tipo_imovel && l.tipo_imovel && l.tipo_imovel.toLowerCase().includes(b.tipo_imovel.toLowerCase())) {
+          const buyerTypes = b.tipo_imovel ?? [];
+          if (buyerTypes.length > 0 && l.tipo_imovel && buyerTypes.some((t) => l.tipo_imovel!.toLowerCase().includes(t.toLowerCase()))) {
             score += 10;
             reasons.push(`Tipo ${l.tipo_imovel}`);
           }
