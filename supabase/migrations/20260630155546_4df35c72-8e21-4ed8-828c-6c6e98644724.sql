@@ -1,0 +1,1 @@
+ALTER TABLE public.buyer_clients ALTER COLUMN tipo_imovel TYPE text[] USING CASE WHEN tipo_imovel IS NOT NULL THEN ARRAY[tipo_imovel] ELSE NULL END;

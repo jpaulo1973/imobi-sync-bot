@@ -31,7 +31,7 @@ export type Database = {
           notas: string | null
           quartos_min: number | null
           telefone: string | null
-          tipo_imovel: string | null
+          tipo_imovel: string[] | null
           tipologia: string | null
           updated_at: string
           user_id: string
@@ -53,7 +53,7 @@ export type Database = {
           notas?: string | null
           quartos_min?: number | null
           telefone?: string | null
-          tipo_imovel?: string | null
+          tipo_imovel?: string[] | null
           tipologia?: string | null
           updated_at?: string
           user_id: string
@@ -75,7 +75,7 @@ export type Database = {
           notas?: string | null
           quartos_min?: number | null
           telefone?: string | null
-          tipo_imovel?: string | null
+          tipo_imovel?: string[] | null
           tipologia?: string | null
           updated_at?: string
           user_id?: string
