@@ -21,6 +21,17 @@ export const Route = createFileRoute("/_authenticated/clientes")({
   component: ClientesPage,
 });
 
+const TIPOS_IMOVEL = [
+  "Apartamento",
+  "Moradia",
+  "Espaço comercial",
+  "Terreno",
+  "Armazém",
+  "Loja",
+  "Escritório",
+  "Prédio",
+];
+
 const empty = {
   nome: "",
   telefone: "",
@@ -28,7 +39,7 @@ const empty = {
   finalidade: "venda" as "venda" | "arrendamento",
   tipologia: "",
   zona: "",
-  tipo_imovel: "",
+  tipo_imovel: [] as string[],
   budget_min: "",
   budget_max: "",
   area_min: "",
@@ -74,7 +85,7 @@ function ClientesPage() {
       finalidade: form.finalidade,
       tipologia: form.tipologia || null,
       zona: form.zona || null,
-      tipo_imovel: form.tipo_imovel || null,
+      tipo_imovel: form.tipo_imovel.length > 0 ? form.tipo_imovel : null,
       budget_min: form.budget_min ? Number(form.budget_min) : null,
       budget_max: form.budget_max ? Number(form.budget_max) : null,
       area_min: form.area_min ? Number(form.area_min) : null,
@@ -150,9 +161,24 @@ function ClientesPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label>Tipo de imóvel</Label>
-                  <Input value={form.tipo_imovel} onChange={(e) => setForm({ ...form, tipo_imovel: e.target.value })} placeholder="apartamento / moradia" />
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Tipo de imóvel (escolha vários)</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {TIPOS_IMOVEL.map((t) => (
+                      <label key={t} className="inline-flex items-center gap-2 text-sm cursor-pointer">
+                        <Checkbox
+                          checked={form.tipo_imovel.includes(t)}
+                          onCheckedChange={(v) => {
+                            const next = v
+                              ? [...form.tipo_imovel, t]
+                              : form.tipo_imovel.filter((x) => x !== t);
+                            setForm({ ...form, tipo_imovel: next });
+                          }}
+                        />
+                        {t}
+                      </label>
+                    ))}
+                  </div>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -245,7 +271,7 @@ function ClientesPage() {
               </div>
               <div className="flex flex-wrap gap-1">
                 {c.tipologia && <Badge variant="outline">{c.tipologia}</Badge>}
-                {c.tipo_imovel && <Badge variant="outline">{c.tipo_imovel}</Badge>}
+                {(c.tipo_imovel ?? []).map((t) => <Badge key={t} variant="outline">{t}</Badge>)}
                 {c.area_min && <Badge variant="outline">≥{c.area_min}m²</Badge>}
                 {c.quartos_min && <Badge variant="outline">≥{c.quartos_min} quartos</Badge>}
                 {c.andar_min && <Badge variant="outline">≥{c.andar_min}º andar</Badge>}

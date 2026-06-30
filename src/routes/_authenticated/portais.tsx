@@ -143,7 +143,7 @@ function PortaisPage() {
                 <div>
                   <h3 className="font-semibold">{buyer.nome}</h3>
                   <p className="text-xs text-muted-foreground">
-                    {buyer.tipologia ?? "—"} · {buyer.zona ?? "—"} · até {buyer.budget_max ? `${Number(buyer.budget_max).toLocaleString("pt-PT")}€` : "∞"}
+                    {(buyer.tipo_imovel ?? []).join(", ") || "—"} · {buyer.tipologia ?? "—"} · {buyer.zona ?? "—"} · até {buyer.budget_max ? `${Number(buyer.budget_max).toLocaleString("pt-PT")}€` : "∞"}
                   </p>
                 </div>
                 <Badge variant={matches.length > 0 ? "default" : "secondary"}>{matches.length} match</Badge>
