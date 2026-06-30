@@ -21,6 +21,17 @@ export const Route = createFileRoute("/_authenticated/clientes")({
   component: ClientesPage,
 });
 
+const TIPOS_IMOVEL = [
+  "Apartamento",
+  "Moradia",
+  "Espaço comercial",
+  "Terreno",
+  "Armazém",
+  "Loja",
+  "Escritório",
+  "Prédio",
+];
+
 const empty = {
   nome: "",
   telefone: "",
@@ -28,7 +39,7 @@ const empty = {
   finalidade: "venda" as "venda" | "arrendamento",
   tipologia: "",
   zona: "",
-  tipo_imovel: "",
+  tipo_imovel: [] as string[],
   budget_min: "",
   budget_max: "",
   area_min: "",
