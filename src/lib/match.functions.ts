@@ -22,7 +22,10 @@ const LeadsResponseSchema = z.object({
 export type Lead = z.infer<typeof LeadSchema>;
 
 const InputSchema = z.object({
-  texto: z.string().min(10).max(50000),
+  texto: z.string().max(50000).optional().default(""),
+  imagens: z.array(z.string().startsWith("data:image/")).max(10).optional().default([]),
+}).refine((v) => (v.texto?.trim().length ?? 0) >= 10 || (v.imagens?.length ?? 0) > 0, {
+  message: "Forneça texto ou pelo menos uma imagem",
 });
 
 export const extractAndMatch = createServerFn({ method: "POST" })
@@ -39,8 +42,9 @@ export const extractAndMatch = createServerFn({ method: "POST" })
       .eq("ativo", true);
     if (propErr) throw new Error(propErr.message);
 
-    // 2. Ask AI to extract leads from pasted WhatsApp text
-    const systemPrompt = `És um assistente especializado em mediação imobiliária em Portugal. Vais receber texto colado de conversas de grupos de WhatsApp.
+    // 2. Ask AI to extract leads from pasted WhatsApp text and/or screenshots
+    const systemPrompt = `És um assistente especializado em mediação imobiliária em Portugal. Vais receber texto colado e/ou capturas de ecrã (screenshots) de conversas de grupos de WhatsApp.
+Se receberes imagens, faz OCR e lê cuidadosamente cada balão de mensagem, incluindo nome do remetente quando visível.
 A tua tarefa: identificar PEDIDOS de quem PROCURA imóvel (leads / compradores / arrendatários) — IGNORA mensagens que oferecem imóveis para venda/arrendamento.
 
 Para cada lead, extrai:
@@ -57,12 +61,25 @@ Para cada lead, extrai:
 Responde APENAS com JSON válido no formato: {"leads":[...]}.
 Se não houver leads, devolve {"leads":[]}.`;
 
+    const userContent: Array<
+      { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }
+    > = [];
+    if (data.texto && data.texto.trim().length > 0) {
+      userContent.push({ type: "text", text: data.texto });
+    }
+    for (const img of data.imagens ?? []) {
+      userContent.push({ type: "image_url", image_url: { url: img } });
+    }
+    if (userContent.length === 0) {
+      userContent.push({ type: "text", text: "" });
+    }
+
     const raw = await callLovableAI({
       model: "google/gemini-2.5-flash",
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: data.texto },
+        { role: "user", content: userContent },
       ],
     });
 
