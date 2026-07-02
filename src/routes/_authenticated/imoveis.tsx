@@ -10,8 +10,10 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, MapPin, Euro, Bed, Maximize, Trash2 } from "lucide-react";
+import { Plus, MapPin, Euro, Bed, Maximize, Trash2, Link2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { useServerFn } from "@tanstack/react-start";
+import { importPropertyFromUrl } from "@/lib/properties.functions";
 
 type Property = Tables<"properties">;
 
@@ -35,11 +37,14 @@ const empty = {
 };
 
 function ImoveisPage() {
+  const importFn = useServerFn(importPropertyFromUrl);
   const [items, setItems] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
   const [saving, setSaving] = useState(false);
+  const [url, setUrl] = useState("");
+  const [importing, setImporting] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -93,6 +98,22 @@ function ImoveisPage() {
     else {
       toast.success("Eliminado");
       load();
+    }
+  };
+
+  const handleImport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!url.trim()) return;
+    setImporting(true);
+    try {
+      await importFn({ data: { url: url.trim() } });
+      toast.success("Imóvel importado");
+      setUrl("");
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao importar");
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -181,6 +202,28 @@ function ImoveisPage() {
           </DialogContent>
         </Dialog>
       </div>
+
+      <Card className="p-5">
+        <div className="flex items-center gap-2 mb-2">
+          <Sparkles className="w-4 h-4 text-primary" />
+          <h2 className="font-semibold">Importar por URL</h2>
+        </div>
+        <form onSubmit={handleImport} className="flex gap-2">
+          <Input
+            placeholder="https://www.century21.pt/imovel/..."
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            disabled={importing}
+          />
+          <Button type="submit" disabled={importing || !url.trim()}>
+            <Link2 className="w-4 h-4 mr-2" />
+            {importing ? "A importar..." : "Importar"}
+          </Button>
+        </form>
+        <p className="text-xs text-muted-foreground mt-2">
+          Cole o link do anúncio (Century 21, Idealista, Imovirtual, etc.) e a IA extrai automaticamente os dados.
+        </p>
+      </Card>
 
       {loading ? (
         <p className="text-muted-foreground">A carregar...</p>
