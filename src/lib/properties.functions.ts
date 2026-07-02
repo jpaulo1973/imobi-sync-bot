@@ -80,17 +80,17 @@ Extrai os dados do imóvel. Responde APENAS com JSON válido com este schema:
       .from("properties")
       .insert({
         user_id: userId,
-        referencia: parsed.referencia,
+        referencia: parsed.referencia ?? null,
         finalidade: parsed.finalidade,
-        tipologia: parsed.tipologia,
-        zona: parsed.zona,
-        concelho: parsed.concelho,
-        preco: parsed.preco,
-        area_m2: parsed.area_m2,
-        quartos: parsed.quartos,
-        casas_banho: parsed.casas_banho,
-        descricao: parsed.descricao,
-        caracteristicas: parsed.caracteristicas,
+        tipologia: parsed.tipologia ?? "N/D",
+        zona: parsed.zona ?? "N/D",
+        concelho: parsed.concelho ?? null,
+        preco: parsed.preco ?? 0,
+        area_m2: parsed.area_m2 ?? null,
+        quartos: parsed.quartos ?? null,
+        casas_banho: parsed.casas_banho ?? null,
+        descricao: parsed.descricao ?? null,
+        caracteristicas: parsed.caracteristicas ?? null,
       })
       .select()
       .single();
