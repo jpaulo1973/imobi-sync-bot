@@ -17,17 +17,17 @@ const PropertySchema = z.object({
   caracteristicas: z.string().nullable().optional(),
 });
 
-async function firecrawlScrape(url: string): Promise<{ markdown?: string }> {
+async function firecrawlScrape(url: string): Promise<{ markdown?: string; html?: string }> {
   const apiKey = process.env.FIRECRAWL_API_KEY;
   if (!apiKey) throw new Error("FIRECRAWL_API_KEY não configurado");
   const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true }),
+    body: JSON.stringify({ url, formats: ["markdown", "html"], onlyMainContent: false, waitFor: 2500 }),
   });
   if (res.status === 402) throw new Error("CREDITOS_FIRECRAWL_ESGOTADOS");
   if (!res.ok) throw new Error(`Firecrawl ${res.status}: ${await res.text()}`);
-  const json = (await res.json()) as { data?: { markdown?: string } };
+  const json = (await res.json()) as { data?: { markdown?: string; html?: string } };
   return json.data ?? {};
 }
 
@@ -39,7 +39,9 @@ export const importPropertyFromUrl = createServerFn({ method: "POST" })
 
     const scrape = await firecrawlScrape(data.url);
     const markdown = scrape.markdown ?? "";
-    if (!markdown) throw new Error("Não foi possível extrair conteúdo da página.");
+    const htmlText = (scrape.html ?? "").replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const content = [markdown, htmlText].filter(Boolean).join("\n\n").slice(0, 30000);
+    if (!content) throw new Error("Não foi possível extrair conteúdo da página.");
 
     const sys = `És um assistente de mediação imobiliária. Recebes o conteúdo (markdown) de uma página de anúncio de imóvel (Century 21, Idealista, Imovirtual, Casa Sapo, etc.).
 Extrai os dados do imóvel. Responde APENAS com JSON válido com este schema:
@@ -54,7 +56,7 @@ Extrai os dados do imóvel. Responde APENAS com JSON válido com este schema:
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: sys },
-        { role: "user", content: markdown.slice(0, 15000) },
+        { role: "user", content: `URL: ${data.url}\n\n${content}` },
       ],
     });
 
@@ -65,8 +67,13 @@ Extrai os dados do imóvel. Responde APENAS com JSON válido com este schema:
       throw new Error("A IA não conseguiu interpretar o anúncio.");
     }
 
-    if (!parsed.tipologia || !parsed.zona || parsed.preco == null) {
-      throw new Error("Dados insuficientes extraídos (tipologia, zona ou preço em falta). Adicione manualmente.");
+    const missing: string[] = [];
+    if (!parsed.tipologia) missing.push("tipologia");
+    if (!parsed.zona) missing.push("zona");
+    if (parsed.preco == null) missing.push("preço");
+    // Só recusa se realmente não veio nada de útil
+    if (missing.length === 3) {
+      throw new Error("Não foi possível extrair dados desta página. Adicione manualmente.");
     }
 
     const { data: saved, error } = await supabase
@@ -88,5 +95,10 @@ Extrai os dados do imóvel. Responde APENAS com JSON válido com este schema:
       .select()
       .single();
     if (error) throw new Error(error.message);
-    return { property: saved };
+    return {
+      property: saved,
+      warning: missing.length
+        ? `Importado com campos em falta: ${missing.join(", ")}. Edite o imóvel para completar.`
+        : null,
+    };
   });
