@@ -106,8 +106,9 @@ function ImoveisPage() {
     if (!url.trim()) return;
     setImporting(true);
     try {
-      await importFn({ data: { url: url.trim() } });
-      toast.success("Imóvel importado");
+      const res = await importFn({ data: { url: url.trim() } });
+      if (res?.warning) toast.warning(res.warning);
+      else toast.success("Imóvel importado");
       setUrl("");
       load();
     } catch (err) {
