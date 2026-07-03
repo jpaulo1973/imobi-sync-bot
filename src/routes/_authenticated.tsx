@@ -1,7 +1,9 @@
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Building2, Home, Sparkles, LogOut, Users, Link2 } from "lucide-react";
+import { Building2, Home, Sparkles, LogOut, Users, Link2, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { isCurrentUserAdmin } from "@/lib/admin.functions";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: async () => {
@@ -13,6 +15,12 @@ export const Route = createFileRoute("/_authenticated")({
 
 function Layout() {
   const navigate = useNavigate();
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    isCurrentUserAdmin()
+      .then((r) => setIsAdmin(r.isAdmin))
+      .catch(() => setIsAdmin(false));
+  }, []);
   const logout = async () => {
     await supabase.auth.signOut();
     navigate({ to: "/auth" });
@@ -56,6 +64,15 @@ function Layout() {
             >
               <Sparkles className="w-4 h-4" /> Cruzar Leads
             </Link>
+            {isAdmin && (
+              <Link
+                to="/utilizadores"
+                className="px-3 py-2 rounded-md text-sm font-medium hover:bg-secondary inline-flex items-center gap-2 [&.active]:bg-secondary [&.active]:text-primary"
+                activeProps={{ className: "active" }}
+              >
+                <Shield className="w-4 h-4" /> Utilizadores
+              </Link>
+            )}
             <Button variant="ghost" size="sm" onClick={logout} className="ml-2">
               <LogOut className="w-4 h-4" />
             </Button>
