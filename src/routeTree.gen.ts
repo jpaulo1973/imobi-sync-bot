@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedUtilizadoresRouteImport } from './routes/_authenticated/utilizadores'
 import { Route as AuthenticatedPortaisRouteImport } from './routes/_authenticated/portais'
 import { Route as AuthenticatedImoveisRouteImport } from './routes/_authenticated/imoveis'
 import { Route as AuthenticatedCruzarRouteImport } from './routes/_authenticated/cruzar'
@@ -31,6 +32,12 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedUtilizadoresRoute =
+  AuthenticatedUtilizadoresRouteImport.update({
+    id: '/utilizadores',
+    path: '/utilizadores',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedPortaisRoute = AuthenticatedPortaisRouteImport.update({
   id: '/portais',
   path: '/portais',
@@ -59,6 +66,7 @@ export interface FileRoutesByFullPath {
   '/cruzar': typeof AuthenticatedCruzarRoute
   '/imoveis': typeof AuthenticatedImoveisRoute
   '/portais': typeof AuthenticatedPortaisRoute
+  '/utilizadores': typeof AuthenticatedUtilizadoresRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -67,6 +75,7 @@ export interface FileRoutesByTo {
   '/cruzar': typeof AuthenticatedCruzarRoute
   '/imoveis': typeof AuthenticatedImoveisRoute
   '/portais': typeof AuthenticatedPortaisRoute
+  '/utilizadores': typeof AuthenticatedUtilizadoresRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -77,12 +86,27 @@ export interface FileRoutesById {
   '/_authenticated/cruzar': typeof AuthenticatedCruzarRoute
   '/_authenticated/imoveis': typeof AuthenticatedImoveisRoute
   '/_authenticated/portais': typeof AuthenticatedPortaisRoute
+  '/_authenticated/utilizadores': typeof AuthenticatedUtilizadoresRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/clientes' | '/cruzar' | '/imoveis' | '/portais'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/clientes'
+    | '/cruzar'
+    | '/imoveis'
+    | '/portais'
+    | '/utilizadores'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/clientes' | '/cruzar' | '/imoveis' | '/portais'
+  to:
+    | '/'
+    | '/auth'
+    | '/clientes'
+    | '/cruzar'
+    | '/imoveis'
+    | '/portais'
+    | '/utilizadores'
   id:
     | '__root__'
     | '/'
@@ -92,6 +116,7 @@ export interface FileRouteTypes {
     | '/_authenticated/cruzar'
     | '/_authenticated/imoveis'
     | '/_authenticated/portais'
+    | '/_authenticated/utilizadores'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -122,6 +147,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/utilizadores': {
+      id: '/_authenticated/utilizadores'
+      path: '/utilizadores'
+      fullPath: '/utilizadores'
+      preLoaderRoute: typeof AuthenticatedUtilizadoresRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/portais': {
       id: '/_authenticated/portais'
@@ -159,6 +191,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedCruzarRoute: typeof AuthenticatedCruzarRoute
   AuthenticatedImoveisRoute: typeof AuthenticatedImoveisRoute
   AuthenticatedPortaisRoute: typeof AuthenticatedPortaisRoute
+  AuthenticatedUtilizadoresRoute: typeof AuthenticatedUtilizadoresRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
@@ -166,6 +199,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedCruzarRoute: AuthenticatedCruzarRoute,
   AuthenticatedImoveisRoute: AuthenticatedImoveisRoute,
   AuthenticatedPortaisRoute: AuthenticatedPortaisRoute,
+  AuthenticatedUtilizadoresRoute: AuthenticatedUtilizadoresRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
