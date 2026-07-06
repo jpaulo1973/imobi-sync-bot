@@ -185,6 +185,7 @@ export type Database = {
           preco: number
           quartos: number | null
           referencia: string | null
+          subtipo_imovel: string | null
           tipo_imovel: string | null
           tipologia: string
           updated_at: string
@@ -211,6 +212,7 @@ export type Database = {
           preco: number
           quartos?: number | null
           referencia?: string | null
+          subtipo_imovel?: string | null
           tipo_imovel?: string | null
           tipologia: string
           updated_at?: string
@@ -237,6 +239,7 @@ export type Database = {
           preco?: number
           quartos?: number | null
           referencia?: string | null
+          subtipo_imovel?: string | null
           tipo_imovel?: string | null
           tipologia?: string
           updated_at?: string
