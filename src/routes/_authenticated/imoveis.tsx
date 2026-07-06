@@ -195,6 +195,22 @@ function ImoveisPage() {
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const tipo = form.tipo_imovel;
+    const semTipologia = TIPOS_SEM_TIPOLOGIA.includes(tipo);
+    const exigeTipologia = tipo === "apartamento" || tipo === "moradia";
+    const exigeAreaUtil = tipo === "apartamento" || tipo === "moradia";
+    const exigeAreaTerreno = tipo === "terreno" || tipo === "quinta";
+
+    if (exigeTipologia && !form.tipologia.trim()) {
+      toast.error("Tipologia é obrigatória para apartamentos e moradias.");
+      return;
+    }
+    if ((exigeAreaUtil || exigeAreaTerreno) && !form.area_util_m2.trim()) {
+      toast.error(exigeAreaTerreno ? "Área do terreno é obrigatória." : "Área útil é obrigatória.");
+      return;
+    }
+
     setSaving(true);
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) { setSaving(false); return; }
@@ -205,7 +221,7 @@ function ImoveisPage() {
       finalidade: form.finalidade,
       tipo_imovel: form.tipo_imovel || null,
       subtipo_imovel: form.subtipo_imovel || null,
-      tipologia: form.tipologia || "N/D",
+      tipologia: form.tipologia.trim() ? form.tipologia.trim() : semTipologia ? "N/D" : "N/D",
       preco: form.preco ? Number(form.preco) : 0,
       distrito: form.distrito || null,
       concelho: form.concelho || null,
