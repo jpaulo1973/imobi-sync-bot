@@ -167,17 +167,25 @@ export type Database = {
       properties: {
         Row: {
           area_m2: number | null
+          area_util_m2: number | null
           ativo: boolean
           caracteristicas: string | null
           casas_banho: number | null
           concelho: string | null
           created_at: string
           descricao: string | null
+          distrito: string | null
+          elevador: boolean | null
           finalidade: Database["public"]["Enums"]["finalidade_tipo"]
+          freguesia: string | null
+          garagem: boolean | null
           id: string
+          jardim: boolean | null
+          piscina: boolean | null
           preco: number
           quartos: number | null
           referencia: string | null
+          tipo_imovel: string | null
           tipologia: string
           updated_at: string
           user_id: string
@@ -185,17 +193,25 @@ export type Database = {
         }
         Insert: {
           area_m2?: number | null
+          area_util_m2?: number | null
           ativo?: boolean
           caracteristicas?: string | null
           casas_banho?: number | null
           concelho?: string | null
           created_at?: string
           descricao?: string | null
+          distrito?: string | null
+          elevador?: boolean | null
           finalidade?: Database["public"]["Enums"]["finalidade_tipo"]
+          freguesia?: string | null
+          garagem?: boolean | null
           id?: string
+          jardim?: boolean | null
+          piscina?: boolean | null
           preco: number
           quartos?: number | null
           referencia?: string | null
+          tipo_imovel?: string | null
           tipologia: string
           updated_at?: string
           user_id: string
@@ -203,17 +219,25 @@ export type Database = {
         }
         Update: {
           area_m2?: number | null
+          area_util_m2?: number | null
           ativo?: boolean
           caracteristicas?: string | null
           casas_banho?: number | null
           concelho?: string | null
           created_at?: string
           descricao?: string | null
+          distrito?: string | null
+          elevador?: boolean | null
           finalidade?: Database["public"]["Enums"]["finalidade_tipo"]
+          freguesia?: string | null
+          garagem?: boolean | null
           id?: string
+          jardim?: boolean | null
+          piscina?: boolean | null
           preco?: number
           quartos?: number | null
           referencia?: string | null
+          tipo_imovel?: string | null
           tipologia?: string
           updated_at?: string
           user_id?: string
