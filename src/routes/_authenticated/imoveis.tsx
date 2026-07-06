@@ -51,11 +51,21 @@ export const Route = createFileRoute("/_authenticated/imoveis")({
   component: ImoveisPage,
 });
 
-const TIPO_OPTS = ["apartamento", "moradia", "terreno", "escritorio", "loja", "quinta", "outro"];
+const TIPO_OPTS = ["apartamento", "moradia", "terreno", "escritorio", "loja", "quinta", "garagem", "armazem", "outro"];
+const TIPOS_SEM_TIPOLOGIA = ["terreno", "loja", "garagem", "armazem", "escritorio"];
 const SUBTIPO_TERRENO_OPTS = [
   "urbano", "rustico", "urbanizavel", "misto", "construcao",
   "agricola", "industrial", "comercial", "florestal", "nao identificado",
 ];
+
+// Ordena por parte numérica final da referência (mais recente primeiro).
+// Ex.: "C0440-01025" > "C0440-01024" > ... > "C0440-00990".
+const refSortKey = (r: string | null | undefined): number => {
+  if (!r) return -Infinity;
+  const matches = r.match(/\d+/g);
+  if (!matches || matches.length === 0) return -Infinity;
+  return parseInt(matches[matches.length - 1], 10);
+};
 
 type FormState = {
   referencia: string;
@@ -140,7 +150,14 @@ function ImoveisPage() {
       .select("*")
       .order("created_at", { ascending: false });
     if (error) toast.error(error.message);
-    setItems(data ?? []);
+    const sorted = [...(data ?? [])].sort((a, b) => {
+      const ka = refSortKey(a.referencia);
+      const kb = refSortKey(b.referencia);
+      if (kb !== ka) return kb - ka; // referência numérica desc
+      // sem referência ou empatados → mais recente primeiro
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+    setItems(sorted);
     setLoading(false);
   };
 
@@ -178,6 +195,22 @@ function ImoveisPage() {
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const tipo = form.tipo_imovel;
+    const semTipologia = TIPOS_SEM_TIPOLOGIA.includes(tipo);
+    const exigeTipologia = tipo === "apartamento" || tipo === "moradia";
+    const exigeAreaUtil = tipo === "apartamento" || tipo === "moradia";
+    const exigeAreaTerreno = tipo === "terreno" || tipo === "quinta";
+
+    if (exigeTipologia && !form.tipologia.trim()) {
+      toast.error("Tipologia é obrigatória para apartamentos e moradias.");
+      return;
+    }
+    if ((exigeAreaUtil || exigeAreaTerreno) && !form.area_util_m2.trim()) {
+      toast.error(exigeAreaTerreno ? "Área do terreno é obrigatória." : "Área útil é obrigatória.");
+      return;
+    }
+
     setSaving(true);
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) { setSaving(false); return; }
@@ -188,7 +221,7 @@ function ImoveisPage() {
       finalidade: form.finalidade,
       tipo_imovel: form.tipo_imovel || null,
       subtipo_imovel: form.subtipo_imovel || null,
-      tipologia: form.tipologia || "N/D",
+      tipologia: form.tipologia.trim() ? form.tipologia.trim() : semTipologia ? "N/D" : "N/D",
       preco: form.preco ? Number(form.preco) : 0,
       distrito: form.distrito || null,
       concelho: form.concelho || null,
@@ -339,17 +372,28 @@ function ImoveisPage() {
                     />
                   )}
                 </div>
-                <div className="space-y-2">
-                  {label("Tipologia", "tipologia")}
-                  <Input
-                    value={form.tipologia}
-                    onChange={(e) => setForm({ ...form, tipologia: e.target.value })}
-                    placeholder="T2 / Moradia / N/D"
-                  />
-                  <p className="text-[11px] text-muted-foreground">
-                    Deixe vazio para tipos sem tipologia (terrenos, lojas, garagens, armazéns) — será guardado como N/D.
-                  </p>
-                </div>
+                {TIPOS_SEM_TIPOLOGIA.includes(form.tipo_imovel) ? (
+                  <div className="space-y-2">
+                    <Label className="text-muted-foreground">Tipologia</Label>
+                    <div className="h-10 flex items-center px-3 rounded-md border border-dashed text-xs text-muted-foreground">
+                      Não aplicável a {form.tipo_imovel} — guardado como N/D
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {label(
+                      form.tipo_imovel === "apartamento" || form.tipo_imovel === "moradia"
+                        ? "Tipologia *"
+                        : "Tipologia",
+                      "tipologia",
+                    )}
+                    <Input
+                      value={form.tipologia}
+                      onChange={(e) => setForm({ ...form, tipologia: e.target.value })}
+                      placeholder="T2 / Moradia / N/D"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -358,7 +402,16 @@ function ImoveisPage() {
                   <Input type="number" value={form.preco} onChange={(e) => setForm({ ...form, preco: e.target.value })} required />
                 </div>
                 <div className="space-y-2">
-                  {label("Área útil (m²)", "area_util_m2")}
+                  {label(
+                    form.tipo_imovel === "terreno"
+                      ? "Área do terreno (m²) *"
+                      : form.tipo_imovel === "quinta"
+                        ? "Área (m²) *"
+                        : form.tipo_imovel === "apartamento" || form.tipo_imovel === "moradia"
+                          ? "Área útil (m²) *"
+                          : "Área (m²)",
+                    "area_util_m2",
+                  )}
                   <Input type="number" value={form.area_util_m2} onChange={(e) => setForm({ ...form, area_util_m2: e.target.value })} />
                 </div>
               </div>
@@ -455,12 +508,18 @@ function ImoveisPage() {
               </div>
               <div>
                 <h3 className="font-semibold text-lg">
-                  {p.tipologia}
-                  {p.tipo_imovel && (
+                  {p.tipologia && p.tipologia !== "N/D"
+                    ? p.tipologia
+                    : p.tipo_imovel
+                      ? p.tipo_imovel.charAt(0).toUpperCase() + p.tipo_imovel.slice(1)
+                      : "Imóvel"}
+                  {p.tipo_imovel && p.tipologia && p.tipologia !== "N/D" && (
                     <span className="text-xs text-muted-foreground">
                       {" "}· {p.tipo_imovel}
-                      {p.subtipo_imovel ? ` (${p.subtipo_imovel})` : ""}
                     </span>
+                  )}
+                  {p.subtipo_imovel && (
+                    <span className="text-xs text-muted-foreground"> ({p.subtipo_imovel})</span>
                   )}
                 </h3>
                 <p className="text-sm text-muted-foreground flex items-center gap-1">
