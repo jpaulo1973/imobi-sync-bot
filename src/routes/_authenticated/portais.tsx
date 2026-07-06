@@ -15,7 +15,7 @@ type Listing = Tables<"portal_listings">;
 type Buyer = Tables<"buyer_clients">;
 
 export const Route = createFileRoute("/_authenticated/portais")({
-  head: () => ({ meta: [{ title: "Portais — ImoMatch" }] }),
+  head: () => ({ meta: [{ title: "Portais — Property Match" }] }),
   component: PortaisPage,
 });
 
@@ -130,7 +130,7 @@ function PortaisPage() {
         <h2 className="text-xl font-semibold">{items.length} anúncio(s)</h2>
         <Button onClick={runMatch} disabled={matching || items.length === 0}>
           <Sparkles className="w-4 h-4 mr-2" />
-          {matching ? "A cruzar..." : "Cruzar com clientes"}
+          {matching ? "A calcular..." : "Property Match com clientes"}
         </Button>
       </div>
 

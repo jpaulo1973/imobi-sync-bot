@@ -5,7 +5,7 @@ import { supabaseForUser } from "../supabase";
 export default defineTool({
   name: "list_properties",
   title: "List properties",
-  description: "List the signed-in user's imported properties (imóveis) in ImoMatch. Returns basic fields like reference, typology, zone, price, area.",
+  description: "List the signed-in user's imported properties (imóveis) in Property Match. Returns basic fields like reference, typology, zone, price, area.",
   inputSchema: {
     limit: z.number().int().min(1).max(200).optional().describe("Max rows to return (default 50)."),
     finalidade: z.enum(["venda", "arrendamento"]).optional().describe("Filter by purpose: venda or arrendamento."),

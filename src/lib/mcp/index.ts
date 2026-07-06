@@ -7,10 +7,10 @@ const projectRef = import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unse
 
 export default defineMcp({
   name: "imomatch-mcp",
-  title: "ImoMatch",
+  title: "Property Match",
   version: "0.1.0",
   instructions:
-    "Tools to explore your ImoMatch data: imported properties, buyer leads, and portal listings. All tools are scoped to the signed-in user.",
+    "Tools to explore your Property Match data: imported properties, buyer leads, and portal listings. All tools are scoped to the signed-in user.",
   auth: auth.oauth.issuer({
     issuer: `https://${projectRef}.supabase.co/auth/v1`,
     acceptedAudiences: "authenticated",

@@ -10,7 +10,7 @@ import { Sparkles, MessageSquare, Target, Euro, MapPin, Phone, ImagePlus, X } fr
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/cruzar")({
-  head: () => ({ meta: [{ title: "Cruzar Leads — ImoMatch" }] }),
+  head: () => ({ meta: [{ title: "Leads WhatsApp — Property Match" }] }),
   component: CruzarPage,
 });
 
@@ -91,7 +91,7 @@ function CruzarPage() {
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Cruzar Leads</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Leads WhatsApp</h1>
         <p className="text-muted-foreground mt-1">
           Cole texto <strong>ou</strong> capturas de ecrã (prints) dos seus grupos de WhatsApp. A IA lê tudo e cruza com o seu portefólio.
         </p>
