@@ -508,12 +508,18 @@ function ImoveisPage() {
               </div>
               <div>
                 <h3 className="font-semibold text-lg">
-                  {p.tipologia}
-                  {p.tipo_imovel && (
+                  {p.tipologia && p.tipologia !== "N/D"
+                    ? p.tipologia
+                    : p.tipo_imovel
+                      ? p.tipo_imovel.charAt(0).toUpperCase() + p.tipo_imovel.slice(1)
+                      : "Imóvel"}
+                  {p.tipo_imovel && p.tipologia && p.tipologia !== "N/D" && (
                     <span className="text-xs text-muted-foreground">
                       {" "}· {p.tipo_imovel}
-                      {p.subtipo_imovel ? ` (${p.subtipo_imovel})` : ""}
                     </span>
+                  )}
+                  {p.subtipo_imovel && (
+                    <span className="text-xs text-muted-foreground"> ({p.subtipo_imovel})</span>
                   )}
                 </h3>
                 <p className="text-sm text-muted-foreground flex items-center gap-1">
