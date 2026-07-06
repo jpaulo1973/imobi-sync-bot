@@ -454,7 +454,15 @@ function ImoveisPage() {
                 </div>
               </div>
               <div>
-                <h3 className="font-semibold text-lg">{p.tipologia} {p.tipo_imovel && <span className="text-xs text-muted-foreground">· {p.tipo_imovel}</span>}</h3>
+                <h3 className="font-semibold text-lg">
+                  {p.tipologia}
+                  {p.tipo_imovel && (
+                    <span className="text-xs text-muted-foreground">
+                      {" "}· {p.tipo_imovel}
+                      {p.subtipo_imovel ? ` (${p.subtipo_imovel})` : ""}
+                    </span>
+                  )}
+                </h3>
                 <p className="text-sm text-muted-foreground flex items-center gap-1">
                   <MapPin className="w-3 h-3" />
                   {[p.freguesia, p.concelho, p.distrito].filter(Boolean).join(", ") || p.zona}
