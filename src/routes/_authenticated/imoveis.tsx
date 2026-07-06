@@ -372,17 +372,28 @@ function ImoveisPage() {
                     />
                   )}
                 </div>
-                <div className="space-y-2">
-                  {label("Tipologia", "tipologia")}
-                  <Input
-                    value={form.tipologia}
-                    onChange={(e) => setForm({ ...form, tipologia: e.target.value })}
-                    placeholder="T2 / Moradia / N/D"
-                  />
-                  <p className="text-[11px] text-muted-foreground">
-                    Deixe vazio para tipos sem tipologia (terrenos, lojas, garagens, armazéns) — será guardado como N/D.
-                  </p>
-                </div>
+                {TIPOS_SEM_TIPOLOGIA.includes(form.tipo_imovel) ? (
+                  <div className="space-y-2">
+                    <Label className="text-muted-foreground">Tipologia</Label>
+                    <div className="h-10 flex items-center px-3 rounded-md border border-dashed text-xs text-muted-foreground">
+                      Não aplicável a {form.tipo_imovel} — guardado como N/D
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {label(
+                      form.tipo_imovel === "apartamento" || form.tipo_imovel === "moradia"
+                        ? "Tipologia *"
+                        : "Tipologia",
+                      "tipologia",
+                    )}
+                    <Input
+                      value={form.tipologia}
+                      onChange={(e) => setForm({ ...form, tipologia: e.target.value })}
+                      placeholder="T2 / Moradia / N/D"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -391,7 +402,16 @@ function ImoveisPage() {
                   <Input type="number" value={form.preco} onChange={(e) => setForm({ ...form, preco: e.target.value })} required />
                 </div>
                 <div className="space-y-2">
-                  {label("Área útil (m²)", "area_util_m2")}
+                  {label(
+                    form.tipo_imovel === "terreno"
+                      ? "Área do terreno (m²) *"
+                      : form.tipo_imovel === "quinta"
+                        ? "Área (m²) *"
+                        : form.tipo_imovel === "apartamento" || form.tipo_imovel === "moradia"
+                          ? "Área útil (m²) *"
+                          : "Área (m²)",
+                    "area_util_m2",
+                  )}
                   <Input type="number" value={form.area_util_m2} onChange={(e) => setForm({ ...form, area_util_m2: e.target.value })} />
                 </div>
               </div>
