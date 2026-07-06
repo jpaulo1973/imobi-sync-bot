@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
@@ -74,13 +74,23 @@ const SUBTIPO_TERRENO_OPTS = [
   "agricola", "industrial", "comercial", "florestal", "nao identificado",
 ];
 
-// Ordena por parte numérica final da referência (mais recente primeiro).
-// Ex.: "C0440-01025" > "C0440-01024" > ... > "C0440-00990".
+// Extrai a parte numérica final da referência (ex.: "C0440-01025" → 1025).
+// Usa BigInt-safe number: JS Number aguenta 2^53 — suficiente para refs de agência.
 const refSortKey = (r: string | null | undefined): number => {
-  if (!r) return -Infinity;
+  if (!r) return Number.NEGATIVE_INFINITY;
   const matches = r.match(/\d+/g);
-  if (!matches || matches.length === 0) return -Infinity;
-  return parseInt(matches[matches.length - 1], 10);
+  if (!matches || matches.length === 0) return Number.NEGATIVE_INFINITY;
+  const n = parseInt(matches[matches.length - 1], 10);
+  return Number.isFinite(n) ? n : Number.NEGATIVE_INFINITY;
+};
+
+type SortMode = "ref_desc" | "ref_asc" | "price_desc" | "price_asc" | "created_desc";
+const SORT_LABELS: Record<SortMode, string> = {
+  ref_desc: "Referência (mais recente)",
+  ref_asc: "Referência (mais antiga)",
+  price_desc: "Preço (↓)",
+  price_asc: "Preço (↑)",
+  created_desc: "Data de importação",
 };
 
 type FormState = {
@@ -143,6 +153,7 @@ function ImoveisPage() {
 
   const [items, setItems] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sortBy, setSortBy] = useState<SortMode>("ref_desc");
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -166,16 +177,47 @@ function ImoveisPage() {
       .select("*")
       .order("created_at", { ascending: false });
     if (error) toast.error(error.message);
-    const sorted = [...(data ?? [])].sort((a, b) => {
-      const ka = refSortKey(a.referencia);
-      const kb = refSortKey(b.referencia);
-      if (kb !== ka) return kb - ka; // referência numérica desc
-      // sem referência ou empatados → mais recente primeiro
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    });
-    setItems(sorted);
+    setItems(data ?? []);
     setLoading(false);
   };
+
+  const sortedItems = useMemo(() => {
+    const arr = [...items];
+    const byCreatedDesc = (a: Property, b: Property) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    switch (sortBy) {
+      case "ref_asc": {
+        return arr.sort((a, b) => {
+          const ka = refSortKey(a.referencia);
+          const kb = refSortKey(b.referencia);
+          // sem referência → sempre no fim
+          if (!Number.isFinite(ka) && !Number.isFinite(kb)) return byCreatedDesc(a, b);
+          if (!Number.isFinite(ka)) return 1;
+          if (!Number.isFinite(kb)) return -1;
+          if (ka !== kb) return ka - kb;
+          return byCreatedDesc(a, b);
+        });
+      }
+      case "price_asc":
+        return arr.sort((a, b) => (Number(a.preco) || 0) - (Number(b.preco) || 0));
+      case "price_desc":
+        return arr.sort((a, b) => (Number(b.preco) || 0) - (Number(a.preco) || 0));
+      case "created_desc":
+        return arr.sort(byCreatedDesc);
+      case "ref_desc":
+      default: {
+        return arr.sort((a, b) => {
+          const ka = refSortKey(a.referencia);
+          const kb = refSortKey(b.referencia);
+          if (!Number.isFinite(ka) && !Number.isFinite(kb)) return byCreatedDesc(a, b);
+          if (!Number.isFinite(ka)) return 1;
+          if (!Number.isFinite(kb)) return -1;
+          if (kb !== ka) return kb - ka;
+          return byCreatedDesc(a, b);
+        });
+      }
+    }
+  }, [items, sortBy]);
 
   useEffect(() => { load(); }, []);
 
