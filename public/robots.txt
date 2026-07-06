@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /auth
+Disallow: /imoveis
+Disallow: /clientes
+Disallow: /portais
+Disallow: /cruzar
+Disallow: /utilizadores
+
+Sitemap: https://imobi-sync-bot.lovable.app/sitemap.xml
