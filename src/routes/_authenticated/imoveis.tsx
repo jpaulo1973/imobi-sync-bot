@@ -5,46 +5,126 @@ import type { Tables } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, MapPin, Euro, Bed, Maximize, Trash2, Link2, Sparkles } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Plus,
+  MapPin,
+  Euro,
+  Maximize,
+  Trash2,
+  Link2,
+  Sparkles,
+  Pencil,
+  Target,
+  Phone,
+  Mail,
+  MessageCircle,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { importPropertyFromUrl } from "@/lib/properties.functions";
+import { runPropertyMatch } from "@/lib/property-match.functions";
 
 type Property = Tables<"properties">;
+type BuyerClient = Tables<"buyer_clients">;
+type MatchResult = { buyer: BuyerClient; score: number; reasons: string[] };
 
 export const Route = createFileRoute("/_authenticated/imoveis")({
   head: () => ({ meta: [{ title: "Imóveis — Property Match" }] }),
   component: ImoveisPage,
 });
 
-const empty = {
-  referencia: "",
-  finalidade: "venda" as "venda" | "arrendamento",
-  tipologia: "T2",
-  zona: "",
-  concelho: "",
-  preco: "",
-  area_m2: "",
-  quartos: "",
-  casas_banho: "",
-  descricao: "",
-  caracteristicas: "",
+const TIPO_OPTS = ["apartamento", "moradia", "terreno", "escritorio", "loja", "quinta", "outro"];
+
+type FormState = {
+  referencia: string;
+  finalidade: "venda" | "arrendamento";
+  tipo_imovel: string;
+  tipologia: string;
+  preco: string;
+  distrito: string;
+  concelho: string;
+  freguesia: string;
+  zona: string;
+  area_util_m2: string;
+  garagem: boolean;
+  elevador: boolean;
+  jardim: boolean;
+  piscina: boolean;
 };
+
+const empty: FormState = {
+  referencia: "",
+  finalidade: "venda",
+  tipo_imovel: "apartamento",
+  tipologia: "T2",
+  preco: "",
+  distrito: "",
+  concelho: "",
+  freguesia: "",
+  zona: "",
+  area_util_m2: "",
+  garagem: false,
+  elevador: false,
+  jardim: false,
+  piscina: false,
+};
+
+const fromProperty = (p: Property): FormState => ({
+  referencia: p.referencia ?? "",
+  finalidade: (p.finalidade as "venda" | "arrendamento") ?? "venda",
+  tipo_imovel: p.tipo_imovel ?? "apartamento",
+  tipologia: p.tipologia ?? "",
+  preco: p.preco != null ? String(p.preco) : "",
+  distrito: p.distrito ?? "",
+  concelho: p.concelho ?? "",
+  freguesia: p.freguesia ?? "",
+  zona: p.zona ?? "",
+  area_util_m2: p.area_util_m2 != null ? String(p.area_util_m2) : "",
+  garagem: p.garagem ?? false,
+  elevador: p.elevador ?? false,
+  jardim: p.jardim ?? false,
+  piscina: p.piscina ?? false,
+});
 
 function ImoveisPage() {
   const importFn = useServerFn(importPropertyFromUrl);
+  const matchFn = useServerFn(runPropertyMatch);
+
   const [items, setItems] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState(empty);
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<FormState>(empty);
+  const [missing, setMissing] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+
   const [url, setUrl] = useState("");
   const [importing, setImporting] = useState(false);
+
+  const [matchOpen, setMatchOpen] = useState(false);
+  const [matchProperty, setMatchProperty] = useState<Property | null>(null);
+  const [matchLoading, setMatchLoading] = useState(false);
+  const [matches, setMatches] = useState<MatchResult[]>([]);
+  const [totalBuyers, setTotalBuyers] = useState(0);
 
   const load = async () => {
     setLoading(true);
@@ -57,48 +137,91 @@ function ImoveisPage() {
     setLoading(false);
   };
 
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { load(); }, []);
+
+  const openNew = () => {
+    setEditingId(null);
+    setForm(empty);
+    setMissing([]);
+    setDialogOpen(true);
+  };
+
+  const openEdit = (p: Property, missingFields: string[] = []) => {
+    setEditingId(p.id);
+    setForm(fromProperty(p));
+    setMissing(missingFields);
+    setDialogOpen(true);
+  };
+
+  const runMatch = async (p: Property) => {
+    setMatchProperty(p);
+    setMatchOpen(true);
+    setMatchLoading(true);
+    setMatches([]);
+    try {
+      const res = await matchFn({ data: { propertyId: p.id } });
+      setMatches(res.matches);
+      setTotalBuyers(res.totalBuyers);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao calcular Property Match");
+    } finally {
+      setMatchLoading(false);
+    }
+  };
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     const { data: userData } = await supabase.auth.getUser();
-    if (!userData.user) return;
-    const { error } = await supabase.from("properties").insert({
+    if (!userData.user) { setSaving(false); return; }
+
+    const payload = {
       user_id: userData.user.id,
       referencia: form.referencia || null,
       finalidade: form.finalidade,
-      tipologia: form.tipologia,
-      zona: form.zona,
+      tipo_imovel: form.tipo_imovel || null,
+      tipologia: form.tipologia || "N/D",
+      preco: form.preco ? Number(form.preco) : 0,
+      distrito: form.distrito || null,
       concelho: form.concelho || null,
-      preco: Number(form.preco),
-      area_m2: form.area_m2 ? Number(form.area_m2) : null,
-      quartos: form.quartos ? Number(form.quartos) : null,
-      casas_banho: form.casas_banho ? Number(form.casas_banho) : null,
-      descricao: form.descricao || null,
-      caracteristicas: form.caracteristicas || null,
-    });
-    setSaving(false);
-    if (error) {
-      toast.error(error.message);
-      return;
+      freguesia: form.freguesia || null,
+      zona: form.zona || form.freguesia || form.concelho || "Por preencher",
+      area_util_m2: form.area_util_m2 ? Number(form.area_util_m2) : null,
+      area_m2: form.area_util_m2 ? Number(form.area_util_m2) : null,
+      garagem: form.garagem,
+      elevador: form.elevador,
+      jardim: form.jardim,
+      piscina: form.piscina,
+    };
+
+    let savedRow: Property | null = null;
+    if (editingId) {
+      const { data: upd, error } = await supabase
+        .from("properties").update(payload).eq("id", editingId).select().single();
+      if (error) { setSaving(false); toast.error(error.message); return; }
+      savedRow = upd;
+      toast.success("Imóvel atualizado");
+    } else {
+      const { data: ins, error } = await supabase
+        .from("properties").insert(payload).select().single();
+      if (error) { setSaving(false); toast.error(error.message); return; }
+      savedRow = ins;
+      toast.success("Imóvel adicionado");
     }
-    toast.success("Imóvel adicionado");
-    setOpen(false);
+
+    setSaving(false);
+    setDialogOpen(false);
     setForm(empty);
-    load();
+    setMissing([]);
+    await load();
+    if (savedRow) await runMatch(savedRow);
   };
 
   const remove = async (id: string) => {
     if (!confirm("Eliminar este imóvel?")) return;
     const { error } = await supabase.from("properties").delete().eq("id", id);
     if (error) toast.error(error.message);
-    else {
-      toast.success("Eliminado");
-      load();
-    }
+    else { toast.success("Eliminado"); load(); }
   };
 
   const handleImport = async (e: React.FormEvent) => {
@@ -107,10 +230,15 @@ function ImoveisPage() {
     setImporting(true);
     try {
       const res = await importFn({ data: { url: url.trim() } });
-      if (res?.warning) toast.warning(res.warning);
-      else toast.success("Imóvel importado");
       setUrl("");
-      load();
+      await load();
+      if (res.missing_fields.length > 0) {
+        toast.warning(`Importado. Faltam campos: ${res.missing_fields.join(", ")}. Complete para melhorar o Property Match.`);
+        openEdit(res.property as Property, res.missing_fields);
+      } else {
+        toast.success("Imóvel importado");
+        await runMatch(res.property as Property);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao importar");
     } finally {
@@ -118,29 +246,42 @@ function ImoveisPage() {
     }
   };
 
+  const isMissing = (field: string) => missing.includes(field);
+  const label = (text: string, field: string) => (
+    <div className="flex items-center gap-2">
+      <Label>{text}</Label>
+      {isMissing(field) && (
+        <Badge variant="destructive" className="h-4 px-1.5 text-[10px]">em falta</Badge>
+      )}
+    </div>
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Imóveis angariados</h1>
           <p className="text-muted-foreground mt-1">
-            {items.length} {items.length === 1 ? "imóvel" : "imóveis"} no seu portefólio
+            {items.length} {items.length === 1 ? "imóvel" : "imóveis"} no seu portefólio · Property Match automático em cada criação
           </p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button>
-              <Plus className="w-4 h-4 mr-2" /> Adicionar imóvel
-            </Button>
+            <Button onClick={openNew}><Plus className="w-4 h-4 mr-2" /> Adicionar imóvel</Button>
           </DialogTrigger>
-          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Novo imóvel</DialogTitle>
+              <DialogTitle>{editingId ? "Editar imóvel" : "Novo imóvel"}</DialogTitle>
+              {missing.length > 0 && (
+                <DialogDescription>
+                  Alguns campos não foram importados automaticamente — preencha-os para um melhor Property Match.
+                </DialogDescription>
+              )}
             </DialogHeader>
             <form onSubmit={save} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <Label>Referência</Label>
+                  {label("Referência", "referencia")}
                   <Input value={form.referencia} onChange={(e) => setForm({ ...form, referencia: e.target.value })} placeholder="REF-001" />
                 </div>
                 <div className="space-y-2">
@@ -154,50 +295,67 @@ function ImoveisPage() {
                   </Select>
                 </div>
               </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <Label>Tipologia *</Label>
+                  {label("Tipo de imóvel", "tipo_imovel")}
+                  <Select value={form.tipo_imovel} onValueChange={(v) => setForm({ ...form, tipo_imovel: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {TIPO_OPTS.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  {label("Tipologia *", "tipologia")}
                   <Input value={form.tipologia} onChange={(e) => setForm({ ...form, tipologia: e.target.value })} placeholder="T2 / Moradia" required />
                 </div>
-                <div className="space-y-2">
-                  <Label>Preço (€) *</Label>
-                  <Input type="number" value={form.preco} onChange={(e) => setForm({ ...form, preco: e.target.value })} required />
-                </div>
               </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <Label>Zona *</Label>
-                  <Input value={form.zona} onChange={(e) => setForm({ ...form, zona: e.target.value })} placeholder="Cascais" required />
+                  {label("Preço (€) *", "preco")}
+                  <Input type="number" value={form.preco} onChange={(e) => setForm({ ...form, preco: e.target.value })} required />
                 </div>
                 <div className="space-y-2">
-                  <Label>Concelho</Label>
-                  <Input value={form.concelho} onChange={(e) => setForm({ ...form, concelho: e.target.value })} />
+                  {label("Área útil (m²)", "area_util_m2")}
+                  <Input type="number" value={form.area_util_m2} onChange={(e) => setForm({ ...form, area_util_m2: e.target.value })} />
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <Label>Área (m²)</Label>
-                  <Input type="number" value={form.area_m2} onChange={(e) => setForm({ ...form, area_m2: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Quartos</Label>
-                  <Input type="number" value={form.quartos} onChange={(e) => setForm({ ...form, quartos: e.target.value })} />
+                  {label("Distrito", "distrito")}
+                  <Input value={form.distrito} onChange={(e) => setForm({ ...form, distrito: e.target.value })} placeholder="Lisboa" />
                 </div>
                 <div className="space-y-2">
-                  <Label>WCs</Label>
-                  <Input type="number" value={form.casas_banho} onChange={(e) => setForm({ ...form, casas_banho: e.target.value })} />
+                  {label("Concelho", "concelho")}
+                  <Input value={form.concelho} onChange={(e) => setForm({ ...form, concelho: e.target.value })} placeholder="Cascais" />
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label>Descrição</Label>
-                <Textarea value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} rows={3} />
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  {label("Freguesia", "freguesia")}
+                  <Input value={form.freguesia} onChange={(e) => setForm({ ...form, freguesia: e.target.value })} placeholder="Carcavelos" />
+                </div>
+                <div className="space-y-2">
+                  {label("Zona / bairro", "zona")}
+                  <Input value={form.zona} onChange={(e) => setForm({ ...form, zona: e.target.value })} placeholder="opcional" />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label>Características</Label>
-                <Input value={form.caracteristicas} onChange={(e) => setForm({ ...form, caracteristicas: e.target.value })} placeholder="garagem, varanda, vista mar" />
+
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                {(["garagem", "elevador", "jardim", "piscina"] as const).map((k) => (
+                  <label key={k} className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={form[k]} onCheckedChange={(v) => setForm({ ...form, [k]: v === true })} />
+                    <span className="capitalize">{k}</span>
+                  </label>
+                ))}
               </div>
+
               <Button type="submit" className="w-full" disabled={saving}>
-                {saving ? "A guardar..." : "Guardar"}
+                {saving ? "A guardar..." : editingId ? "Guardar alterações" : "Guardar e calcular Property Match"}
               </Button>
             </form>
           </DialogContent>
@@ -207,7 +365,7 @@ function ImoveisPage() {
       <Card className="p-5">
         <div className="flex items-center gap-2 mb-2">
           <Sparkles className="w-4 h-4 text-primary" />
-          <h2 className="font-semibold">Importar por URL</h2>
+          <h2 className="font-semibold">Importar por URL (Century 21, Idealista, Imovirtual…)</h2>
         </div>
         <form onSubmit={handleImport} className="flex gap-2">
           <Input
@@ -222,7 +380,7 @@ function ImoveisPage() {
           </Button>
         </form>
         <p className="text-xs text-muted-foreground mt-2">
-          Cole o link do anúncio (Century 21, Idealista, Imovirtual, etc.) e a IA extrai automaticamente os dados.
+          A importação é sempre parcial: se algum campo faltar, o imóvel é criado na mesma e pode completar manualmente.
         </p>
       </Card>
 
@@ -230,9 +388,7 @@ function ImoveisPage() {
         <p className="text-muted-foreground">A carregar...</p>
       ) : items.length === 0 ? (
         <Card className="p-12 text-center">
-          <p className="text-muted-foreground mb-4">
-            Ainda não tem imóveis. Adicione o primeiro para começar a cruzar com leads.
-          </p>
+          <p className="text-muted-foreground">Ainda não tem imóveis. Adicione o primeiro para lançar o Property Match.</p>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -243,19 +399,25 @@ function ImoveisPage() {
                   <Badge variant={p.finalidade === "venda" ? "default" : "secondary"}>
                     {p.finalidade === "venda" ? "Venda" : "Arrendamento"}
                   </Badge>
-                  {p.referencia && (
-                    <span className="text-xs text-muted-foreground ml-2">{p.referencia}</span>
-                  )}
+                  {p.referencia && <span className="text-xs text-muted-foreground ml-2">{p.referencia}</span>}
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => remove(p.id)}>
-                  <Trash2 className="w-4 h-4 text-destructive" />
-                </Button>
+                <div className="flex gap-1">
+                  <Button variant="ghost" size="icon" onClick={() => runMatch(p)} title="Property Match">
+                    <Target className="w-4 h-4 text-primary" />
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => openEdit(p)} title="Editar">
+                    <Pencil className="w-4 h-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => remove(p.id)} title="Eliminar">
+                    <Trash2 className="w-4 h-4 text-destructive" />
+                  </Button>
+                </div>
               </div>
               <div>
-                <h3 className="font-semibold text-lg">{p.tipologia}</h3>
+                <h3 className="font-semibold text-lg">{p.tipologia} {p.tipo_imovel && <span className="text-xs text-muted-foreground">· {p.tipo_imovel}</span>}</h3>
                 <p className="text-sm text-muted-foreground flex items-center gap-1">
                   <MapPin className="w-3 h-3" />
-                  {p.zona}{p.concelho ? `, ${p.concelho}` : ""}
+                  {[p.freguesia, p.concelho, p.distrito].filter(Boolean).join(", ") || p.zona}
                 </p>
               </div>
               <div className="flex items-center gap-1 text-2xl font-bold text-primary">
@@ -263,19 +425,84 @@ function ImoveisPage() {
                 {Number(p.preco).toLocaleString("pt-PT")}
                 {p.finalidade === "arrendamento" && <span className="text-sm font-normal text-muted-foreground">/mês</span>}
               </div>
-              <div className="flex gap-4 text-sm text-muted-foreground">
-                {p.quartos != null && (
-                  <span className="inline-flex items-center gap-1"><Bed className="w-4 h-4" /> {p.quartos}</span>
+              <div className="flex gap-4 text-sm text-muted-foreground flex-wrap">
+                {p.area_util_m2 != null && (
+                  <span className="inline-flex items-center gap-1"><Maximize className="w-4 h-4" /> {p.area_util_m2} m²</span>
                 )}
-                {p.area_m2 != null && (
-                  <span className="inline-flex items-center gap-1"><Maximize className="w-4 h-4" /> {p.area_m2} m²</span>
-                )}
+                {p.garagem && <Badge variant="outline">garagem</Badge>}
+                {p.elevador && <Badge variant="outline">elevador</Badge>}
+                {p.jardim && <Badge variant="outline">jardim</Badge>}
+                {p.piscina && <Badge variant="outline">piscina</Badge>}
               </div>
-              {p.descricao && <p className="text-sm text-muted-foreground line-clamp-2">{p.descricao}</p>}
             </Card>
           ))}
         </div>
       )}
+
+      <Dialog open={matchOpen} onOpenChange={setMatchOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Target className="w-5 h-5 text-primary" />
+              Property Match
+            </DialogTitle>
+            <DialogDescription>
+              {matchProperty && <>
+                Compradores compatíveis com <strong>{matchProperty.tipologia}</strong>
+                {matchProperty.freguesia ? ` em ${matchProperty.freguesia}` : matchProperty.concelho ? ` em ${matchProperty.concelho}` : ""}.
+              </>}
+            </DialogDescription>
+          </DialogHeader>
+
+          {matchLoading ? (
+            <p className="text-sm text-muted-foreground py-6 text-center">A analisar compradores...</p>
+          ) : matches.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-6 text-center">
+              Nenhum comprador compatível entre os {totalBuyers} clientes ativos.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                {matches.length} compatíveis · ordenados por score
+              </p>
+              {matches.map((m, i) => {
+                const tel = m.buyer.telefone?.replace(/\D/g, "");
+                return (
+                  <div key={m.buyer.id} className="p-3 rounded-lg border bg-secondary/40">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="font-semibold flex items-center gap-2">
+                          <span className="text-primary">#{i + 1}</span>
+                          {m.buyer.nome}
+                          <Badge className="bg-accent text-accent-foreground">{m.score} pts</Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">{m.reasons.join(" · ") || "—"}</p>
+                      </div>
+                      <div className="flex gap-1">
+                        {tel && (
+                          <a href={`https://wa.me/${tel.startsWith("351") ? tel : "351" + tel}`} target="_blank" rel="noreferrer">
+                            <Button variant="ghost" size="icon" title="WhatsApp"><MessageCircle className="w-4 h-4" /></Button>
+                          </a>
+                        )}
+                        {m.buyer.telefone && (
+                          <a href={`tel:${m.buyer.telefone}`}>
+                            <Button variant="ghost" size="icon" title="Ligar"><Phone className="w-4 h-4" /></Button>
+                          </a>
+                        )}
+                        {m.buyer.email && (
+                          <a href={`mailto:${m.buyer.email}`}>
+                            <Button variant="ghost" size="icon" title="Email"><Mail className="w-4 h-4" /></Button>
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
