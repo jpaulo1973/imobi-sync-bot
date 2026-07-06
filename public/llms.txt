@@ -1,0 +1,9 @@
+# Property Match
+
+> Ferramenta profissional para mediadores imobiliários em Portugal cruzarem imóveis com leads de grupos de WhatsApp e gerirem o seu portefólio de propriedades.
+
+Property Match é uma aplicação privada de gestão imobiliária. O acesso ao produto é restrito a utilizadores autenticados; apenas a página de entrada é pública.
+
+## Pages
+
+- [Entrar](/auth): Página de acesso à aplicação Property Match.
