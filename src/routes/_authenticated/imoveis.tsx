@@ -47,7 +47,23 @@ type BuyerClient = Tables<"buyer_clients">;
 type MatchResult = { buyer: BuyerClient; score: number; reasons: string[] };
 
 export const Route = createFileRoute("/_authenticated/imoveis")({
-  head: () => ({ meta: [{ title: "Imóveis — Property Match" }] }),
+  head: () => ({
+    meta: [
+      { title: "Imóveis — Property Match" },
+      {
+        name: "description",
+        content:
+          "Gestão do seu portefólio de imóveis angariados com Property Match automático para encontrar o comprador certo.",
+      },
+      { property: "og:title", content: "Imóveis — Property Match" },
+      {
+        property: "og:description",
+        content: "Gestão do portefólio de imóveis angariados com Property Match automático.",
+      },
+      { property: "og:url", content: "https://imobi-sync-bot.lovable.app/imoveis" },
+    ],
+    links: [{ rel: "canonical", href: "https://imobi-sync-bot.lovable.app/imoveis" }],
+  }),
   component: ImoveisPage,
 });
 
@@ -495,13 +511,13 @@ function ImoveisPage() {
                   {p.referencia && <span className="text-xs text-muted-foreground ml-2">{p.referencia}</span>}
                 </div>
                 <div className="flex gap-1">
-                  <Button variant="ghost" size="icon" onClick={() => runMatch(p)} title="Property Match">
+                  <Button variant="ghost" size="icon" onClick={() => runMatch(p)} title="Property Match" aria-label="Calcular Property Match">
                     <Target className="w-4 h-4 text-primary" />
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={() => openEdit(p)} title="Editar">
+                  <Button variant="ghost" size="icon" onClick={() => openEdit(p)} title="Editar" aria-label="Editar imóvel">
                     <Pencil className="w-4 h-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={() => remove(p.id)} title="Eliminar">
+                  <Button variant="ghost" size="icon" onClick={() => remove(p.id)} title="Eliminar" aria-label="Eliminar imóvel">
                     <Trash2 className="w-4 h-4 text-destructive" />
                   </Button>
                 </div>
