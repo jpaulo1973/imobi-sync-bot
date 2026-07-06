@@ -36,15 +36,24 @@ import {
   Phone,
   Mail,
   MessageCircle,
+  Users,
+  Check,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { importPropertyFromUrl } from "@/lib/properties.functions";
-import { runPropertyMatch } from "@/lib/property-match.functions";
+import { runPropertyMatch, countPropertyMatches } from "@/lib/property-match.functions";
+import type { MatchCategoryResult } from "@/lib/matching-engine";
 
 type Property = Tables<"properties">;
 type BuyerClient = Tables<"buyer_clients">;
-type MatchResult = { buyer: BuyerClient; score: number; reasons: string[] };
+type MatchResult = {
+  buyer: BuyerClient;
+  score: number;
+  reasons: string[];
+  categories: MatchCategoryResult[];
+};
 
 export const Route = createFileRoute("/_authenticated/imoveis")({
   head: () => ({
@@ -150,10 +159,12 @@ const fromProperty = (p: Property): FormState => ({
 function ImoveisPage() {
   const importFn = useServerFn(importPropertyFromUrl);
   const matchFn = useServerFn(runPropertyMatch);
+  const countsFn = useServerFn(countPropertyMatches);
 
   const [items, setItems] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortBy, setSortBy] = useState<SortMode>("ref_desc");
+  const [matchCounts, setMatchCounts] = useState<Record<string, number>>({});
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -179,6 +190,10 @@ function ImoveisPage() {
     if (error) toast.error(error.message);
     setItems(data ?? []);
     setLoading(false);
+    // Contagens de compatíveis — não bloqueiam a UI
+    countsFn()
+      .then((r) => setMatchCounts(r.counts ?? {}))
+      .catch(() => {});
   };
 
   const sortedItems = useMemo(() => {
@@ -244,6 +259,7 @@ function ImoveisPage() {
       const res = await matchFn({ data: { propertyId: p.id } });
       setMatches(res.matches);
       setTotalBuyers(res.totalBuyers);
+      setMatchCounts((prev) => ({ ...prev, [p.id]: res.matches.length }));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao calcular Property Match");
     } finally {
@@ -611,6 +627,18 @@ function ImoveisPage() {
                 {p.jardim && <Badge variant="outline">jardim</Badge>}
                 {p.piscina && <Badge variant="outline">piscina</Badge>}
               </div>
+              <button
+                type="button"
+                onClick={() => runMatch(p)}
+                className="mt-1 flex items-center justify-between gap-2 rounded-md border border-primary/20 bg-primary/5 hover:bg-primary/10 transition px-3 py-2 text-sm text-left"
+                aria-label="Ver compradores compatíveis"
+              >
+                <span className="inline-flex items-center gap-2 font-medium text-primary">
+                  <Users className="w-4 h-4" />
+                  {matchCounts[p.id] ?? 0} {(matchCounts[p.id] ?? 0) === 1 ? "comprador compatível" : "compradores compatíveis"}
+                </span>
+                <span className="text-xs text-muted-foreground">ver →</span>
+              </button>
             </Card>
           ))}
         </div>
@@ -640,7 +668,7 @@ function ImoveisPage() {
           ) : (
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground">
-                {matches.length} compatíveis · ordenados por score
+                {matches.length} de {totalBuyers} compradores · ordenados por compatibilidade
               </p>
               {matches.map((m, i) => {
                 const tel = m.buyer.telefone?.replace(/\D/g, "");
@@ -651,9 +679,30 @@ function ImoveisPage() {
                         <div className="font-semibold flex items-center gap-2">
                           <span className="text-primary">#{i + 1}</span>
                           {m.buyer.nome}
-                          <Badge className="bg-accent text-accent-foreground">{m.score} pts</Badge>
+                          <Badge className="bg-accent text-accent-foreground">{m.score}% compatível</Badge>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-1">{m.reasons.join(" · ") || "—"}</p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {m.categories
+                            .filter((c) => c.weight > 0 || c.key === "tipo")
+                            .map((c) => (
+                              <span
+                                key={c.key}
+                                title={c.detail}
+                                className={
+                                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] " +
+                                  (c.ok
+                                    ? "border-primary/30 bg-primary/10 text-primary"
+                                    : "border-muted-foreground/20 bg-muted text-muted-foreground")
+                                }
+                              >
+                                {c.ok ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                                {c.label}
+                              </span>
+                            ))}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mt-1.5">
+                          {m.categories.map((c) => c.detail).filter(Boolean).join(" · ")}
+                        </p>
                       </div>
                       <div className="flex gap-1">
                         {tel && (
