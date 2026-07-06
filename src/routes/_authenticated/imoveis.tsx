@@ -236,6 +236,39 @@ function ImoveisPage() {
 
   useEffect(() => { load(); }, []);
 
+  // Realtime: sempre que buyer_clients mudar, refresca contadores (e o match aberto).
+  useEffect(() => {
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const refresh = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        countsFn()
+          .then((r) => setMatchCounts(r.counts ?? {}))
+          .catch(() => {});
+        if (matchOpen && matchProperty) {
+          matchFn({ data: { propertyId: matchProperty.id } })
+            .then((res) => {
+              setMatches(res.matches);
+              setTotalBuyers(res.totalBuyers);
+            })
+            .catch(() => {});
+        }
+      }, 400);
+    };
+    const channel = supabase
+      .channel("buyer_clients-imoveis")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "buyer_clients" },
+        refresh,
+      )
+      .subscribe();
+    return () => {
+      if (debounce) clearTimeout(debounce);
+      supabase.removeChannel(channel);
+    };
+  }, [countsFn, matchFn, matchOpen, matchProperty]);
+
   const openNew = () => {
     setEditingId(null);
     setForm(empty);
