@@ -364,6 +364,17 @@ function ImoveisPage() {
             {items.length} {items.length === 1 ? "imóvel" : "imóveis"} no seu portefólio · Property Match automático em cada criação
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortMode)}>
+            <SelectTrigger className="w-[240px]" aria-label="Ordenar imóveis">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(SORT_LABELS) as SortMode[]).map((k) => (
+                <SelectItem key={k} value={k}>{SORT_LABELS[k]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button onClick={openNew}><Plus className="w-4 h-4 mr-2" /> Adicionar imóvel</Button>
@@ -511,6 +522,7 @@ function ImoveisPage() {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <Card className="p-5">
