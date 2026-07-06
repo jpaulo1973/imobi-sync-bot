@@ -14,6 +14,8 @@ const EssentialSchema = z.object({
   freguesia: z.string().nullable().optional(),
   zona: z.string().nullable().optional(),
   area_util_m2: z.number().nullable().optional(),
+  area_bruta_m2: z.number().nullable().optional(),
+  area_terreno_m2: z.number().nullable().optional(),
   garagem: z.boolean().nullable().optional(),
   elevador: z.boolean().nullable().optional(),
   jardim: z.boolean().nullable().optional(),
@@ -67,22 +69,26 @@ Schema JSON:
 {
   "referencia": string|null,           // ex: "C21-ABC123"
   "finalidade": "venda"|"arrendamento",
-  "tipo_imovel": "apartamento"|"moradia"|"terreno"|"escritorio"|"loja"|"quinta"|"outro"|null,
-  "tipologia": "T0"|"T1"|"T2"|"T3"|"T4"|"T5+"|"Moradia"|null,
+  "tipo_imovel": "apartamento"|"moradia"|"terreno"|"escritorio"|"loja"|"quinta"|"garagem"|"armazem"|"outro"|null,
+  "tipologia": "T0"|"T1"|"T2"|"T3"|"T4"|"T5+"|"Moradia"|null,   // null quando não aplicável (terrenos, lojas, garagens, armazéns)
   "preco": number|null,                // em euros, sem símbolos
   "distrito": string|null,
   "concelho": string|null,
   "freguesia": string|null,
   "zona": string|null,                 // bairro/localidade específica dentro da freguesia, quando existir
-  "area_util_m2": number|null,         // área útil (não área bruta) em m²
+  "area_util_m2": number|null,         // área útil (interior habitável) em m²
+  "area_bruta_m2": number|null,        // área bruta (privativa+comum) em m²
+  "area_terreno_m2": number|null,      // área do terreno / lote em m² (típico de terrenos, moradias, quintas)
   "garagem": boolean|null,
   "elevador": boolean|null,
   "jardim": boolean|null,
   "piscina": boolean|null
 }
 
-Century 21: procura o breadcrumb "Distrito › Concelho › Freguesia", o bloco "Detalhes", a etiqueta "Área útil" (ignora "área bruta"), e ícones de características.
+Century 21: procura o breadcrumb "Distrito › Concelho › Freguesia", o bloco "Detalhes", e ícones de características. Extrai TODAS as áreas que estejam presentes ("Área útil", "Área bruta", "Área do terreno" / "Área do lote") em campos separados — não escolhas por ti, devolve os três valores quando existirem.
 Idealista/Imovirtual: usa a morada indicada e o painel de características.
+
+Para terrenos, lojas, garagens e armazéns a tipologia (T0..T5) não se aplica — devolve null.
 
 Responde APENAS com JSON válido.`;
 
@@ -123,6 +129,25 @@ Responde APENAS com JSON válido.`;
       parsed.distrito ??
       "Por preencher";
 
+    // Seleciona a área mais adequada consoante o tipo de imóvel.
+    const tipoNorm = (parsed.tipo_imovel ?? "").toLowerCase();
+    const isTerreno = tipoNorm === "terreno";
+    const isRustico = tipoNorm === "quinta";
+    const areaCandidates = isTerreno
+      ? [parsed.area_terreno_m2, parsed.area_bruta_m2, parsed.area_util_m2]
+      : isRustico
+        ? [parsed.area_util_m2, parsed.area_bruta_m2, parsed.area_terreno_m2]
+        : [parsed.area_util_m2, parsed.area_bruta_m2, parsed.area_terreno_m2];
+    const chosenArea = areaCandidates.find((v) => v != null && Number(v) > 0) ?? null;
+
+    // Tipologia (T0..T5) não se aplica a alguns tipos — força "N/D".
+    const tipologiaNaoAplicavel = ["terreno", "loja", "garagem", "armazem", "escritorio"].includes(tipoNorm);
+    const tipologiaFinal = parsed.tipologia
+      ? parsed.tipologia
+      : tipologiaNaoAplicavel
+        ? "N/D"
+        : "N/D";
+
     const { data: saved, error } = await supabase
       .from("properties")
       .insert({
@@ -130,14 +155,14 @@ Responde APENAS com JSON válido.`;
         referencia: parsed.referencia ?? null,
         finalidade: parsed.finalidade,
         tipo_imovel: parsed.tipo_imovel ?? null,
-        tipologia: parsed.tipologia ?? "N/D",
+        tipologia: tipologiaFinal,
         distrito: parsed.distrito ?? null,
         concelho: parsed.concelho ?? null,
         freguesia: parsed.freguesia ?? null,
         zona: zonaFallback,
         preco: parsed.preco ?? 0,
-        area_util_m2: parsed.area_util_m2 ?? null,
-        area_m2: parsed.area_util_m2 ?? null,
+        area_util_m2: chosenArea,
+        area_m2: chosenArea,
         garagem: parsed.garagem ?? null,
         elevador: parsed.elevador ?? null,
         jardim: parsed.jardim ?? null,
@@ -150,12 +175,12 @@ Responde APENAS com JSON válido.`;
     const missing_fields: string[] = [];
     if (!parsed.referencia) missing_fields.push("referencia");
     if (!parsed.tipo_imovel) missing_fields.push("tipo_imovel");
-    if (!parsed.tipologia) missing_fields.push("tipologia");
+    if (!parsed.tipologia && !tipologiaNaoAplicavel) missing_fields.push("tipologia");
     if (parsed.preco == null) missing_fields.push("preco");
     if (!parsed.distrito) missing_fields.push("distrito");
     if (!parsed.concelho) missing_fields.push("concelho");
     if (!parsed.freguesia) missing_fields.push("freguesia");
-    if (parsed.area_util_m2 == null) missing_fields.push("area_util_m2");
+    if (chosenArea == null) missing_fields.push("area");
 
     return { property: saved, missing_fields };
   });
