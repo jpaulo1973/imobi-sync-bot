@@ -17,6 +17,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedUtilizadoresRouteImport } from './routes/_authenticated/utilizadores'
 import { Route as AuthenticatedPortaisRouteImport } from './routes/_authenticated/portais'
 import { Route as AuthenticatedImoveisRouteImport } from './routes/_authenticated/imoveis'
+import { Route as AuthenticatedCruzarRouteImport } from './routes/_authenticated/cruzar'
 import { Route as AuthenticatedClientesRouteImport } from './routes/_authenticated/clientes'
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
 import { Route as Char91DotmcpChar93ListToolsRouteImport } from './routes/[.mcp]/list-tools'
@@ -63,6 +64,11 @@ const AuthenticatedImoveisRoute = AuthenticatedImoveisRouteImport.update({
   path: '/imoveis',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedCruzarRoute = AuthenticatedCruzarRouteImport.update({
+  id: '/cruzar',
+  path: '/cruzar',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedClientesRoute = AuthenticatedClientesRouteImport.update({
   id: '/clientes',
   path: '/clientes',
@@ -100,6 +106,7 @@ export interface FileRoutesByFullPath {
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/clientes': typeof AuthenticatedClientesRoute
+  '/cruzar': typeof AuthenticatedCruzarRoute
   '/imoveis': typeof AuthenticatedImoveisRoute
   '/portais': typeof AuthenticatedPortaisRoute
   '/utilizadores': typeof AuthenticatedUtilizadoresRoute
@@ -114,6 +121,7 @@ export interface FileRoutesByTo {
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/clientes': typeof AuthenticatedClientesRoute
+  '/cruzar': typeof AuthenticatedCruzarRoute
   '/imoveis': typeof AuthenticatedImoveisRoute
   '/portais': typeof AuthenticatedPortaisRoute
   '/utilizadores': typeof AuthenticatedUtilizadoresRoute
@@ -130,6 +138,7 @@ export interface FileRoutesById {
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/_authenticated/clientes': typeof AuthenticatedClientesRoute
+  '/_authenticated/cruzar': typeof AuthenticatedCruzarRoute
   '/_authenticated/imoveis': typeof AuthenticatedImoveisRoute
   '/_authenticated/portais': typeof AuthenticatedPortaisRoute
   '/_authenticated/utilizadores': typeof AuthenticatedUtilizadoresRoute
@@ -146,6 +155,7 @@ export interface FileRouteTypes {
     | '/.mcp/list-tools'
     | '/.well-known/oauth-protected-resource'
     | '/clientes'
+    | '/cruzar'
     | '/imoveis'
     | '/portais'
     | '/utilizadores'
@@ -160,6 +170,7 @@ export interface FileRouteTypes {
     | '/.mcp/list-tools'
     | '/.well-known/oauth-protected-resource'
     | '/clientes'
+    | '/cruzar'
     | '/imoveis'
     | '/portais'
     | '/utilizadores'
@@ -175,6 +186,7 @@ export interface FileRouteTypes {
     | '/.mcp/list-tools'
     | '/.well-known/oauth-protected-resource'
     | '/_authenticated/clientes'
+    | '/_authenticated/cruzar'
     | '/_authenticated/imoveis'
     | '/_authenticated/portais'
     | '/_authenticated/utilizadores'
@@ -252,6 +264,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedImoveisRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/cruzar': {
+      id: '/_authenticated/cruzar'
+      path: '/cruzar'
+      fullPath: '/cruzar'
+      preLoaderRoute: typeof AuthenticatedCruzarRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/clientes': {
       id: '/_authenticated/clientes'
       path: '/clientes'
@@ -292,6 +311,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteChildren {
   AuthenticatedClientesRoute: typeof AuthenticatedClientesRoute
+  AuthenticatedCruzarRoute: typeof AuthenticatedCruzarRoute
   AuthenticatedImoveisRoute: typeof AuthenticatedImoveisRoute
   AuthenticatedPortaisRoute: typeof AuthenticatedPortaisRoute
   AuthenticatedUtilizadoresRoute: typeof AuthenticatedUtilizadoresRoute
@@ -299,6 +319,7 @@ interface AuthenticatedRouteChildren {
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedClientesRoute: AuthenticatedClientesRoute,
+  AuthenticatedCruzarRoute: AuthenticatedCruzarRoute,
   AuthenticatedImoveisRoute: AuthenticatedImoveisRoute,
   AuthenticatedPortaisRoute: AuthenticatedPortaisRoute,
   AuthenticatedUtilizadoresRoute: AuthenticatedUtilizadoresRoute,
