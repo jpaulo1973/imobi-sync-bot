@@ -667,7 +667,7 @@ function ImoveisPage() {
           ) : (
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground">
-                {matches.length} compatíveis · ordenados por score
+                {matches.length} de {totalBuyers} compradores · ordenados por compatibilidade
               </p>
               {matches.map((m, i) => {
                 const tel = m.buyer.telefone?.replace(/\D/g, "");
@@ -678,9 +678,30 @@ function ImoveisPage() {
                         <div className="font-semibold flex items-center gap-2">
                           <span className="text-primary">#{i + 1}</span>
                           {m.buyer.nome}
-                          <Badge className="bg-accent text-accent-foreground">{m.score} pts</Badge>
+                          <Badge className="bg-accent text-accent-foreground">{m.score}% compatível</Badge>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-1">{m.reasons.join(" · ") || "—"}</p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {m.categories
+                            .filter((c) => c.weight > 0 || c.key === "tipo")
+                            .map((c) => (
+                              <span
+                                key={c.key}
+                                title={c.detail}
+                                className={
+                                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] " +
+                                  (c.ok
+                                    ? "border-primary/30 bg-primary/10 text-primary"
+                                    : "border-muted-foreground/20 bg-muted text-muted-foreground")
+                                }
+                              >
+                                {c.ok ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                                {c.label}
+                              </span>
+                            ))}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mt-1.5">
+                          {m.categories.map((c) => c.detail).filter(Boolean).join(" · ")}
+                        </p>
                       </div>
                       <div className="flex gap-1">
                         {tel && (
