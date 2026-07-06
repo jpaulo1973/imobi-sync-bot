@@ -16,6 +16,7 @@ const EssentialSchema = z.object({
   area_util_m2: z.number().nullable().optional(),
   area_bruta_m2: z.number().nullable().optional(),
   area_terreno_m2: z.number().nullable().optional(),
+  subtipo_imovel: z.string().nullable().optional(),
   garagem: z.boolean().nullable().optional(),
   elevador: z.boolean().nullable().optional(),
   jardim: z.boolean().nullable().optional(),
@@ -71,6 +72,7 @@ Schema JSON:
   "finalidade": "venda"|"arrendamento",
   "tipo_imovel": "apartamento"|"moradia"|"terreno"|"escritorio"|"loja"|"quinta"|"garagem"|"armazem"|"outro"|null,
   "tipologia": "T0"|"T1"|"T2"|"T3"|"T4"|"T5+"|"Moradia"|null,   // null quando não aplicável (terrenos, lojas, garagens, armazéns)
+  "subtipo_imovel": string|null,       // subcategoria; ver regras abaixo
   "preco": number|null,                // em euros, sem símbolos
   "distrito": string|null,
   "concelho": string|null,
@@ -89,6 +91,23 @@ Century 21: procura o breadcrumb "Distrito › Concelho › Freguesia", o bloco 
 Idealista/Imovirtual: usa a morada indicada e o painel de características.
 
 Para terrenos, lojas, garagens e armazéns a tipologia (T0..T5) não se aplica — devolve null.
+
+SUBTIPO DE IMÓVEL:
+Prioriza sempre os campos estruturados da página (breadcrumb, badges, categoria, título). Só se não existirem, analisa a DESCRIÇÃO do anúncio.
+Para tipo_imovel = "terreno", devolve um dos seguintes (exatamente, em minúsculas):
+  "urbano", "rustico", "urbanizavel", "misto", "construcao", "agricola", "industrial", "comercial", "florestal", "nao identificado"
+Regras de interpretação para terrenos (aplica também sinónimos e variações comuns):
+  - "para construção", "com viabilidade construtiva", "PIP aprovado", "lote" → "construcao"
+  - "urbano", "em zona urbana", "solo urbano" → "urbano"
+  - "rústico", "rustico" → "rustico"
+  - "urbanizável", "urbanizavel", "expansão urbana" → "urbanizavel"
+  - "misto" → "misto"
+  - "agrícola", "cultivo", "vinha", "olival", "pomar" → "agricola"
+  - "industrial", "logístico", "armazenagem" → "industrial"
+  - "comercial" → "comercial"
+  - "floresta", "florestal", "pinhal", "eucaliptal", "mata" → "florestal"
+  - Se nada disto ficar claro → "nao identificado"
+Para outros tipos de imóvel (apartamento, moradia, loja, escritório, quinta, garagem, armazém), devolve null salvo se a página indicar claramente uma subcategoria (ex.: "duplex", "penthouse", "geminada", "isolada") — nesse caso devolve-a em minúsculas sem acentos.
 
 Responde APENAS com JSON válido.`;
 
@@ -140,6 +159,12 @@ Responde APENAS com JSON válido.`;
         : [parsed.area_util_m2, parsed.area_bruta_m2, parsed.area_terreno_m2];
     const chosenArea = areaCandidates.find((v) => v != null && Number(v) > 0) ?? null;
 
+    // Subtipo: para terrenos garante um valor final; para outros tipos deixa passar o que vier.
+    let subtipoFinal: string | null = parsed.subtipo_imovel
+      ? parsed.subtipo_imovel.toLowerCase().trim()
+      : null;
+    if (isTerreno && !subtipoFinal) subtipoFinal = "nao identificado";
+
     // Tipologia (T0..T5) não se aplica a alguns tipos — força "N/D".
     const tipologiaNaoAplicavel = ["terreno", "loja", "garagem", "armazem", "escritorio"].includes(tipoNorm);
     const tipologiaFinal = parsed.tipologia
@@ -155,6 +180,7 @@ Responde APENAS com JSON válido.`;
         referencia: parsed.referencia ?? null,
         finalidade: parsed.finalidade,
         tipo_imovel: parsed.tipo_imovel ?? null,
+        subtipo_imovel: subtipoFinal,
         tipologia: tipologiaFinal,
         distrito: parsed.distrito ?? null,
         concelho: parsed.concelho ?? null,
