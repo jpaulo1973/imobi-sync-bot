@@ -150,7 +150,14 @@ function ImoveisPage() {
       .select("*")
       .order("created_at", { ascending: false });
     if (error) toast.error(error.message);
-    setItems(data ?? []);
+    const sorted = [...(data ?? [])].sort((a, b) => {
+      const ka = refSortKey(a.referencia);
+      const kb = refSortKey(b.referencia);
+      if (kb !== ka) return kb - ka; // referência numérica desc
+      // sem referência ou empatados → mais recente primeiro
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+    setItems(sorted);
     setLoading(false);
   };
 
