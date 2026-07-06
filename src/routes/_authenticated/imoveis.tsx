@@ -188,7 +188,7 @@ function ImoveisPage() {
     setItems(data ?? []);
     setLoading(false);
     // Contagens de compatíveis — não bloqueiam a UI
-    countsFn({ data: undefined as unknown as never })
+    countsFn()
       .then((r) => setMatchCounts(r.counts ?? {}))
       .catch(() => {});
   };
