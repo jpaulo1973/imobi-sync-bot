@@ -33,7 +33,7 @@ function Layout() {
             <div className="w-8 h-8 rounded-lg bg-primary text-primary-foreground inline-flex items-center justify-center">
               <Building2 className="w-4 h-4" />
             </div>
-            ImoMatch
+            Property Match
           </Link>
           <nav className="flex items-center gap-1">
             <Link
@@ -62,7 +62,7 @@ function Layout() {
               className="px-3 py-2 rounded-md text-sm font-medium hover:bg-secondary inline-flex items-center gap-2 [&.active]:bg-secondary [&.active]:text-primary"
               activeProps={{ className: "active" }}
             >
-              <Sparkles className="w-4 h-4" /> Cruzar Leads
+              <Sparkles className="w-4 h-4" /> Property Match
             </Link>
             {isAdmin && (
               <Link

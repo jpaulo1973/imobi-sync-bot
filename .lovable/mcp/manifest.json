@@ -13,13 +13,13 @@
     "server": {
       "name": "imomatch-mcp",
       "version": "0.1.0",
-      "title": "ImoMatch"
+      "title": "Property Match"
     },
     "tools": [
       {
         "name": "list_properties",
         "title": "List properties",
-        "description": "List the signed-in user's imported properties (imóveis) in ImoMatch. Returns basic fields like reference, typology, zone, price, area.",
+        "description": "List the signed-in user's imported properties (imóveis) in Property Match. Returns basic fields like reference, typology, zone, price, area.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
@@ -50,7 +50,7 @@
       {
         "name": "list_buyer_clients",
         "title": "List buyer clients",
-        "description": "List the signed-in user's buyer leads (compradores) in ImoMatch, optionally filtered to active ones.",
+        "description": "List the signed-in user's buyer leads (compradores) in Property Match, optionally filtered to active ones.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,

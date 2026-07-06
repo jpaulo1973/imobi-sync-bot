@@ -17,7 +17,7 @@ import { toast } from "sonner";
 type Buyer = Tables<"buyer_clients">;
 
 export const Route = createFileRoute("/_authenticated/clientes")({
-  head: () => ({ meta: [{ title: "Clientes — ImoMatch" }] }),
+  head: () => ({ meta: [{ title: "Clientes — Property Match" }] }),
   component: ClientesPage,
 });
 

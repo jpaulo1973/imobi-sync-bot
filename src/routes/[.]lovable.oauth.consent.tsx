@@ -81,9 +81,9 @@ function Consent() {
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary text-primary-foreground mb-4">
             <Building2 className="w-7 h-7" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight">Ligar {clientName} ao ImoMatch</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Ligar {clientName} ao Property Match</h1>
           <p className="text-muted-foreground mt-2 text-sm">
-            Isto permite que {clientName} utilize o ImoMatch em seu nome.
+            Isto permite que {clientName} utilize o Property Match em seu nome.
           </p>
         </div>
         <Card className="p-6 space-y-4">

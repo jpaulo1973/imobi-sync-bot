@@ -1,6 +1,6 @@
 {
-  "name": "ImoMatch",
-  "short_name": "ImoMatch",
+  "name": "Property Match",
+  "short_name": "Property Match",
   "description": "Gestão de imóveis e cruzamento de leads",
   "start_url": "/",
   "scope": "/",

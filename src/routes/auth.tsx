@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { Building2 } from "lucide-react";
 
 export const Route = createFileRoute("/auth")({
-  head: () => ({ meta: [{ title: "Entrar — ImoMatch" }] }),
+  head: () => ({ meta: [{ title: "Entrar — Property Match" }] }),
   validateSearch: (s: Record<string, unknown>) => ({
     next: typeof s.next === "string" && s.next.startsWith("/") && !s.next.startsWith("//") ? s.next : undefined,
   }),
@@ -50,7 +50,7 @@ function AuthPage() {
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary text-primary-foreground mb-4">
             <Building2 className="w-7 h-7" />
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">ImoMatch</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Property Match</h1>
           <p className="text-muted-foreground mt-2">
             Cruzar imóveis com leads dos seus grupos de WhatsApp
           </p>

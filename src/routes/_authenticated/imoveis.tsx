@@ -18,7 +18,7 @@ import { importPropertyFromUrl } from "@/lib/properties.functions";
 type Property = Tables<"properties">;
 
 export const Route = createFileRoute("/_authenticated/imoveis")({
-  head: () => ({ meta: [{ title: "Imóveis — ImoMatch" }] }),
+  head: () => ({ meta: [{ title: "Imóveis — Property Match" }] }),
   component: ImoveisPage,
 });
 

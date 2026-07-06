@@ -5,7 +5,7 @@ import { supabaseForUser } from "../supabase";
 export default defineTool({
   name: "list_buyer_clients",
   title: "List buyer clients",
-  description: "List the signed-in user's buyer leads (compradores) in ImoMatch, optionally filtered to active ones.",
+  description: "List the signed-in user's buyer leads (compradores) in Property Match, optionally filtered to active ones.",
   inputSchema: {
     limit: z.number().int().min(1).max(200).optional().describe("Max rows to return (default 50)."),
     only_active: z.boolean().optional().describe("If true, only ativo=true rows."),
