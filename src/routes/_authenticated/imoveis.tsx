@@ -52,11 +52,16 @@ export const Route = createFileRoute("/_authenticated/imoveis")({
 });
 
 const TIPO_OPTS = ["apartamento", "moradia", "terreno", "escritorio", "loja", "quinta", "outro"];
+const SUBTIPO_TERRENO_OPTS = [
+  "urbano", "rustico", "urbanizavel", "misto", "construcao",
+  "agricola", "industrial", "comercial", "florestal", "nao identificado",
+];
 
 type FormState = {
   referencia: string;
   finalidade: "venda" | "arrendamento";
   tipo_imovel: string;
+  subtipo_imovel: string;
   tipologia: string;
   preco: string;
   distrito: string;
@@ -74,6 +79,7 @@ const empty: FormState = {
   referencia: "",
   finalidade: "venda",
   tipo_imovel: "apartamento",
+  subtipo_imovel: "",
   tipologia: "T2",
   preco: "",
   distrito: "",
@@ -91,6 +97,7 @@ const fromProperty = (p: Property): FormState => ({
   referencia: p.referencia ?? "",
   finalidade: (p.finalidade as "venda" | "arrendamento") ?? "venda",
   tipo_imovel: p.tipo_imovel ?? "apartamento",
+  subtipo_imovel: p.subtipo_imovel ?? "",
   tipologia: p.tipologia ?? "",
   preco: p.preco != null ? String(p.preco) : "",
   distrito: p.distrito ?? "",
@@ -180,6 +187,7 @@ function ImoveisPage() {
       referencia: form.referencia || null,
       finalidade: form.finalidade,
       tipo_imovel: form.tipo_imovel || null,
+      subtipo_imovel: form.subtipo_imovel || null,
       tipologia: form.tipologia || "N/D",
       preco: form.preco ? Number(form.preco) : 0,
       distrito: form.distrito || null,
