@@ -103,7 +103,7 @@ function UtilizadoresPage() {
           <div className="space-y-2">
             <Label>Palavra-passe (mín. 8)</Label>
             <Input
-              type="text"
+              type="password"
               minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
