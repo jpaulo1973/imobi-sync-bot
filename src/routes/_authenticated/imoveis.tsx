@@ -40,11 +40,17 @@ import {
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { importPropertyFromUrl } from "@/lib/properties.functions";
-import { runPropertyMatch } from "@/lib/property-match.functions";
+import { runPropertyMatch, countPropertyMatches } from "@/lib/property-match.functions";
+import type { MatchCategoryResult } from "@/lib/matching-engine";
 
 type Property = Tables<"properties">;
 type BuyerClient = Tables<"buyer_clients">;
-type MatchResult = { buyer: BuyerClient; score: number; reasons: string[] };
+type MatchResult = {
+  buyer: BuyerClient;
+  score: number;
+  reasons: string[];
+  categories: MatchCategoryResult[];
+};
 
 export const Route = createFileRoute("/_authenticated/imoveis")({
   head: () => ({
@@ -150,10 +156,12 @@ const fromProperty = (p: Property): FormState => ({
 function ImoveisPage() {
   const importFn = useServerFn(importPropertyFromUrl);
   const matchFn = useServerFn(runPropertyMatch);
+  const countsFn = useServerFn(countPropertyMatches);
 
   const [items, setItems] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortBy, setSortBy] = useState<SortMode>("ref_desc");
+  const [matchCounts, setMatchCounts] = useState<Record<string, number>>({});
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -179,6 +187,10 @@ function ImoveisPage() {
     if (error) toast.error(error.message);
     setItems(data ?? []);
     setLoading(false);
+    // Contagens de compatíveis — não bloqueiam a UI
+    countsFn({ data: undefined as unknown as never })
+      .then((r) => setMatchCounts(r.counts ?? {}))
+      .catch(() => {});
   };
 
   const sortedItems = useMemo(() => {
