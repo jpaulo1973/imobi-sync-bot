@@ -51,11 +51,21 @@ export const Route = createFileRoute("/_authenticated/imoveis")({
   component: ImoveisPage,
 });
 
-const TIPO_OPTS = ["apartamento", "moradia", "terreno", "escritorio", "loja", "quinta", "outro"];
+const TIPO_OPTS = ["apartamento", "moradia", "terreno", "escritorio", "loja", "quinta", "garagem", "armazem", "outro"];
+const TIPOS_SEM_TIPOLOGIA = ["terreno", "loja", "garagem", "armazem", "escritorio"];
 const SUBTIPO_TERRENO_OPTS = [
   "urbano", "rustico", "urbanizavel", "misto", "construcao",
   "agricola", "industrial", "comercial", "florestal", "nao identificado",
 ];
+
+// Ordena por parte numérica final da referência (mais recente primeiro).
+// Ex.: "C0440-01025" > "C0440-01024" > ... > "C0440-00990".
+const refSortKey = (r: string | null | undefined): number => {
+  if (!r) return -Infinity;
+  const matches = r.match(/\d+/g);
+  if (!matches || matches.length === 0) return -Infinity;
+  return parseInt(matches[matches.length - 1], 10);
+};
 
 type FormState = {
   referencia: string;
