@@ -17,7 +17,23 @@ import { toast } from "sonner";
 type Buyer = Tables<"buyer_clients">;
 
 export const Route = createFileRoute("/_authenticated/clientes")({
-  head: () => ({ meta: [{ title: "Clientes — Property Match" }] }),
+  head: () => ({
+    meta: [
+      { title: "Clientes — Property Match" }, 
+      {
+        name: "description",
+        content:
+          "Base de compradores e arrendatários para cruzar automaticamente com os imóveis do seu portefólio.",
+      },
+      { property: "og:title", content: "Clientes — Property Match" },
+      {
+        property: "og:description",
+        content: "Base de compradores para cruzar automaticamente com os imóveis do seu portefólio.",
+      },
+      { property: "og:url", content: "https://imobi-sync-bot.lovable.app/clientes" },
+    ],
+    links: [{ rel: "canonical", href: "https://imobi-sync-bot.lovable.app/clientes" }],
+  }),
   component: ClientesPage,
 });
 
@@ -254,7 +270,7 @@ function ClientesPage() {
                     {c.finalidade === "venda" ? "Comprar" : "Arrendar"}
                   </Badge>
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => remove(c.id)}>
+                <Button variant="ghost" size="icon" onClick={() => remove(c.id)} aria-label="Eliminar cliente">
                   <Trash2 className="w-4 h-4 text-destructive" />
                 </Button>
               </div>
