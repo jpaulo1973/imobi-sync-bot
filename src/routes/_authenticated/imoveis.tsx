@@ -36,6 +36,9 @@ import {
   Phone,
   Mail,
   MessageCircle,
+  Users,
+  Check,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
@@ -623,6 +626,18 @@ function ImoveisPage() {
                 {p.jardim && <Badge variant="outline">jardim</Badge>}
                 {p.piscina && <Badge variant="outline">piscina</Badge>}
               </div>
+              <button
+                type="button"
+                onClick={() => runMatch(p)}
+                className="mt-1 flex items-center justify-between gap-2 rounded-md border border-primary/20 bg-primary/5 hover:bg-primary/10 transition px-3 py-2 text-sm text-left"
+                aria-label="Ver compradores compatíveis"
+              >
+                <span className="inline-flex items-center gap-2 font-medium text-primary">
+                  <Users className="w-4 h-4" />
+                  {matchCounts[p.id] ?? 0} {(matchCounts[p.id] ?? 0) === 1 ? "comprador compatível" : "compradores compatíveis"}
+                </span>
+                <span className="text-xs text-muted-foreground">ver →</span>
+              </button>
             </Card>
           ))}
         </div>
