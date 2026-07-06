@@ -10,7 +10,23 @@ import { Sparkles, MessageSquare, Target, Euro, MapPin, Phone, ImagePlus, X } fr
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/cruzar")({
-  head: () => ({ meta: [{ title: "Leads WhatsApp — Property Match" }] }),
+  head: () => ({
+    meta: [
+      { title: "Leads WhatsApp — Property Match" },
+      {
+        name: "description",
+        content:
+          "Cole conversas de grupos de WhatsApp e cruze automaticamente com os imóveis do seu portefólio.",
+      },
+      { property: "og:title", content: "Leads WhatsApp — Property Match" },
+      {
+        property: "og:description",
+        content: "Cruze leads de WhatsApp com os imóveis do seu portefólio.",
+      },
+      { property: "og:url", content: "https://imobi-sync-bot.lovable.app/cruzar" },
+    ],
+    links: [{ rel: "canonical", href: "https://imobi-sync-bot.lovable.app/cruzar" }],
+  }),
   component: CruzarPage,
 });
 
