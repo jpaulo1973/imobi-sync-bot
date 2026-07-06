@@ -259,6 +259,7 @@ function ImoveisPage() {
       const res = await matchFn({ data: { propertyId: p.id } });
       setMatches(res.matches);
       setTotalBuyers(res.totalBuyers);
+      setMatchCounts((prev) => ({ ...prev, [p.id]: res.matches.length }));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao calcular Property Match");
     } finally {
