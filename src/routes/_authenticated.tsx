@@ -73,7 +73,13 @@ function Layout() {
                 <Shield className="w-4 h-4" /> Utilizadores
               </Link>
             )}
-            <Button variant="ghost" size="sm" onClick={logout} className="ml-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={logout}
+              className="ml-2"
+              aria-label="Terminar sessão"
+            >
               <LogOut className="w-4 h-4" />
             </Button>
           </nav>

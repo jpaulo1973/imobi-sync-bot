@@ -9,7 +9,23 @@ import { toast } from "sonner";
 import { Building2 } from "lucide-react";
 
 export const Route = createFileRoute("/auth")({
-  head: () => ({ meta: [{ title: "Entrar — Property Match" }] }),
+  head: () => ({
+    meta: [
+      { title: "Entrar — Property Match" },
+      {
+        name: "description",
+        content:
+          "Aceda à Property Match para cruzar imóveis com leads de grupos de WhatsApp e gerir o seu portefólio de propriedades.",
+      },
+      { property: "og:title", content: "Entrar — Property Match" },
+      {
+        property: "og:description",
+        content: "Aceda à Property Match para cruzar imóveis com leads de WhatsApp.",
+      },
+      { property: "og:url", content: "https://imobi-sync-bot.lovable.app/auth" },
+    ],
+    links: [{ rel: "canonical", href: "https://imobi-sync-bot.lovable.app/auth" }],
+  }),
   validateSearch: (s: Record<string, unknown>) => ({
     next: typeof s.next === "string" && s.next.startsWith("/") && !s.next.startsWith("//") ? s.next : undefined,
   }),
@@ -44,15 +60,17 @@ function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 bg-gradient-to-br from-secondary via-background to-secondary">
+    <main className="min-h-screen flex items-center justify-center px-4 bg-gradient-to-br from-secondary via-background to-secondary">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary text-primary-foreground mb-4">
             <Building2 className="w-7 h-7" />
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">Property Match</h1>
+          <h1 className="text-3xl font-bold tracking-tight">
+            Property Match — Cruzar imóveis com leads de WhatsApp
+          </h1>
           <p className="text-muted-foreground mt-2">
-            Cruzar imóveis com leads dos seus grupos de WhatsApp
+            Encontre automaticamente o comprador certo para cada imóvel que angariou.
           </p>
         </div>
         <Card className="p-6">
@@ -74,6 +92,6 @@ function AuthPage() {
           </form>
         </Card>
       </div>
-    </div>
+    </main>
   );
 }

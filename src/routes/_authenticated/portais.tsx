@@ -15,7 +15,23 @@ type Listing = Tables<"portal_listings">;
 type Buyer = Tables<"buyer_clients">;
 
 export const Route = createFileRoute("/_authenticated/portais")({
-  head: () => ({ meta: [{ title: "Portais — Property Match" }] }),
+  head: () => ({
+    meta: [
+      { title: "Portais — Property Match" },
+      {
+        name: "description",
+        content:
+          "Monitorize anúncios de portais imobiliários e cruze automaticamente com a sua base de compradores.",
+      },
+      { property: "og:title", content: "Portais — Property Match" },
+      {
+        property: "og:description",
+        content: "Monitorize anúncios de portais e cruze com a sua base de compradores.",
+      },
+      { property: "og:url", content: "https://imobi-sync-bot.lovable.app/portais" },
+    ],
+    links: [{ rel: "canonical", href: "https://imobi-sync-bot.lovable.app/portais" }],
+  }),
   component: PortaisPage,
 });
 
@@ -200,7 +216,7 @@ function PortaisPage() {
                     <p className="text-xs text-muted-foreground truncate">{l.portal}</p>
                     <h3 className="font-semibold truncate">{l.titulo ?? l.url}</h3>
                   </div>
-                  <Button variant="ghost" size="icon" onClick={() => remove(l.id)}>
+                  <Button variant="ghost" size="icon" onClick={() => remove(l.id)} aria-label="Eliminar anúncio">
                     <Trash2 className="w-4 h-4 text-destructive" />
                   </Button>
                 </div>
