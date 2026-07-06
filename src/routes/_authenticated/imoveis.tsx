@@ -307,8 +307,15 @@ function ImoveisPage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  {label("Tipologia *", "tipologia")}
-                  <Input value={form.tipologia} onChange={(e) => setForm({ ...form, tipologia: e.target.value })} placeholder="T2 / Moradia" required />
+                  {label("Tipologia", "tipologia")}
+                  <Input
+                    value={form.tipologia}
+                    onChange={(e) => setForm({ ...form, tipologia: e.target.value })}
+                    placeholder="T2 / Moradia / N/D"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Deixe vazio para tipos sem tipologia (terrenos, lojas, garagens, armazéns) — será guardado como N/D.
+                  </p>
                 </div>
               </div>
 
