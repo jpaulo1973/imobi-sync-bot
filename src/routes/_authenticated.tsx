@@ -62,7 +62,7 @@ function Layout() {
               className="px-3 py-2 rounded-md text-sm font-medium hover:bg-secondary inline-flex items-center gap-2 [&.active]:bg-secondary [&.active]:text-primary"
               activeProps={{ className: "active" }}
             >
-              <Sparkles className="w-4 h-4" /> Property Match
+              <Sparkles className="w-4 h-4" /> Leads WhatsApp
             </Link>
             {isAdmin && (
               <Link
