@@ -314,6 +314,31 @@ function ImoveisPage() {
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  {label("Subtipo", "subtipo_imovel")}
+                  {form.tipo_imovel === "terreno" ? (
+                    <Select
+                      value={form.subtipo_imovel || "nao identificado"}
+                      onValueChange={(v) => setForm({ ...form, subtipo_imovel: v })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {SUBTIPO_TERRENO_OPTS.map((t) => (
+                          <SelectItem key={t} value={t}>{t}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={form.subtipo_imovel}
+                      onChange={(e) => setForm({ ...form, subtipo_imovel: e.target.value })}
+                      placeholder="opcional (ex: duplex, geminada)"
+                    />
+                  )}
+                </div>
                 <div className="space-y-2">
                   {label("Tipologia", "tipologia")}
                   <Input
