@@ -25,14 +25,10 @@ export const runPropertyMatch = createServerFn({ method: "POST" })
     const matches = scored
       .filter((m) => m.compatible)
       .sort((a, b) => {
-        // Ordem: localização OK → preço OK → tipologia OK → score → id
-        const dl = catOk(b, "localizacao") - catOk(a, "localizacao");
-        if (dl) return dl;
-        const dp = catOk(b, "preco") - catOk(a, "preco");
-        if (dp) return dp;
-        const dt = catOk(b, "tipologia") - catOk(a, "tipologia");
-        if (dt) return dt;
-        return b.score - a.score;
+        // Todos os matches passaram nos Hard Filters. Ordena por score final,
+        // depois por localização (nível mais próximo → mais alto).
+        if (b.score !== a.score) return b.score - a.score;
+        return catOk(b, "localizacao") - catOk(a, "localizacao");
       })
       .slice(0, 50)
       .map(({ buyer, score, reasons, categories }) => ({ buyer, score, reasons, categories }));

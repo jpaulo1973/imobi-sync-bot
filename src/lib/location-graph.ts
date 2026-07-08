@@ -1,9 +1,14 @@
-// Grafo de zonas vizinhas para o Property Match.
-// Estrutura simples: nome normalizado → lista de nomes vizinhos normalizados.
-// Facilmente expansível: basta acrescentar entradas (simétricas).
+// Matriz de compatibilidade geográfica do Property Match.
 //
-// A normalização remove acentos, passa a lowercase e faz trim, para que
-// "São Francisco", "sao francisco" e "SÃO FRANCISCO" sejam o mesmo nó.
+// Três níveis de proximidade, facilmente editáveis sem tocar em código de
+// scoring:
+//   Nível 1 — mesma localidade (match exato ou freguesia dentro do concelho).
+//   Nível 2 — mercados naturalmente relacionados (aparecem sempre).
+//   Nível 3 — mercados próximos mas distintos (só se `expandSearch` estiver
+//             ligado ou não houver resultados de nível 1/2).
+//
+// Para acrescentar zonas, basta editar LEVEL2 / LEVEL3 abaixo — o resto do
+// motor lê a matriz automaticamente e trata a bidirecionalidade.
 
 export function normalizeLocation(v: string | null | undefined): string {
   return (v ?? "")
@@ -14,65 +19,55 @@ export function normalizeLocation(v: string | null | undefined): string {
     .trim();
 }
 
-// Adjacência bidirecional. Adiciona novos concelhos/freguesias aqui.
-// Regra prática: liga vizinhas geográficas diretas — o BFS trata as ligações
-// indiretas com custo de "hops".
-const RAW_NEIGHBORS: Record<string, string[]> = {
-  // Península de Setúbal — exemplo pedido no briefing
-  alcochete: ["sao francisco", "samouco", "passil", "montijo"],
+// Mercados naturalmente relacionados — aparecem sempre nos resultados.
+const LEVEL2: Record<string, string[]> = {
+  montijo: ["alcochete", "samouco", "afonsoeiro", "atalaia", "sarilhos grandes", "canha"],
+  alcochete: ["montijo", "samouco", "sao francisco", "passil"],
   "sao francisco": ["alcochete", "samouco"],
-  samouco: ["alcochete", "sao francisco", "passil"],
-  passil: ["alcochete", "samouco", "atalaia"],
-  atalaia: ["passil", "montijo"],
-  montijo: ["atalaia", "alcochete", "moita", "canha"],
-  moita: ["montijo", "baixa da banheira", "alhos vedros"],
+  samouco: ["alcochete", "sao francisco", "montijo"],
+  passil: ["alcochete", "atalaia"],
+  atalaia: ["montijo", "passil"],
+  afonsoeiro: ["montijo"],
+  "sarilhos grandes": ["montijo"],
+  canha: ["montijo"],
+  moita: ["baixa da banheira", "alhos vedros", "sarilhos pequenos"],
   "baixa da banheira": ["moita", "alhos vedros"],
   "alhos vedros": ["moita", "baixa da banheira"],
-  canha: ["montijo"],
 };
 
-// Constrói o mapa final garantindo bidirecionalidade — evita bugs de omissão.
-const NEIGHBORS: Map<string, Set<string>> = (() => {
+// Mercados próximos mas distintos — só aparecem com pesquisa alargada.
+const LEVEL3: Record<string, string[]> = {
+  montijo: ["barreiro", "moita", "pinhal novo", "quinta do conde", "palmela"],
+  alcochete: ["barreiro", "moita", "pinhal novo"],
+  moita: ["montijo", "barreiro", "palmela", "pinhal novo"],
+  barreiro: ["montijo", "alcochete", "moita", "seixal"],
+  "pinhal novo": ["montijo", "palmela", "quinta do conde"],
+  "quinta do conde": ["montijo", "pinhal novo", "sesimbra"],
+  palmela: ["montijo", "pinhal novo", "moita"],
+};
+
+function buildBiMap(src: Record<string, string[]>): Map<string, Set<string>> {
   const m = new Map<string, Set<string>>();
   const add = (a: string, b: string) => {
     if (!m.has(a)) m.set(a, new Set());
     m.get(a)!.add(b);
   };
-  for (const [k, vs] of Object.entries(RAW_NEIGHBORS)) {
-    for (const v of vs) {
-      add(k, v);
-      add(v, k);
-    }
-  }
+  for (const [k, vs] of Object.entries(src)) for (const v of vs) { add(k, v); add(v, k); }
   return m;
-})();
+}
+
+const LEVEL2_MAP = buildBiMap(LEVEL2);
+const LEVEL3_MAP = buildBiMap(LEVEL3);
 
 /**
- * Distância em "hops" entre dois nós do grafo. 0 = mesmo nó.
- * Devolve Infinity se não houver caminho até `maxHops` (default 3).
- * Assume que os inputs já estão normalizados (usa normalizeLocation quem chama).
+ * Nível de proximidade entre duas localidades normalizadas.
+ * 1 = mesma localidade, 2 = naturalmente relacionada, 3 = próxima mas distinta,
+ * null = incompatível (não apresentar automaticamente).
  */
-export function locationDistance(a: string, b: string, maxHops = 3): number {
-  if (!a || !b) return Infinity;
-  if (a === b) return 0;
-  if (!NEIGHBORS.has(a) || !NEIGHBORS.has(b)) return Infinity;
-  const visited = new Set<string>([a]);
-  let frontier: string[] = [a];
-  for (let hop = 1; hop <= maxHops; hop++) {
-    const next: string[] = [];
-    for (const node of frontier) {
-      const nbrs = NEIGHBORS.get(node);
-      if (!nbrs) continue;
-      for (const nb of nbrs) {
-        if (nb === b) return hop;
-        if (!visited.has(nb)) {
-          visited.add(nb);
-          next.push(nb);
-        }
-      }
-    }
-    if (next.length === 0) break;
-    frontier = next;
-  }
-  return Infinity;
+export function locationLevel(a: string, b: string): 1 | 2 | 3 | null {
+  if (!a || !b) return null;
+  if (a === b) return 1;
+  if (LEVEL2_MAP.get(a)?.has(b)) return 2;
+  if (LEVEL3_MAP.get(a)?.has(b)) return 3;
+  return null;
 }
