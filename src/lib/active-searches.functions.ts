@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { scoreMatch, type BuyerLike } from "./matching-engine";
-import { buildDedupKey } from "./dedup";
+import { buildDedupKey, normalizePhone, scoreSimilarity, type SimilarityCriteria } from "./dedup";
 
 const CriteriaSchema = z.object({
   nome: z.string().nullable().optional(),
@@ -65,12 +65,26 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
       origem: data.origem,
       import_batch_id: null,
     });
-    return { id: res.id, expires_at: res.expires_at, action: res.action };
+    return {
+      id: res.id,
+      expires_at: res.expires_at,
+      action: res.action,
+      similarity: res.similarity,
+      flagged_for_review: res.flagged_for_review,
+    };
   });
 
 // ---------------------------------------------------------------------------
-// Upsert core — usado por Excel + WhatsApp + texto + captura.
-// Devolve "created" | "updated" (renovada) para o resumo da importação.
+// Deduplicação inteligente — usada por Excel + WhatsApp + texto + captura.
+//
+// Algoritmo:
+// 1) Procurar candidatos (mesmo telefone normalizado, dentro do user).
+// 2) Calcular score determinístico (0-100) contra cada candidato.
+// 3) Decidir:
+//    - score >= 95 → duplicado exato → UPDATE
+//    - 80-94       → chamar IA → update | new | review
+//    - < 80        → nova procura
+// 4) Em qualquer inserção guarda o motivo em `decision_reason` para auditoria.
 // ---------------------------------------------------------------------------
 
 export type UpsertRow = {
@@ -88,6 +102,17 @@ export type UpsertRow = {
   import_batch_id: string | null;
 };
 
+export type UpsertAction = "created" | "updated" | "kept_separate" | "flagged";
+
+export type UpsertResult = {
+  id: string;
+  expires_at: string;
+  action: UpsertAction;
+  similarity: number;
+  flagged_for_review: boolean;
+  reason: string;
+};
+
 function mergeCriteria(
   existing: Record<string, unknown> | null,
   incoming: Record<string, unknown>,
@@ -103,43 +128,57 @@ function mergeCriteria(
   return merged;
 }
 
-export async function upsertOne(
+async function mergeInto(
+  supabase: any,
+  userId: string,
+  existingId: string,
+  existing: any,
+  row: UpsertRow,
+  similarity: number,
+  reason: string,
+): Promise<UpsertResult> {
+  const nextCriteria = mergeCriteria(existing.criteria as Record<string, unknown>, row.criteria);
+  const update: Record<string, unknown> = {
+    criteria: nextCriteria,
+    expires_at: row.expires_at,
+    origem: row.origem,
+    import_batch_id: row.import_batch_id,
+    resumo: row.resumo ?? existing.resumo,
+    texto_original: row.texto_original ?? existing.texto_original,
+    contact_nome: row.contact_nome ?? existing.contact_nome,
+    contact_email: row.contact_email ?? existing.contact_email,
+    contact_grupo: row.contact_grupo ?? existing.contact_grupo,
+    data_publicacao: row.data_publicacao ?? existing.data_publicacao,
+    similarity_score: similarity,
+    decision_reason: reason.slice(0, 900),
+    merged_from_count: (existing.merged_from_count ?? 0) + 1,
+  };
+  const { data: upd, error } = await supabase
+    .from("active_searches")
+    .update(update)
+    .eq("id", existingId)
+    .eq("user_id", userId)
+    .select("id, expires_at, flagged_for_review")
+    .single();
+  if (error) throw new Error(error.message);
+  return {
+    id: upd.id,
+    expires_at: upd.expires_at,
+    action: "updated",
+    similarity,
+    flagged_for_review: !!upd.flagged_for_review,
+    reason,
+  };
+}
+
+async function insertNew(
   supabase: any,
   userId: string,
   row: UpsertRow,
-): Promise<{ id: string; expires_at: string; action: "created" | "updated" }> {
-  const { data: existing } = await supabase
-    .from("active_searches")
-    .select("id, criteria, contact_nome, contact_email, contact_grupo, texto_original, resumo, data_publicacao")
-    .eq("user_id", userId)
-    .eq("dedup_key", row.dedup_key)
-    .maybeSingle();
-
-  if (existing) {
-    const nextCriteria = mergeCriteria(existing.criteria as Record<string, unknown>, row.criteria);
-    const update: Record<string, unknown> = {
-      criteria: nextCriteria,
-      expires_at: row.expires_at, // renova prazo
-      origem: row.origem,
-      import_batch_id: row.import_batch_id,
-      resumo: row.resumo ?? existing.resumo,
-      texto_original: row.texto_original ?? existing.texto_original,
-      contact_nome: row.contact_nome ?? existing.contact_nome,
-      contact_email: row.contact_email ?? existing.contact_email,
-      contact_grupo: row.contact_grupo ?? existing.contact_grupo,
-      data_publicacao: row.data_publicacao ?? existing.data_publicacao,
-    };
-    const { data: upd, error } = await supabase
-      .from("active_searches")
-      .update(update)
-      .eq("id", existing.id)
-      .eq("user_id", userId)
-      .select("id, expires_at")
-      .single();
-    if (error) throw new Error(error.message);
-    return { id: upd.id, expires_at: upd.expires_at, action: "updated" };
-  }
-
+  similarity: number,
+  reason: string,
+  action: Exclude<UpsertAction, "updated">,
+): Promise<UpsertResult> {
   const { data: ins, error } = await supabase
     .from("active_searches")
     .insert({
@@ -156,11 +195,139 @@ export async function upsertOne(
       expires_at: row.expires_at,
       origem: row.origem,
       import_batch_id: row.import_batch_id,
+      similarity_score: similarity,
+      decision_reason: reason.slice(0, 900),
+      flagged_for_review: action === "flagged",
     })
     .select("id, expires_at")
     .single();
   if (error) throw new Error(error.message);
-  return { id: ins.id, expires_at: ins.expires_at, action: "created" };
+  return {
+    id: ins.id,
+    expires_at: ins.expires_at,
+    action,
+    similarity,
+    flagged_for_review: action === "flagged",
+    reason,
+  };
+}
+
+export async function upsertOne(
+  supabase: any,
+  userId: string,
+  row: UpsertRow,
+): Promise<UpsertResult> {
+  const incomingCriteria = row.criteria as SimilarityCriteria;
+  const incomingText = row.texto_original ?? row.resumo ?? null;
+
+  // 1) Candidate lookup: só procuras do mesmo user que partilham telefone.
+  //    Sem telefone não há candidatos → cria como nova (regra de segurança).
+  const phone = normalizePhone(row.contact_telefone);
+  if (!phone) {
+    return await insertNew(supabase, userId, row, 0, "sem telefone — criada como nova", "created");
+  }
+
+  const { data: rawCandidates } = await supabase
+    .from("active_searches")
+    .select("id, criteria, contact_nome, contact_email, contact_grupo, contact_telefone, texto_original, resumo, data_publicacao, merged_from_count")
+    .eq("user_id", userId)
+    .ilike("contact_telefone", `%${phone}%`)
+    .limit(100);
+
+  const candidates = (rawCandidates ?? []).filter(
+    (c: any) => normalizePhone(c.contact_telefone) === phone,
+  );
+
+  if (candidates.length === 0) {
+    return await insertNew(supabase, userId, row, 0, "sem candidato compatível", "created");
+  }
+
+  // 2) Score determinístico contra cada candidato — escolhe o melhor.
+  let best: any = null;
+  let bestScore = 0;
+  let bestReasons: string[] = [];
+  for (const c of candidates) {
+    const r = scoreSimilarity(
+      (c.criteria ?? {}) as SimilarityCriteria,
+      incomingCriteria,
+      { textA: c.texto_original ?? c.resumo, textB: incomingText },
+    );
+    if (r.score > bestScore) {
+      bestScore = r.score;
+      best = c;
+      bestReasons = r.reasons;
+    }
+  }
+
+  const reasonSummary = bestReasons.join("; ").slice(0, 700);
+
+  // 3) Regras de negócio + IA
+  if (bestScore >= 95) {
+    return await mergeInto(
+      supabase,
+      userId,
+      best.id,
+      best,
+      row,
+      bestScore,
+      `duplicado exato (${bestScore}%): ${reasonSummary}`,
+    );
+  }
+
+  if (bestScore >= 80) {
+    const { aiArbitrateDedup } = await import("./dedup-ai.server");
+    const ai = await aiArbitrateDedup({
+      incoming: {
+        criteria: row.criteria,
+        texto: incomingText,
+        nome: row.contact_nome,
+      },
+      candidate: {
+        criteria: (best.criteria ?? {}) as Record<string, unknown>,
+        texto: best.texto_original ?? best.resumo ?? null,
+        nome: best.contact_nome,
+      },
+      ruleScore: bestScore,
+    });
+    if (ai.decision === "update") {
+      return await mergeInto(
+        supabase,
+        userId,
+        best.id,
+        best,
+        row,
+        bestScore,
+        `IA fundir (${bestScore}%): ${ai.reason} | ${reasonSummary}`,
+      );
+    }
+    if (ai.decision === "review") {
+      return await insertNew(
+        supabase,
+        userId,
+        row,
+        bestScore,
+        `IA em dúvida (${bestScore}%): ${ai.reason} | ${reasonSummary}`,
+        "flagged",
+      );
+    }
+    return await insertNew(
+      supabase,
+      userId,
+      row,
+      bestScore,
+      `IA separar (${bestScore}%): ${ai.reason} | ${reasonSummary}`,
+      "kept_separate",
+    );
+  }
+
+  return await insertNew(
+    supabase,
+    userId,
+    row,
+    bestScore,
+    `necessidade distinta (${bestScore}%): ${reasonSummary}`,
+    "created",
+  );
 }
 
 async function purgeExpired(supabase: any, userId: string) {

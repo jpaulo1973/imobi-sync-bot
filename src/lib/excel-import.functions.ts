@@ -97,6 +97,8 @@ export type ExcelImportResult = {
   analisadas: number;
   novas: number;
   atualizadas: number;
+  mantidas_separadas: number;
+  sinalizadas_revisao: number;
   removidas: number;
   matches: number;
   batch_id: string;
@@ -130,6 +132,8 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
 
     let novas = 0;
     let atualizadas = 0;
+    let mantidas_separadas = 0;
+    let sinalizadas_revisao = 0;
     const upsertedIds: string[] = [];
 
     for (const raw of rows) {
@@ -206,8 +210,20 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
       try {
         const res = await upsertOne(supabase, userId, row);
         upsertedIds.push(res.id);
-        if (res.action === "created") novas++;
-        else atualizadas++;
+        switch (res.action) {
+          case "created":
+            novas++;
+            break;
+          case "updated":
+            atualizadas++;
+            break;
+          case "kept_separate":
+            mantidas_separadas++;
+            break;
+          case "flagged":
+            sinalizadas_revisao++;
+            break;
+        }
       } catch (e) {
         // linha inválida — segue
         console.error("Excel row upsert failed", e);
@@ -275,6 +291,8 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
       analisadas: rows.length,
       novas,
       atualizadas,
+      mantidas_separadas,
+      sinalizadas_revisao,
       removidas,
       matches,
       batch_id,

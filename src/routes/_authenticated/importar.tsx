@@ -44,7 +44,9 @@ function ImportarPage() {
       const b64 = await fileToB64(file);
       const res = await importFn({ data: { fileBase64: b64, filename: file.name } });
       setResult(res);
-      toast.success(`${res.novas} novas · ${res.atualizadas} atualizadas · ${res.matches} matches`);
+      toast.success(
+        `${res.novas} novas · ${res.atualizadas} atualizadas · ${res.mantidas_separadas} separadas · ${res.matches} matches`,
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro na importação.");
     } finally {
@@ -121,6 +123,12 @@ function ImportarPage() {
               <strong>{result.atualizadas}</strong> procura(s) atualizada(s)
             </li>
             <li>
+              <strong>{result.mantidas_separadas}</strong> procura(s) semelhante(s), mas mantida(s) separada(s) por segurança
+            </li>
+            <li>
+              <strong>{result.sinalizadas_revisao}</strong> procura(s) sinalizada(s) para revisão manual
+            </li>
+            <li>
               <strong>{result.removidas}</strong> procura(s) removida(s) (já não constavam)
             </li>
             <li>
@@ -128,7 +136,7 @@ function ImportarPage() {
             </li>
           </ul>
           <p className="text-sm text-muted-foreground">
-            Vê as procuras e os contactos rápidos no <strong>Radar</strong>.
+            Vê as procuras — incluindo as marcadas para revisão manual — no <strong>Radar</strong>.
           </p>
         </Card>
       )}
