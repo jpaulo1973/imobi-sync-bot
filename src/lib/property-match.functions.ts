@@ -20,9 +20,20 @@ export const runPropertyMatch = createServerFn({ method: "POST" })
     if (!property) throw new Error("Imóvel não encontrado.");
 
     const scored = (buyers ?? []).map((b) => ({ buyer: b, ...scoreMatch(b, property) }));
+    const catOk = (m: (typeof scored)[number], key: string) =>
+      m.categories.find((c) => c.key === key)?.ok ? 1 : 0;
     const matches = scored
       .filter((m) => m.compatible)
-      .sort((a, b) => b.score - a.score)
+      .sort((a, b) => {
+        // Ordem: localização OK → preço OK → tipologia OK → score → id
+        const dl = catOk(b, "localizacao") - catOk(a, "localizacao");
+        if (dl) return dl;
+        const dp = catOk(b, "preco") - catOk(a, "preco");
+        if (dp) return dp;
+        const dt = catOk(b, "tipologia") - catOk(a, "tipologia");
+        if (dt) return dt;
+        return b.score - a.score;
+      })
       .slice(0, 50)
       .map(({ buyer, score, reasons, categories }) => ({ buyer, score, reasons, categories }));
 
