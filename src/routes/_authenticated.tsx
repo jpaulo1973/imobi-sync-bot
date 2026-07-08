@@ -3,7 +3,10 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Building2, Home, Sparkles, LogOut, Users, Shield, Radar, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { isCurrentUserAdmin } from "@/lib/admin.functions";
+import { useServerFn } from "@tanstack/react-start";
+import { countUnseenOpportunities } from "@/lib/active-searches.functions";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: async () => {
@@ -16,11 +19,19 @@ export const Route = createFileRoute("/_authenticated")({
 function Layout() {
   const navigate = useNavigate();
   const [isAdmin, setIsAdmin] = useState(false);
+  const [unseen, setUnseen] = useState(0);
+  const countFn = useServerFn(countUnseenOpportunities);
   useEffect(() => {
     isCurrentUserAdmin()
       .then((r) => setIsAdmin(r.isAdmin))
       .catch(() => setIsAdmin(false));
   }, []);
+  useEffect(() => {
+    const tick = () => countFn().then((r) => setUnseen(r.unseen)).catch(() => {});
+    tick();
+    const id = setInterval(tick, 60000);
+    return () => clearInterval(id);
+  }, [countFn]);
   const logout = async () => {
     await supabase.auth.signOut();
     navigate({ to: "/auth" });
@@ -68,8 +79,12 @@ function Layout() {
               to="/radar"
               className="px-3 py-2 rounded-md text-sm font-medium hover:bg-secondary inline-flex items-center gap-2 [&.active]:bg-secondary [&.active]:text-primary"
               activeProps={{ className: "active" }}
+              onClick={() => setUnseen(0)}
             >
               <Radar className="w-4 h-4" /> Radar
+              {unseen > 0 && (
+                <Badge variant="default" className="ml-1 h-5 min-w-5 px-1.5">{unseen}</Badge>
+              )}
             </Link>
             {isAdmin && (
               <Link
