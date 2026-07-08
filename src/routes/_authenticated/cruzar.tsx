@@ -7,11 +7,12 @@ import {
   type QualifiedLead,
   type LeadMatchResult,
 } from "@/lib/whatsapp-leads.functions";
+import { saveActiveSearch } from "@/lib/active-searches.functions";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { MessageSquare, ImagePlus, X, Sparkles, ArrowRight, UserPlus } from "lucide-react";
+import { MessageSquare, ImagePlus, X, Sparkles, ArrowRight, UserPlus, MessageCircle, Phone, Copy, Radar } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/cruzar")({
