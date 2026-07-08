@@ -23,14 +23,18 @@ export type Database = {
           created_at: string
           criteria: Json
           data_publicacao: string | null
+          decision_reason: string | null
           dedup_key: string | null
           expires_at: string
+          flagged_for_review: boolean
           id: string
           import_batch_id: string | null
           last_match_at: string | null
           matches_count: number
+          merged_from_count: number
           origem: string
           resumo: string | null
+          similarity_score: number | null
           texto_original: string | null
           updated_at: string
           user_id: string
@@ -43,14 +47,18 @@ export type Database = {
           created_at?: string
           criteria: Json
           data_publicacao?: string | null
+          decision_reason?: string | null
           dedup_key?: string | null
           expires_at: string
+          flagged_for_review?: boolean
           id?: string
           import_batch_id?: string | null
           last_match_at?: string | null
           matches_count?: number
+          merged_from_count?: number
           origem?: string
           resumo?: string | null
+          similarity_score?: number | null
           texto_original?: string | null
           updated_at?: string
           user_id: string
@@ -63,14 +71,18 @@ export type Database = {
           created_at?: string
           criteria?: Json
           data_publicacao?: string | null
+          decision_reason?: string | null
           dedup_key?: string | null
           expires_at?: string
+          flagged_for_review?: boolean
           id?: string
           import_batch_id?: string | null
           last_match_at?: string | null
           matches_count?: number
+          merged_from_count?: number
           origem?: string
           resumo?: string | null
+          similarity_score?: number | null
           texto_original?: string | null
           updated_at?: string
           user_id?: string
