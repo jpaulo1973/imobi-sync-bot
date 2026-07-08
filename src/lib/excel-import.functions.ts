@@ -230,16 +230,9 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
       }
     }
 
-    // 2) Remover procuras Excel antigas que não voltaram neste ficheiro
-    let removidas = 0;
-    const { data: removed, error: rmErr } = await supabase
-      .from("active_searches")
-      .delete()
-      .eq("user_id", userId)
-      .eq("origem", "excel")
-      .neq("import_batch_id", batch_id)
-      .select("id");
-    if (!rmErr && removed) removidas = removed.length;
+    // 2) Regra Release 1.1: procuras ausentes do ficheiro NÃO são desativadas
+    //    pela sync. Deixam apenas de estar ativas quando expirarem pelo TTL.
+    const removidas = 0;
 
     // 3) Match imediato — para as procuras deste batch
     const { data: properties } = await supabase
