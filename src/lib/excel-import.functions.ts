@@ -4,7 +4,7 @@ import * as XLSX from "xlsx";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { scoreMatch, type BuyerLike } from "./matching-engine";
 import { buildDedupKey } from "./dedup";
-import { upsertOne, type UpsertRow } from "./active-searches.functions";
+import { upsertOne, recomputeForSearch, type UpsertRow } from "./active-searches.functions";
 
 const DURATION_DAYS = 30;
 
@@ -277,6 +277,12 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
           .from("active_searches")
           .update({ last_match_at: new Date().toISOString() })
           .eq("id", s.id);
+      }
+      // Release 1.1: materializar oportunidades para cada procura importada.
+      try {
+        await recomputeForSearch(supabase, userId, s.id);
+      } catch (e) {
+        console.error("excel: recomputeForSearch failed", e);
       }
     }
 
