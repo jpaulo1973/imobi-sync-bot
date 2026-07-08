@@ -151,9 +151,9 @@ function CruzarPage() {
           ],
         },
       });
-      toast.success(res.inserted > 0 ? "Lead guardada nos clientes." : "Nada foi guardado.");
+      toast.success(res.inserted > 0 ? "Contacto guardado nos clientes." : "Nada foi guardado.");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erro ao guardar lead.");
+      toast.error(e instanceof Error ? e.message : "Erro ao guardar contacto.");
     } finally {
       setCreatingIdx(null);
     }
