@@ -14,6 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
+      active_searches: {
+        Row: {
+          contact_grupo: string | null
+          contact_nome: string | null
+          contact_telefone: string | null
+          created_at: string
+          criteria: Json
+          data_publicacao: string | null
+          expires_at: string
+          id: string
+          resumo: string | null
+          texto_original: string | null
+          user_id: string
+        }
+        Insert: {
+          contact_grupo?: string | null
+          contact_nome?: string | null
+          contact_telefone?: string | null
+          created_at?: string
+          criteria: Json
+          data_publicacao?: string | null
+          expires_at: string
+          id?: string
+          resumo?: string | null
+          texto_original?: string | null
+          user_id: string
+        }
+        Update: {
+          contact_grupo?: string | null
+          contact_nome?: string | null
+          contact_telefone?: string | null
+          created_at?: string
+          criteria?: Json
+          data_publicacao?: string | null
+          expires_at?: string
+          id?: string
+          resumo?: string | null
+          texto_original?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       buyer_clients: {
         Row: {
           andar_min: number | null
