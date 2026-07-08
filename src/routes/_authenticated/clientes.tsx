@@ -257,7 +257,7 @@ function ClientesPage() {
         <p className="text-muted-foreground">A carregar...</p>
       ) : items.length === 0 ? (
         <Card className="p-12 text-center">
-          <p className="text-muted-foreground">Ainda não tem clientes. Adicione o primeiro para começar a cruzar com anúncios dos portais.</p>
+          <p className="text-muted-foreground">Ainda não tem clientes. Adicione o primeiro para começar a fazer Match com os imóveis da carteira.</p>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
