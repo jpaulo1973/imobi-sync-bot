@@ -40,6 +40,9 @@ type Row = {
   origem?: string | null;
   updated_at?: string | null;
   last_match_at?: string | null;
+  flagged_for_review?: boolean | null;
+  similarity_score?: number | null;
+  decision_reason?: string | null;
 };
 
 function euros(v: number | null | undefined) {
@@ -127,6 +130,15 @@ function RadarPage() {
                       <Badge variant="outline">{days} dia(s) restantes</Badge>
                       {r.origem && (
                         <Badge variant="outline" className="capitalize">{r.origem}</Badge>
+                      )}
+                      {r.flagged_for_review && (
+                        <Badge
+                          variant="outline"
+                          className="bg-amber-100 text-amber-800 border-amber-200"
+                          title={r.decision_reason ?? "Marcada para revisão manual"}
+                        >
+                          Revisão manual
+                        </Badge>
                       )}
                       {r.criteria.finalidade && (
                         <Badge variant={r.criteria.finalidade === "arrendamento" ? "secondary" : "default"}>
