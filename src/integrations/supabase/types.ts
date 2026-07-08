@@ -16,42 +16,63 @@ export type Database = {
     Tables: {
       active_searches: {
         Row: {
+          contact_email: string | null
           contact_grupo: string | null
           contact_nome: string | null
           contact_telefone: string | null
           created_at: string
           criteria: Json
           data_publicacao: string | null
+          dedup_key: string | null
           expires_at: string
           id: string
+          import_batch_id: string | null
+          last_match_at: string | null
+          matches_count: number
+          origem: string
           resumo: string | null
           texto_original: string | null
+          updated_at: string
           user_id: string
         }
         Insert: {
+          contact_email?: string | null
           contact_grupo?: string | null
           contact_nome?: string | null
           contact_telefone?: string | null
           created_at?: string
           criteria: Json
           data_publicacao?: string | null
+          dedup_key?: string | null
           expires_at: string
           id?: string
+          import_batch_id?: string | null
+          last_match_at?: string | null
+          matches_count?: number
+          origem?: string
           resumo?: string | null
           texto_original?: string | null
+          updated_at?: string
           user_id: string
         }
         Update: {
+          contact_email?: string | null
           contact_grupo?: string | null
           contact_nome?: string | null
           contact_telefone?: string | null
           created_at?: string
           criteria?: Json
           data_publicacao?: string | null
+          dedup_key?: string | null
           expires_at?: string
           id?: string
+          import_batch_id?: string | null
+          last_match_at?: string | null
+          matches_count?: number
+          origem?: string
           resumo?: string | null
           texto_original?: string | null
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
