@@ -43,6 +43,7 @@ import {
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { importPropertyFromUrl } from "@/lib/properties.functions";
+import { matchPropertyAgainstActiveSearches } from "@/lib/active-searches.functions";
 import { runPropertyMatch, countPropertyMatches } from "@/lib/property-match.functions";
 import type { MatchCategoryResult } from "@/lib/matching-engine";
 
@@ -160,6 +161,27 @@ function ImoveisPage() {
   const importFn = useServerFn(importPropertyFromUrl);
   const matchFn = useServerFn(runPropertyMatch);
   const countsFn = useServerFn(countPropertyMatches);
+  const radarFn = useServerFn(matchPropertyAgainstActiveSearches);
+
+  const checkRadar = async (propertyId: string) => {
+    try {
+      const res = await radarFn({ data: { propertyId } });
+      if (res.matches.length > 0) {
+        const m = res.matches[0];
+        const days = m.created_at
+          ? Math.floor((Date.now() - new Date(m.created_at).getTime()) / (24 * 60 * 60 * 1000))
+          : null;
+        toast.success(
+          `Novo Match no Radar: ${res.matches.length} procura(s) compatível(is)${
+            days != null ? ` (recebida há ${days} dia${days === 1 ? "" : "s"})` : ""
+          }. Consulta o Radar.`,
+          { duration: 8000 },
+        );
+      }
+    } catch {
+      // silencioso — o radar não deve bloquear o fluxo principal
+    }
+  };
 
   const [items, setItems] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
@@ -362,7 +384,10 @@ function ImoveisPage() {
     setForm(empty);
     setMissing([]);
     await load();
-    if (savedRow) await runMatch(savedRow);
+    if (savedRow) {
+      await runMatch(savedRow);
+      if (!editingId) await checkRadar(savedRow.id);
+    }
   };
 
   const remove = async (id: string) => {
@@ -387,6 +412,8 @@ function ImoveisPage() {
         toast.success("Imóvel importado");
         await runMatch(res.property as Property);
       }
+      const imported = res.property as Property;
+      if (imported?.id) await checkRadar(imported.id);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao importar");
     } finally {

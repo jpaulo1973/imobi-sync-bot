@@ -16,6 +16,9 @@ const QualifiedLeadSchema = z.object({
   quartos_min: z.number().nullable().optional(),
   caracteristicas: z.array(z.string()).nullable().optional(),
   contacto: z.string().nullable().optional(),
+  telefone: z.string().nullable().optional(),
+  grupo_whatsapp: z.string().nullable().optional(),
+  data_publicacao: z.string().nullable().optional(),
   resumo: z.string(),
   mensagem_original: z.string().nullable().optional(),
   confianca: z.enum(["alta", "media", "baixa"]).default("media"),
@@ -218,7 +221,7 @@ OBJECTIVO: identificar POTENCIAIS COMPRADORES ou ARRENDATÁRIOS — pessoas que 
 
 Interpreta a INTENÇÃO. Ignora cabeçalhos WhatsApp, emojis isolados, reações. Se receberes várias imagens, trata-as como uma única conversa contínua.
 
-Para CADA pedido identificado extrai: nome, finalidade (venda|arrendamento|indefinido), tipo_imovel (array), tipologia, zona, budget_min, budget_max, area_min, quartos_min, caracteristicas (array), contacto, resumo (1 frase), mensagem_original (excerto ≤300 char), confianca (alta|media|baixa). Não inventes dados: desconhecido = null.
+Para CADA pedido identificado extrai: nome (do consultor ou cliente que envia o pedido, quando existir), finalidade (venda|arrendamento|indefinido), tipo_imovel (array), tipologia, zona, budget_min, budget_max, area_min, quartos_min, caracteristicas (array), contacto, telefone (número em formato português, apenas dígitos com prefixo se aplicável), grupo_whatsapp (nome do grupo WhatsApp visível no cabeçalho da conversa quando existir), data_publicacao (data ISO da mensagem quando visível), resumo (1 frase), mensagem_original (excerto ≤300 char), confianca (alta|media|baixa). Não inventes dados: desconhecido = null.
 
 RESPOSTA: APENAS JSON válido:
 {"total_capturas": <n>, "leads": [ ... ]}`;

@@ -7,11 +7,12 @@ import {
   type QualifiedLead,
   type LeadMatchResult,
 } from "@/lib/whatsapp-leads.functions";
+import { saveActiveSearch } from "@/lib/active-searches.functions";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { MessageSquare, ImagePlus, X, Sparkles, ArrowRight, UserPlus } from "lucide-react";
+import { MessageSquare, ImagePlus, X, Sparkles, ArrowRight, UserPlus, MessageCircle, Phone, Copy, Radar } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/cruzar")({
@@ -57,8 +58,12 @@ function CruzarPage() {
   const [totalCapturas, setTotalCapturas] = useState(0);
   const [totalProperties, setTotalProperties] = useState(0);
   const [creatingIdx, setCreatingIdx] = useState<number | null>(null);
+  const [savedRadarIdx, setSavedRadarIdx] = useState<Record<number, boolean>>({});
+  const [durationByIdx, setDurationByIdx] = useState<Record<number, number>>({});
+  const [savingRadarIdx, setSavingRadarIdx] = useState<number | null>(null);
   const matchFn = useServerFn(matchWhatsappConversations);
   const createFn = useServerFn(createBuyersFromLeads);
+  const saveRadarFn = useServerFn(saveActiveSearch);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const fileToDataUrl = (file: File) =>
@@ -151,6 +156,42 @@ function CruzarPage() {
       toast.error(e instanceof Error ? e.message : "Erro ao guardar lead.");
     } finally {
       setCreatingIdx(null);
+    }
+  };
+
+  const saveToRadar = async (idx: number, lead: QualifiedLead) => {
+    const days = durationByIdx[idx] ?? 14;
+    setSavingRadarIdx(idx);
+    try {
+      await saveRadarFn({
+        data: {
+          criteria: {
+            nome: lead.nome ?? null,
+            finalidade: lead.finalidade,
+            tipo_imovel: lead.tipo_imovel ?? null,
+            tipologia: lead.tipologia ?? null,
+            zona: lead.zona ?? null,
+            budget_min: lead.budget_min ?? null,
+            budget_max: lead.budget_max ?? null,
+            area_min: lead.area_min ?? null,
+            quartos_min: lead.quartos_min ?? null,
+            caracteristicas: lead.caracteristicas ?? null,
+          },
+          resumo: lead.resumo,
+          texto_original: lead.mensagem_original ?? null,
+          contact_nome: lead.nome ?? null,
+          contact_telefone: lead.telefone ?? lead.contacto ?? null,
+          contact_grupo: lead.grupo_whatsapp ?? null,
+          data_publicacao: lead.data_publicacao ?? null,
+          duration_days: days,
+        },
+      });
+      setSavedRadarIdx((m) => ({ ...m, [idx]: true }));
+      toast.success(`Procura ativa durante ${days} dias.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao ativar procura.");
+    } finally {
+      setSavingRadarIdx(null);
     }
   };
 
@@ -275,22 +316,102 @@ function CruzarPage() {
                       "{r.lead.mensagem_original}"
                     </p>
                   )}
+                  {(r.lead.telefone || r.lead.grupo_whatsapp || r.lead.data_publicacao) && (
+                    <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 pt-1">
+                      {r.lead.telefone && <span>{r.lead.telefone}</span>}
+                      {r.lead.grupo_whatsapp && <span>Grupo: {r.lead.grupo_whatsapp}</span>}
+                      {r.lead.data_publicacao && <span>Publicada: {r.lead.data_publicacao}</span>}
+                    </div>
+                  )}
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => saveAsLead(i, r.lead)}
-                  disabled={creatingIdx === i}
-                  title="Guardar como cliente (opcional)"
-                >
-                  <UserPlus className="w-4 h-4 mr-2" />
-                  {creatingIdx === i ? "A guardar..." : "Guardar cliente"}
-                </Button>
+                <div className="flex flex-wrap items-center gap-1">
+                  {r.lead.telefone && (
+                    <>
+                      <Button asChild size="sm" variant="outline">
+                        <a
+                          href={`https://wa.me/${r.lead.telefone.replace(/[^\d+]/g, "").replace(/^\+/, "")}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <MessageCircle className="w-4 h-4 mr-1" /> WhatsApp
+                        </a>
+                      </Button>
+                      <Button asChild size="sm" variant="outline">
+                        <a href={`tel:${r.lead.telefone.replace(/\s+/g, "")}`}>
+                          <Phone className="w-4 h-4 mr-1" /> Ligar
+                        </a>
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(r.lead.telefone ?? "");
+                          toast.success("Número copiado.");
+                        }}
+                      >
+                        <Copy className="w-4 h-4 mr-1" /> Copiar
+                      </Button>
+                    </>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => saveAsLead(i, r.lead)}
+                    disabled={creatingIdx === i}
+                    title="Guardar como cliente (opcional)"
+                  >
+                    <UserPlus className="w-4 h-4 mr-2" />
+                    {creatingIdx === i ? "A guardar..." : "Guardar cliente"}
+                  </Button>
+                </div>
               </div>
 
               {r.matches.length === 0 ? (
-                <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-                  Não foram encontrados imóveis compatíveis na carteira atual.
+                <div className="rounded-md border border-dashed p-4 space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Não foram encontrados imóveis compatíveis na carteira atual.
+                  </p>
+                  {savedRadarIdx[i] ? (
+                    <div className="flex items-center gap-2 text-sm text-emerald-700">
+                      <Radar className="w-4 h-4" />
+                      Procura ativa no Radar. Serás notificado quando entrar um imóvel compatível.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">
+                        Manter esta procura ativa e comparar automaticamente com novos imóveis?
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          className="h-9 rounded-md border bg-background px-2 text-sm"
+                          value={durationByIdx[i] ?? 14}
+                          onChange={(e) =>
+                            setDurationByIdx((m) => ({ ...m, [i]: Number(e.target.value) }))
+                          }
+                        >
+                          <option value={7}>7 dias</option>
+                          <option value={14}>14 dias (recomendado)</option>
+                          <option value={21}>21 dias</option>
+                          <option value={30}>30 dias</option>
+                        </select>
+                        <Button
+                          size="sm"
+                          onClick={() => saveToRadar(i, r.lead)}
+                          disabled={savingRadarIdx === i}
+                        >
+                          <Radar className="w-4 h-4 mr-2" />
+                          {savingRadarIdx === i ? "A ativar..." : "Sim, manter ativa"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setSavedRadarIdx((m) => ({ ...m, [i]: true }))}
+                        >
+                          Não
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-2">
