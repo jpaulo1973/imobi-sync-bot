@@ -82,14 +82,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         name: "description",
         content:
-          "Property Match: ferramenta profissional para cruzar imóveis com leads de grupos de WhatsApp e gerir o seu portefólio de propriedades.",
+          "Property Match: Motor Inteligente de Oportunidades para consultores imobiliários — cruza automaticamente procuras ativas com o seu portefólio de imóveis.",
       },
       { property: "og:site_name", content: "Property Match" },
       { property: "og:title", content: "Property Match — Gestão e Match de Imóveis" },
       {
         property: "og:description",
         content:
-          "Ferramenta profissional para cruzar imóveis com leads de grupos de WhatsApp e gerir o seu portefólio de propriedades.",
+          "Motor Inteligente de Oportunidades para consultores imobiliários — procura, match, oportunidade.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -97,7 +97,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         name: "twitter:description",
         content:
-          "Ferramenta profissional para cruzar imóveis com leads de grupos de WhatsApp e gerir o seu portefólio de propriedades.",
+          "Motor Inteligente de Oportunidades para consultores imobiliários — procura, match, oportunidade.",
       },
     ],
     links: [
