@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { callLovableAI } from "./ai-gateway.server";
+import { scoreMatch, type MatchCategoryResult } from "./matching-engine";
 
 const QualifiedLeadSchema = z.object({
   nome: z.string().nullable().optional(),
@@ -151,4 +152,152 @@ export const createBuyersFromLeads = createServerFn({ method: "POST" })
     const { data: inserted, error } = await supabase.from("buyer_clients").insert(rows).select();
     if (error) throw new Error(error.message);
     return { inserted: inserted?.length ?? 0 };
+  });
+
+// ---------------------------------------------------------------------------
+// Property Match a partir de conversas de WhatsApp.
+//
+// Este é o entry point principal do módulo WhatsApp: recebe texto/capturas,
+// interpreta o pedido do comprador e devolve imediatamente os imóveis
+// compatíveis da carteira do utilizador. A criação de lead é opcional e
+// vive noutra server fn (createBuyersFromLeads acima).
+// ---------------------------------------------------------------------------
+
+function leadToBuyer(l: QualifiedLead) {
+  const finalidade = l.finalidade === "indefinido" ? undefined : l.finalidade;
+  const gar = (l.caracteristicas ?? []).some((c) => /garagem/i.test(c));
+  const ele = (l.caracteristicas ?? []).some((c) => /elevador/i.test(c));
+  return {
+    finalidade,
+    tipo_imovel: l.tipo_imovel ?? null,
+    tipologia: l.tipologia ?? null,
+    zona: l.zona ?? null,
+    budget_min: l.budget_min ?? null,
+    budget_max: l.budget_max ?? null,
+    area_min: l.area_min ?? null,
+    quartos_min: l.quartos_min ?? null,
+    garagem_obrigatoria: gar,
+    elevador_obrigatorio: ele,
+  };
+}
+
+export type PropertyMatchResult = {
+  property: {
+    id: string;
+    referencia: string | null;
+    tipo_imovel: string | null;
+    tipologia: string | null;
+    zona: string | null;
+    freguesia: string | null;
+    concelho: string | null;
+    preco: number | null;
+    quartos: number | null;
+    area_util_m2: number | null;
+    finalidade: string | null;
+  };
+  score: number;
+  reasons: string[];
+  categories: MatchCategoryResult[];
+};
+
+export type LeadMatchResult = {
+  lead: QualifiedLead;
+  matches: PropertyMatchResult[];
+};
+
+export const matchWhatsappConversations = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => AnalyzeInput.parse(data))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+
+    // 1) Interpretar conversa via IA — reutiliza o mesmo prompt.
+    const systemPrompt = `És um consultor imobiliário experiente em Portugal a analisar conversas de grupos de WhatsApp entre consultores.
+
+OBJECTIVO: identificar POTENCIAIS COMPRADORES ou ARRENDATÁRIOS — pessoas que PROCURAM imóvel. IGNORA ofertas de imóveis para venda/arrendamento, anúncios, partilhas de portais.
+
+Interpreta a INTENÇÃO. Ignora cabeçalhos WhatsApp, emojis isolados, reações. Se receberes várias imagens, trata-as como uma única conversa contínua.
+
+Para CADA pedido identificado extrai: nome, finalidade (venda|arrendamento|indefinido), tipo_imovel (array), tipologia, zona, budget_min, budget_max, area_min, quartos_min, caracteristicas (array), contacto, resumo (1 frase), mensagem_original (excerto ≤300 char), confianca (alta|media|baixa). Não inventes dados: desconhecido = null.
+
+RESPOSTA: APENAS JSON válido:
+{"total_capturas": <n>, "leads": [ ... ]}`;
+
+    const userContent: Array<
+      { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }
+    > = [];
+    if (data.texto && data.texto.trim().length > 0) {
+      userContent.push({ type: "text", text: `Texto adicional colado pelo consultor:\n${data.texto}` });
+    }
+    const imgs = data.imagens ?? [];
+    if (imgs.length > 0) {
+      userContent.push({
+        type: "text",
+        text: `A seguir ${imgs.length} captura(s) de ecrã. Trata-as como uma única conversa contínua.`,
+      });
+      for (const img of imgs) userContent.push({ type: "image_url", image_url: { url: img } });
+    }
+    if (userContent.length === 0) userContent.push({ type: "text", text: "" });
+
+    const raw = await callLovableAI({
+      model: "google/gemini-2.5-flash",
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userContent },
+      ],
+    });
+
+    let parsed: z.infer<typeof AnalysisResponse>;
+    try {
+      parsed = AnalysisResponse.parse(JSON.parse(raw));
+    } catch {
+      parsed = { total_capturas: imgs.length, leads: [] };
+    }
+    if (!parsed.total_capturas) parsed.total_capturas = imgs.length;
+
+    // 2) Ir buscar a carteira do utilizador (só imóveis ativos).
+    const { data: properties, error: pErr } = await supabase
+      .from("properties")
+      .select(
+        "id, referencia, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
+      )
+      .eq("user_id", userId)
+      .eq("ativo", true);
+    if (pErr) throw new Error(pErr.message);
+
+    // 3) Para cada lead, correr o motor contra toda a carteira e devolver top 10.
+    const results: LeadMatchResult[] = parsed.leads.map((lead) => {
+      const buyer = leadToBuyer(lead);
+      const scored = (properties ?? [])
+        .map((p) => ({ p, s: scoreMatch(buyer, p) }))
+        .filter((x) => x.s.compatible)
+        .sort((a, b) => b.s.score - a.s.score)
+        .slice(0, 10)
+        .map(({ p, s }) => ({
+          property: {
+            id: p.id,
+            referencia: p.referencia ?? null,
+            tipo_imovel: p.tipo_imovel ?? null,
+            tipologia: p.tipologia ?? null,
+            zona: p.zona ?? null,
+            freguesia: p.freguesia ?? null,
+            concelho: p.concelho ?? null,
+            preco: p.preco ?? null,
+            quartos: p.quartos ?? null,
+            area_util_m2: p.area_util_m2 ?? p.area_m2 ?? null,
+            finalidade: p.finalidade ?? null,
+          },
+          score: s.score,
+          reasons: s.reasons,
+          categories: s.categories,
+        }));
+      return { lead, matches: scored };
+    });
+
+    return {
+      total_capturas: parsed.total_capturas,
+      total_properties: properties?.length ?? 0,
+      results,
+    };
   });
