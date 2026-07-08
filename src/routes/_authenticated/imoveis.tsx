@@ -386,7 +386,8 @@ function ImoveisPage() {
     await load();
     if (savedRow) {
       await runMatch(savedRow);
-      if (!editingId) await checkRadar(savedRow.id);
+      // Release 1.1: recalcular Radar sempre que entra OU se atualiza um imóvel.
+      await checkRadar(savedRow.id);
     }
   };
 
