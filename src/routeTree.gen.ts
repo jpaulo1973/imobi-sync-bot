@@ -16,6 +16,7 @@ import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedUtilizadoresRouteImport } from './routes/_authenticated/utilizadores'
 import { Route as AuthenticatedRadarRouteImport } from './routes/_authenticated/radar'
+import { Route as AuthenticatedImportarRouteImport } from './routes/_authenticated/importar'
 import { Route as AuthenticatedImoveisRouteImport } from './routes/_authenticated/imoveis'
 import { Route as AuthenticatedCruzarRouteImport } from './routes/_authenticated/cruzar'
 import { Route as AuthenticatedClientesRouteImport } from './routes/_authenticated/clientes'
@@ -57,6 +58,11 @@ const AuthenticatedUtilizadoresRoute =
 const AuthenticatedRadarRoute = AuthenticatedRadarRouteImport.update({
   id: '/radar',
   path: '/radar',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedImportarRoute = AuthenticatedImportarRouteImport.update({
+  id: '/importar',
+  path: '/importar',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedImoveisRoute = AuthenticatedImoveisRouteImport.update({
@@ -108,6 +114,7 @@ export interface FileRoutesByFullPath {
   '/clientes': typeof AuthenticatedClientesRoute
   '/cruzar': typeof AuthenticatedCruzarRoute
   '/imoveis': typeof AuthenticatedImoveisRoute
+  '/importar': typeof AuthenticatedImportarRoute
   '/radar': typeof AuthenticatedRadarRoute
   '/utilizadores': typeof AuthenticatedUtilizadoresRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
@@ -123,6 +130,7 @@ export interface FileRoutesByTo {
   '/clientes': typeof AuthenticatedClientesRoute
   '/cruzar': typeof AuthenticatedCruzarRoute
   '/imoveis': typeof AuthenticatedImoveisRoute
+  '/importar': typeof AuthenticatedImportarRoute
   '/radar': typeof AuthenticatedRadarRoute
   '/utilizadores': typeof AuthenticatedUtilizadoresRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
@@ -140,6 +148,7 @@ export interface FileRoutesById {
   '/_authenticated/clientes': typeof AuthenticatedClientesRoute
   '/_authenticated/cruzar': typeof AuthenticatedCruzarRoute
   '/_authenticated/imoveis': typeof AuthenticatedImoveisRoute
+  '/_authenticated/importar': typeof AuthenticatedImportarRoute
   '/_authenticated/radar': typeof AuthenticatedRadarRoute
   '/_authenticated/utilizadores': typeof AuthenticatedUtilizadoresRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
@@ -157,6 +166,7 @@ export interface FileRouteTypes {
     | '/clientes'
     | '/cruzar'
     | '/imoveis'
+    | '/importar'
     | '/radar'
     | '/utilizadores'
     | '/.lovable/oauth/consent'
@@ -172,6 +182,7 @@ export interface FileRouteTypes {
     | '/clientes'
     | '/cruzar'
     | '/imoveis'
+    | '/importar'
     | '/radar'
     | '/utilizadores'
     | '/.lovable/oauth/consent'
@@ -188,6 +199,7 @@ export interface FileRouteTypes {
     | '/_authenticated/clientes'
     | '/_authenticated/cruzar'
     | '/_authenticated/imoveis'
+    | '/_authenticated/importar'
     | '/_authenticated/radar'
     | '/_authenticated/utilizadores'
     | '/.lovable/oauth/consent'
@@ -257,6 +269,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRadarRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/importar': {
+      id: '/_authenticated/importar'
+      path: '/importar'
+      fullPath: '/importar'
+      preLoaderRoute: typeof AuthenticatedImportarRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/imoveis': {
       id: '/_authenticated/imoveis'
       path: '/imoveis'
@@ -313,6 +332,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedClientesRoute: typeof AuthenticatedClientesRoute
   AuthenticatedCruzarRoute: typeof AuthenticatedCruzarRoute
   AuthenticatedImoveisRoute: typeof AuthenticatedImoveisRoute
+  AuthenticatedImportarRoute: typeof AuthenticatedImportarRoute
   AuthenticatedRadarRoute: typeof AuthenticatedRadarRoute
   AuthenticatedUtilizadoresRoute: typeof AuthenticatedUtilizadoresRoute
 }
@@ -321,6 +341,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedClientesRoute: AuthenticatedClientesRoute,
   AuthenticatedCruzarRoute: AuthenticatedCruzarRoute,
   AuthenticatedImoveisRoute: AuthenticatedImoveisRoute,
+  AuthenticatedImportarRoute: AuthenticatedImportarRoute,
   AuthenticatedRadarRoute: AuthenticatedRadarRoute,
   AuthenticatedUtilizadoresRoute: AuthenticatedUtilizadoresRoute,
 }

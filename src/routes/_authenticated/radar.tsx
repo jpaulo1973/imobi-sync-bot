@@ -37,6 +37,9 @@ type Row = {
   data_publicacao: string | null;
   created_at: string;
   expires_at: string;
+  origem?: string | null;
+  updated_at?: string | null;
+  last_match_at?: string | null;
 };
 
 function euros(v: number | null | undefined) {
@@ -122,6 +125,9 @@ function RadarPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge className={st.cls} variant="outline">{st.label}</Badge>
                       <Badge variant="outline">{days} dia(s) restantes</Badge>
+                      {r.origem && (
+                        <Badge variant="outline" className="capitalize">{r.origem}</Badge>
+                      )}
                       {r.criteria.finalidade && (
                         <Badge variant={r.criteria.finalidade === "arrendamento" ? "secondary" : "default"}>
                           {r.criteria.finalidade === "venda" ? "Compra" : r.criteria.finalidade === "arrendamento" ? "Arrendamento" : "Indefinido"}
