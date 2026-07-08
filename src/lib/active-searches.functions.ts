@@ -413,7 +413,7 @@ export const matchPropertyAgainstActiveSearches = createServerFn({ method: "POST
     if (sErr) throw new Error(sErr.message);
 
     const matches: ActiveSearchMatch[] = [];
-    const persist: Array<{ search_id: string; score: number; reasons: string[]; categories: unknown }> = [];
+    const persist: Array<{ search_id: string; score: number; reasons: string[]; categories: any }> = [];
     for (const s of searches ?? []) {
       const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria);
       const res = scoreMatch(buyer, prop);
