@@ -159,6 +159,42 @@ function CruzarPage() {
     }
   };
 
+  const saveToRadar = async (idx: number, lead: QualifiedLead) => {
+    const days = durationByIdx[idx] ?? 14;
+    setSavingRadarIdx(idx);
+    try {
+      await saveRadarFn({
+        data: {
+          criteria: {
+            nome: lead.nome ?? null,
+            finalidade: lead.finalidade,
+            tipo_imovel: lead.tipo_imovel ?? null,
+            tipologia: lead.tipologia ?? null,
+            zona: lead.zona ?? null,
+            budget_min: lead.budget_min ?? null,
+            budget_max: lead.budget_max ?? null,
+            area_min: lead.area_min ?? null,
+            quartos_min: lead.quartos_min ?? null,
+            caracteristicas: lead.caracteristicas ?? null,
+          },
+          resumo: lead.resumo,
+          texto_original: lead.mensagem_original ?? null,
+          contact_nome: lead.nome ?? null,
+          contact_telefone: lead.telefone ?? lead.contacto ?? null,
+          contact_grupo: lead.grupo_whatsapp ?? null,
+          data_publicacao: lead.data_publicacao ?? null,
+          duration_days: days,
+        },
+      });
+      setSavedRadarIdx((m) => ({ ...m, [idx]: true }));
+      toast.success(`Procura ativa durante ${days} dias.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao ativar procura.");
+    } finally {
+      setSavingRadarIdx(null);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       <div>
