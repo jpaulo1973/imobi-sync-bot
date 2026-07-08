@@ -161,6 +161,27 @@ function ImoveisPage() {
   const importFn = useServerFn(importPropertyFromUrl);
   const matchFn = useServerFn(runPropertyMatch);
   const countsFn = useServerFn(countPropertyMatches);
+  const radarFn = useServerFn(matchPropertyAgainstActiveSearches);
+
+  const checkRadar = async (propertyId: string) => {
+    try {
+      const res = await radarFn({ data: { propertyId } });
+      if (res.matches.length > 0) {
+        const m = res.matches[0];
+        const days = m.created_at
+          ? Math.floor((Date.now() - new Date(m.created_at).getTime()) / (24 * 60 * 60 * 1000))
+          : null;
+        toast.success(
+          `Novo Match no Radar: ${res.matches.length} procura(s) compatível(is)${
+            days != null ? ` (recebida há ${days} dia${days === 1 ? "" : "s"})` : ""
+          }. Consulta o Radar.`,
+          { duration: 8000 },
+        );
+      }
+    } catch {
+      // silencioso — o radar não deve bloquear o fluxo principal
+    }
+  };
 
   const [items, setItems] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
