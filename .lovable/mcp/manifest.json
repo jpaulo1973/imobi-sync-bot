@@ -73,29 +73,6 @@
           }
         },
         "outputSchema": null
-      },
-      {
-        "name": "list_portal_listings",
-        "title": "List portal listings",
-        "description": "List the signed-in user's imported portal listings (anúncios de portais como Idealista, Imovirtual, Casa Sapo).",
-        "annotations": {
-          "readOnlyHint": true,
-          "idempotentHint": true,
-          "openWorldHint": false
-        },
-        "inputSchema": {
-          "$schema": "http://json-schema.org/draft-07/schema#",
-          "type": "object",
-          "properties": {
-            "limit": {
-              "description": "Max rows to return (default 50).",
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 200
-            }
-          }
-        },
-        "outputSchema": null
       }
     ]
   }
