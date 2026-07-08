@@ -75,13 +75,13 @@ export type MatchOptions = {
 };
 
 // Pesos soft (somam 100). Só se aplicam a imóveis que passaram nos Hard Filters.
-const WEIGHTS = {
+const WEIGHTS: Record<"localizacao" | "tipologia" | "preco" | "area" | "extras", number> = {
   localizacao: 40,
   tipologia: 25,
   preco: 15,
   area: 12,
   extras: 8,
-} as const;
+};
 
 export const COMPAT_THRESHOLD = 0; // Elegibilidade é decidida pelos Hard Filters.
 
