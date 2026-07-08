@@ -58,8 +58,12 @@ function CruzarPage() {
   const [totalCapturas, setTotalCapturas] = useState(0);
   const [totalProperties, setTotalProperties] = useState(0);
   const [creatingIdx, setCreatingIdx] = useState<number | null>(null);
+  const [savedRadarIdx, setSavedRadarIdx] = useState<Record<number, boolean>>({});
+  const [durationByIdx, setDurationByIdx] = useState<Record<number, number>>({});
+  const [savingRadarIdx, setSavingRadarIdx] = useState<number | null>(null);
   const matchFn = useServerFn(matchWhatsappConversations);
   const createFn = useServerFn(createBuyersFromLeads);
+  const saveRadarFn = useServerFn(saveActiveSearch);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const fileToDataUrl = (file: File) =>
