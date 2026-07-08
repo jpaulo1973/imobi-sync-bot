@@ -15,7 +15,6 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedUtilizadoresRouteImport } from './routes/_authenticated/utilizadores'
-import { Route as AuthenticatedPortaisRouteImport } from './routes/_authenticated/portais'
 import { Route as AuthenticatedImoveisRouteImport } from './routes/_authenticated/imoveis'
 import { Route as AuthenticatedCruzarRouteImport } from './routes/_authenticated/cruzar'
 import { Route as AuthenticatedClientesRouteImport } from './routes/_authenticated/clientes'
@@ -54,11 +53,6 @@ const AuthenticatedUtilizadoresRoute =
     path: '/utilizadores',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const AuthenticatedPortaisRoute = AuthenticatedPortaisRouteImport.update({
-  id: '/portais',
-  path: '/portais',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
 const AuthenticatedImoveisRoute = AuthenticatedImoveisRouteImport.update({
   id: '/imoveis',
   path: '/imoveis',
@@ -108,7 +102,6 @@ export interface FileRoutesByFullPath {
   '/clientes': typeof AuthenticatedClientesRoute
   '/cruzar': typeof AuthenticatedCruzarRoute
   '/imoveis': typeof AuthenticatedImoveisRoute
-  '/portais': typeof AuthenticatedPortaisRoute
   '/utilizadores': typeof AuthenticatedUtilizadoresRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
@@ -123,7 +116,6 @@ export interface FileRoutesByTo {
   '/clientes': typeof AuthenticatedClientesRoute
   '/cruzar': typeof AuthenticatedCruzarRoute
   '/imoveis': typeof AuthenticatedImoveisRoute
-  '/portais': typeof AuthenticatedPortaisRoute
   '/utilizadores': typeof AuthenticatedUtilizadoresRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
@@ -140,7 +132,6 @@ export interface FileRoutesById {
   '/_authenticated/clientes': typeof AuthenticatedClientesRoute
   '/_authenticated/cruzar': typeof AuthenticatedCruzarRoute
   '/_authenticated/imoveis': typeof AuthenticatedImoveisRoute
-  '/_authenticated/portais': typeof AuthenticatedPortaisRoute
   '/_authenticated/utilizadores': typeof AuthenticatedUtilizadoresRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
@@ -157,7 +148,6 @@ export interface FileRouteTypes {
     | '/clientes'
     | '/cruzar'
     | '/imoveis'
-    | '/portais'
     | '/utilizadores'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
@@ -172,7 +162,6 @@ export interface FileRouteTypes {
     | '/clientes'
     | '/cruzar'
     | '/imoveis'
-    | '/portais'
     | '/utilizadores'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
@@ -188,7 +177,6 @@ export interface FileRouteTypes {
     | '/_authenticated/clientes'
     | '/_authenticated/cruzar'
     | '/_authenticated/imoveis'
-    | '/_authenticated/portais'
     | '/_authenticated/utilizadores'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
@@ -250,13 +238,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedUtilizadoresRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/portais': {
-      id: '/_authenticated/portais'
-      path: '/portais'
-      fullPath: '/portais'
-      preLoaderRoute: typeof AuthenticatedPortaisRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
     '/_authenticated/imoveis': {
       id: '/_authenticated/imoveis'
       path: '/imoveis'
@@ -313,7 +294,6 @@ interface AuthenticatedRouteChildren {
   AuthenticatedClientesRoute: typeof AuthenticatedClientesRoute
   AuthenticatedCruzarRoute: typeof AuthenticatedCruzarRoute
   AuthenticatedImoveisRoute: typeof AuthenticatedImoveisRoute
-  AuthenticatedPortaisRoute: typeof AuthenticatedPortaisRoute
   AuthenticatedUtilizadoresRoute: typeof AuthenticatedUtilizadoresRoute
 }
 
@@ -321,7 +301,6 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedClientesRoute: AuthenticatedClientesRoute,
   AuthenticatedCruzarRoute: AuthenticatedCruzarRoute,
   AuthenticatedImoveisRoute: AuthenticatedImoveisRoute,
-  AuthenticatedPortaisRoute: AuthenticatedPortaisRoute,
   AuthenticatedUtilizadoresRoute: AuthenticatedUtilizadoresRoute,
 }
 
