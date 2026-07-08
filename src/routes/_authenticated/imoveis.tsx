@@ -412,6 +412,8 @@ function ImoveisPage() {
         toast.success("Imóvel importado");
         await runMatch(res.property as Property);
       }
+      const imported = res.property as Property;
+      if (imported?.id) await checkRadar(imported.id);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao importar");
     } finally {
