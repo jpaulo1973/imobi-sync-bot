@@ -43,6 +43,7 @@ import {
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { importPropertyFromUrl } from "@/lib/properties.functions";
+import { matchPropertyAgainstActiveSearches } from "@/lib/active-searches.functions";
 import { runPropertyMatch, countPropertyMatches } from "@/lib/property-match.functions";
 import type { MatchCategoryResult } from "@/lib/matching-engine";
 
