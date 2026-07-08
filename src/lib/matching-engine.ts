@@ -59,23 +59,23 @@ export type MatchScore = {
   reasons: string[]; // categorias verdes, curto — compat com UI antiga
 };
 
-// Pesos (somam 100).
+// Pesos (somam 100). Localização e preço dominam, como um consultor real.
 const WEIGHTS: Record<MatchCategoryKey, number> = {
-  localizacao: 40,
-  preco: 25,
-  tipologia: 15,
-  area: 10,
-  extras: 10,
-  tipo: 0, // gate rígido, pontuação vive nas outras categorias
+  localizacao: 35,
+  preco: 30,
+  tipologia: 20,
+  area: 8,
+  extras: 7,
+  tipo: 0, // gate rígido eliminatório, pontuação vive nas outras categorias
 };
 
 // Tolerância de preço (configurável num único sítio).
 export const PRICE_OVER_FULL = 0.05; // até +5% do budget → conta como dentro
-export const PRICE_OVER_SOFT = 0.15; // até +15% → parcial
-export const PRICE_OVER_MAX = 0.3; // acima disto → elimina
+export const PRICE_OVER_SOFT = 0.1; // até +10% → parcial, com aviso
+export const PRICE_OVER_MAX = 0.1; // acima disto → ELIMINA (hard cap)
 
-// Limiar mínimo de "compatível" (0-100).
-export const COMPAT_THRESHOLD = 35;
+// Limiar mínimo de "compatível" (0-100). Sobe para reduzir falsos positivos.
+export const COMPAT_THRESHOLD = 55;
 
 function num(v: number | string | null | undefined): number | null {
   if (v == null || v === "") return null;
@@ -281,31 +281,56 @@ function scoreTipologia(buyer: BuyerLike, property: PropertyLike): MatchCategory
   }
 
   if (bQ != null && pQ != null) {
-    const diff = Math.abs(pQ - bQ);
+    const diff = pQ - bQ; // positivo = imóvel maior
     if (diff === 0)
       return {
         key: "tipologia",
         label: "Tipologia",
         ok: true,
-        detail: `${pQ} quartos`,
+        detail: `${property.tipologia ?? pQ + " quartos"}`,
         score: weight,
         weight,
       };
     if (diff === 1)
+      // Ex.: comprador T3, imóvel T3+1/T4 → aceita como bónus
+      return {
+        key: "tipologia",
+        label: "Tipologia",
+        ok: true,
+        detail: `${property.tipologia ?? pQ + " quartos"} (superior)`,
+        score: Math.round(weight * 0.85),
+        weight,
+      };
+    if (diff === -1)
+      // Ex.: T3 pedido, imóvel T2+1 → parcial, com aviso
       return {
         key: "tipologia",
         label: "Tipologia",
         ok: false,
-        detail: `Tipologia próxima (${property.tipologia ?? pQ + " q"})`,
-        score: Math.round(weight * 0.55),
+        detail: `${property.tipologia ?? pQ + " quartos"} (abaixo do pedido)`,
+        score: Math.round(weight * 0.4),
         weight,
       };
+    // Diferença ≥ 2 quartos → tratamento como incompatível (T0/T1/T5 vs T3)
     return {
       key: "tipologia",
       label: "Tipologia",
       ok: false,
-      detail: `Diferente (${property.tipologia ?? pQ + " q"})`,
-      score: Math.round(weight * 0.15),
+      detail: `Tipologia incompatível (${property.tipologia ?? pQ + " q"})`,
+      score: 0,
+      weight,
+    };
+  }
+
+  // Tipologia do imóvel desconhecida (N/D): não penalizar destrutivamente,
+  // mas também não inflacionar.
+  if (bt && !pt && pQ == null) {
+    return {
+      key: "tipologia",
+      label: "Tipologia",
+      ok: false,
+      detail: "Tipologia N/D",
+      score: Math.round(weight * 0.3),
       weight,
     };
   }
@@ -445,6 +470,11 @@ export function scoreMatch(buyer: BuyerLike, property: PropertyLike): MatchScore
   if (tipoCategory && !tipoCategory.ok) {
     return { score: 0, compatible: false, categories: [], reasons: [] };
   }
+  // Se o comprador exige tipo mas o imóvel não o declara, também elimina
+  // (evita apresentar imóveis sem tipo como se cumprissem o critério).
+  if (buyerTipos.length > 0 && !pTipo) {
+    return { score: 0, compatible: false, categories: [], reasons: [] };
+  }
 
   const loc = scoreLocation(buyer, property);
   const preco = scorePreco(buyer, property);
@@ -452,6 +482,19 @@ export function scoreMatch(buyer: BuyerLike, property: PropertyLike): MatchScore
     return { score: 0, compatible: false, categories: [], reasons: [] };
   }
   const tip = scoreTipologia(buyer, property);
+  // Gate 3: tipologia com diferença ≥ 2 quartos elimina — nunca apresentar
+  // T0/T1/T5 a quem procura T3.
+  const bQ = buyer.quartos_min ?? tipologiaQuartos(buyer.tipologia);
+  const pQ = property.quartos ?? tipologiaQuartos(property.tipologia);
+  if (bQ != null && pQ != null && Math.abs(pQ - bQ) >= 2) {
+    return { score: 0, compatible: false, categories: [], reasons: [] };
+  }
+  // Gate 4: localização — se o comprador especificou zona e não há qualquer
+  // ligação (nem match direto nem vizinhança até 3 hops), elimina.
+  const buyerHasZona = tokens(buyer.zona).length > 0;
+  if (buyerHasZona && loc.score === 0) {
+    return { score: 0, compatible: false, categories: [], reasons: [] };
+  }
   const area = scoreArea(buyer, property);
   const extras = scoreExtras(buyer, property);
 
