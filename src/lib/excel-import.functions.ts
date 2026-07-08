@@ -4,7 +4,7 @@ import * as XLSX from "xlsx";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { scoreMatch, type BuyerLike } from "./matching-engine";
 import { buildDedupKey } from "./dedup";
-import { upsertOne, type UpsertRow } from "./active-searches.functions";
+import { upsertOne, recomputeForSearch, type UpsertRow } from "./active-searches.functions";
 
 const DURATION_DAYS = 30;
 
@@ -230,16 +230,9 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
       }
     }
 
-    // 2) Remover procuras Excel antigas que não voltaram neste ficheiro
-    let removidas = 0;
-    const { data: removed, error: rmErr } = await supabase
-      .from("active_searches")
-      .delete()
-      .eq("user_id", userId)
-      .eq("origem", "excel")
-      .neq("import_batch_id", batch_id)
-      .select("id");
-    if (!rmErr && removed) removidas = removed.length;
+    // 2) Regra Release 1.1: procuras ausentes do ficheiro NÃO são desativadas
+    //    pela sync. Deixam apenas de estar ativas quando expirarem pelo TTL.
+    const removidas = 0;
 
     // 3) Match imediato — para as procuras deste batch
     const { data: properties } = await supabase
@@ -284,6 +277,12 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
           .from("active_searches")
           .update({ last_match_at: new Date().toISOString() })
           .eq("id", s.id);
+      }
+      // Release 1.1: materializar oportunidades para cada procura importada.
+      try {
+        await recomputeForSearch(supabase, userId, s.id);
+      } catch (e) {
+        console.error("excel: recomputeForSearch failed", e);
       }
     }
 

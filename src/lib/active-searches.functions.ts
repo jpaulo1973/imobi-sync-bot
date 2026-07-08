@@ -65,6 +65,13 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
       origem: data.origem,
       import_batch_id: null,
     });
+    // Release 1.1: sempre que entra uma procura ativa, cruzar imediatamente
+    // com todos os imóveis ativos e materializar oportunidades novas.
+    try {
+      await recomputeForSearch(supabase, userId, res.id);
+    } catch (e) {
+      console.error("recomputeForSearch failed", e);
+    }
     return {
       id: res.id,
       expires_at: res.expires_at,
@@ -73,6 +80,58 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
       flagged_for_review: res.flagged_for_review,
     };
   });
+
+// Helper interno partilhado entre saveActiveSearch e a server fn pública.
+async function recomputeForSearch(supabase: any, userId: string, searchId: string): Promise<number> {
+  const { data: s } = await supabase
+    .from("active_searches")
+    .select("id, criteria")
+    .eq("id", searchId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!s) return 0;
+  const { data: props } = await supabase
+    .from("properties")
+    .select(
+      "id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
+    )
+    .eq("user_id", userId)
+    .eq("ativo", true);
+  const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria);
+  const { data: existing } = await supabase
+    .from("match_opportunities")
+    .select("id, property_id, score")
+    .eq("user_id", userId)
+    .eq("active_search_id", s.id);
+  const existingMap = new Map<string, { id: string; score: number }>(
+    (existing ?? []).map((e: any) => [e.property_id, { id: e.id, score: e.score }]),
+  );
+  let created = 0;
+  for (const p of props ?? []) {
+    const r = scoreMatch(buyer, p);
+    if (!r.compatible || r.score < 60) continue;
+    const prev = existingMap.get(p.id);
+    if (!prev) {
+      await supabase.from("match_opportunities").insert({
+        user_id: userId,
+        property_id: p.id,
+        active_search_id: s.id,
+        score: r.score,
+        reasons: r.reasons,
+        categories: r.categories as any,
+      });
+      created++;
+    } else if (prev.score !== r.score) {
+      await supabase
+        .from("match_opportunities")
+        .update({ score: r.score, reasons: r.reasons, categories: r.categories as any, viewed_at: null })
+        .eq("id", prev.id);
+    }
+  }
+  return created;
+}
+
+export { recomputeForSearch };
 
 // ---------------------------------------------------------------------------
 // Deduplicação inteligente — usada por Excel + WhatsApp + texto + captura.
@@ -413,6 +472,7 @@ export const matchPropertyAgainstActiveSearches = createServerFn({ method: "POST
     if (sErr) throw new Error(sErr.message);
 
     const matches: ActiveSearchMatch[] = [];
+    const persist: Array<{ search_id: string; score: number; reasons: string[]; categories: any }> = [];
     for (const s of searches ?? []) {
       const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria);
       const res = scoreMatch(buyer, prop);
@@ -428,8 +488,147 @@ export const matchPropertyAgainstActiveSearches = createServerFn({ method: "POST
           score: res.score,
           reasons: res.reasons,
         });
+        persist.push({ search_id: s.id, score: res.score, reasons: res.reasons, categories: res.categories });
       }
     }
     matches.sort((a, b) => b.score - a.score);
+
+    // Persistir oportunidades (idempotente por (property_id, active_search_id)).
+    if (persist.length > 0) {
+      // Buscar existentes para decidir insert vs update sem duplicar.
+      const { data: existing } = await supabase
+        .from("match_opportunities")
+        .select("id, active_search_id, score")
+        .eq("user_id", userId)
+        .eq("property_id", prop.id);
+      const existingMap = new Map<string, { id: string; score: number }>(
+        (existing ?? []).map((e: any) => [e.active_search_id, { id: e.id, score: e.score }]),
+      );
+      for (const m of persist) {
+        const prev = existingMap.get(m.search_id);
+        if (!prev) {
+          await supabase.from("match_opportunities").insert({
+            user_id: userId,
+            property_id: prop.id,
+            active_search_id: m.search_id,
+            score: m.score,
+            reasons: m.reasons,
+            categories: m.categories,
+          });
+        } else if (prev.score !== m.score) {
+          // Alteração relevante — mantém id, reabre para revisão.
+          await supabase
+            .from("match_opportunities")
+            .update({ score: m.score, reasons: m.reasons, categories: m.categories, viewed_at: null })
+            .eq("id", prev.id);
+        }
+      }
+    }
+
     return { property: { id: prop.id, referencia: prop.referencia }, matches };
+  });
+
+// Lista oportunidades por visualizar + recentes, para o Radar.
+export const listOpportunities = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    await purgeExpired(supabase, userId);
+    const { data, error } = await supabase
+      .from("match_opportunities")
+      .select(
+        "id, score, reasons, viewed_at, created_at, updated_at, property_id, active_search_id, properties(id, referencia, tipo_imovel, tipologia, zona, freguesia, concelho, preco, finalidade), active_searches(id, contact_nome, contact_telefone, contact_grupo, resumo, criteria)",
+      )
+      .eq("user_id", userId)
+      .order("viewed_at", { ascending: true, nullsFirst: true })
+      .order("updated_at", { ascending: false })
+      .limit(200);
+    if (error) throw new Error(error.message);
+    return { opportunities: data ?? [] };
+  });
+
+// Contagem de oportunidades por visualizar (para o badge do menu).
+export const countUnseenOpportunities = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    const { count, error } = await supabase
+      .from("match_opportunities")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .is("viewed_at", null);
+    if (error) throw new Error(error.message);
+    return { unseen: count ?? 0 };
+  });
+
+// Marca todas as oportunidades por visualizar como vistas.
+export const markOpportunitiesViewed = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    const { error } = await supabase
+      .from("match_opportunities")
+      .update({ viewed_at: new Date().toISOString() })
+      .eq("user_id", userId)
+      .is("viewed_at", null);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+// Recalcula oportunidades para uma Procura Ativa recém-criada/atualizada,
+// contra todos os imóveis ativos do utilizador.
+export const recomputeOpportunitiesForSearch = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => z.object({ searchId: z.string().uuid() }).parse(data))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { data: s } = await supabase
+      .from("active_searches")
+      .select("id, criteria")
+      .eq("id", data.searchId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!s) return { created: 0 };
+
+    const { data: props } = await supabase
+      .from("properties")
+      .select(
+        "id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
+      )
+      .eq("user_id", userId)
+      .eq("ativo", true);
+
+    const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria);
+    const { data: existing } = await supabase
+      .from("match_opportunities")
+      .select("id, property_id, score")
+      .eq("user_id", userId)
+      .eq("active_search_id", s.id);
+    const existingMap = new Map<string, { id: string; score: number }>(
+      (existing ?? []).map((e: any) => [e.property_id, { id: e.id, score: e.score }]),
+    );
+
+    let created = 0;
+    for (const p of props ?? []) {
+      const r = scoreMatch(buyer, p);
+      if (!r.compatible || r.score < 60) continue;
+      const prev = existingMap.get(p.id);
+      if (!prev) {
+        await supabase.from("match_opportunities").insert({
+          user_id: userId,
+          property_id: p.id,
+          active_search_id: s.id,
+          score: r.score,
+          reasons: r.reasons,
+          categories: r.categories,
+        });
+        created++;
+      } else if (prev.score !== r.score) {
+        await supabase
+          .from("match_opportunities")
+          .update({ score: r.score, reasons: r.reasons, categories: r.categories, viewed_at: null })
+          .eq("id", prev.id);
+      }
+    }
+    return { created };
   });

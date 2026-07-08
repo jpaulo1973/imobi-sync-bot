@@ -70,7 +70,10 @@ export type MatchScore = {
 export type MatchOptions = {
   /** Permite apresentar zonas de Nível 3 (mercados próximos mas distintos). */
   expandSearch?: boolean;
-  /** Tolerância adicional ao orçamento máximo (0-1). Default 0 — Hard Filter puro. */
+  /**
+   * Tolerância adicional ao orçamento máximo (0-1). Por defeito 0.10
+   * (regra de negócio do Property Match — margem inteligente de 10%).
+   */
   priceTolerance?: number;
 };
 
@@ -360,7 +363,7 @@ export function scoreMatch(
   property: PropertyLike,
   options: MatchOptions = {},
 ): MatchScore {
-  const tolerance = options.priceTolerance ?? 0;
+  const tolerance = options.priceTolerance ?? 0.1;
   const expandSearch = options.expandSearch ?? false;
 
   // 1) Finalidade

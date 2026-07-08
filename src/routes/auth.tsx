@@ -15,12 +15,12 @@ export const Route = createFileRoute("/auth")({
       {
         name: "description",
         content:
-          "Aceda à Property Match para cruzar imóveis com leads de grupos de WhatsApp e gerir o seu portefólio de propriedades.",
+          "Aceda à Property Match para cruzar imóveis com procuras ativas de compradores e gerir o seu portefólio.",
       },
       { property: "og:title", content: "Entrar — Property Match" },
       {
         property: "og:description",
-        content: "Aceda à Property Match para cruzar imóveis com leads de WhatsApp.",
+        content: "Motor Inteligente de Oportunidades para consultores imobiliários.",
       },
       { property: "og:url", content: "https://imobi-sync-bot.lovable.app/auth" },
     ],
@@ -67,7 +67,7 @@ function AuthPage() {
             <Building2 className="w-7 h-7" />
           </div>
           <h1 className="text-3xl font-bold tracking-tight">
-            Property Match — Cruzar imóveis com leads de WhatsApp
+            Property Match — Motor Inteligente de Oportunidades
           </h1>
           <p className="text-muted-foreground mt-2">
             Encontre automaticamente o comprador certo para cada imóvel que angariou.

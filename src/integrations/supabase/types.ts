@@ -158,6 +158,60 @@ export type Database = {
         }
         Relationships: []
       }
+      match_opportunities: {
+        Row: {
+          active_search_id: string
+          categories: Json | null
+          created_at: string
+          id: string
+          property_id: string
+          reasons: Json | null
+          score: number
+          updated_at: string
+          user_id: string
+          viewed_at: string | null
+        }
+        Insert: {
+          active_search_id: string
+          categories?: Json | null
+          created_at?: string
+          id?: string
+          property_id: string
+          reasons?: Json | null
+          score: number
+          updated_at?: string
+          user_id: string
+          viewed_at?: string | null
+        }
+        Update: {
+          active_search_id?: string
+          categories?: Json | null
+          created_at?: string
+          id?: string
+          property_id?: string
+          reasons?: Json | null
+          score?: number
+          updated_at?: string
+          user_id?: string
+          viewed_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "match_opportunities_active_search_id_fkey"
+            columns: ["active_search_id"]
+            isOneToOne: false
+            referencedRelation: "active_searches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "match_opportunities_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       portal_listings: {
         Row: {
           andar: number | null
