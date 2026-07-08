@@ -151,7 +151,7 @@ function RadarPage() {
                       </div>
                       {p.id && (
                         <Button asChild size="sm" variant="outline">
-                          <Link to="/imoveis" search={{ highlight: p.id } as any}>
+                          <Link to="/imoveis">
                             Abrir <ArrowRight className="w-3 h-3 ml-1" />
                           </Link>
                         </Button>
