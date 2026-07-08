@@ -384,7 +384,10 @@ function ImoveisPage() {
     setForm(empty);
     setMissing([]);
     await load();
-    if (savedRow) await runMatch(savedRow);
+    if (savedRow) {
+      await runMatch(savedRow);
+      if (!editingId) await checkRadar(savedRow.id);
+    }
   };
 
   const remove = async (id: string) => {
