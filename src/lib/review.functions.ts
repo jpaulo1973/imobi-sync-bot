@@ -87,7 +87,7 @@ export const updateReviewSearch = createServerFn({ method: "POST" })
       patch.flagged_for_review = false;
       patch.decision_reason = "Revisto manualmente pelo administrador";
     }
-    const { error } = await supabase.from("active_searches").update(patch).eq("id", data.id);
+    const { error } = await supabase.from("active_searches").update(patch as any).eq("id", data.id);
     if (error) throw new Error(error.message);
     // Recruzar imediatamente.
     try {
