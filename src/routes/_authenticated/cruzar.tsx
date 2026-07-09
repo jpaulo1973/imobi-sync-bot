@@ -14,6 +14,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MessageSquare, ImagePlus, X, Sparkles, ArrowRight, UserPlus, MessageCircle, Phone, Copy, Radar } from "lucide-react";
 import { toast } from "sonner";
+import { PhoneButton } from "@/components/PhoneButton";
 
 export const Route = createFileRoute("/_authenticated/cruzar")({
   head: () => ({
@@ -411,21 +412,7 @@ function CruzarPage() {
                           <MessageCircle className="w-4 h-4 mr-1" /> WhatsApp
                         </a>
                       </Button>
-                      <Button asChild size="sm" variant="outline">
-                        <a href={`tel:${r.lead.telefone.replace(/\s+/g, "")}`}>
-                          <Phone className="w-4 h-4 mr-1" /> Ligar
-                        </a>
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          void navigator.clipboard.writeText(r.lead.telefone ?? "");
-                          toast.success("Número copiado.");
-                        }}
-                      >
-                        <Copy className="w-4 h-4 mr-1" /> Copiar
-                      </Button>
+                      <PhoneButton telefone={r.lead.telefone} />
                     </>
                   )}
                   <Button

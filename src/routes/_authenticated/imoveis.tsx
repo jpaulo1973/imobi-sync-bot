@@ -41,6 +41,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { PhoneButton } from "@/components/PhoneButton";
 import { useServerFn } from "@tanstack/react-start";
 import { importPropertyFromUrl } from "@/lib/properties.functions";
 import { recomputeOpportunitiesForProperty } from "@/lib/active-searches.functions";
@@ -791,9 +792,7 @@ function ImoveisPage() {
                           </a>
                         )}
                         {m.telefone && (
-                          <a href={`tel:${m.telefone}`}>
-                            <Button variant="ghost" size="icon" title="Ligar"><Phone className="w-4 h-4" /></Button>
-                          </a>
+                          <PhoneButton telefone={m.telefone} variant="ghost" size="icon" compact />
                         )}
                         {m.email && (
                           <a href={`mailto:${m.email}`}>

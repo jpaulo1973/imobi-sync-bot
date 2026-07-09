@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Radar, Trash2, MessageCircle, Phone, Sparkles, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
+import { PhoneButton } from "@/components/PhoneButton";
 
 export const Route = createFileRoute("/_authenticated/radar")({
   head: () => ({
@@ -220,11 +221,7 @@ function RadarPage() {
                             <MessageCircle className="w-4 h-4 mr-1" /> WhatsApp
                           </a>
                         </Button>
-                        <Button asChild size="sm" variant="outline">
-                          <a href={`tel:${tel}`}>
-                            <Phone className="w-4 h-4 mr-1" /> Ligar
-                          </a>
-                        </Button>
+                        <PhoneButton telefone={tel} />
                       </>
                     )}
                     <Button size="sm" variant="ghost" onClick={() => remove(r.id)} aria-label="Remover procura">

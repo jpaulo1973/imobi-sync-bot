@@ -41,6 +41,30 @@ function parseFinalidade(v: unknown): "venda" | "arrendamento" | "indefinido" {
   return "indefinido";
 }
 
+// Heurística — descarta linhas que claramente NÃO são procuras de comprador
+// (ofertas de imóveis, anúncios, mensagens institucionais). Devolve `true`
+// quando a linha parece uma procura legítima.
+function looksLikeBuyerSearch(text: string | null): boolean {
+  if (!text) return true; // sem descrição, decidimos pelos outros critérios
+  const t = text.toLowerCase();
+  const procuraSignals = [
+    /procur/, /compra(dor|)/, /cliente\s+(aprovad|pretende|interess|procura)/,
+    /tenho\s+comprador/, /familia\s+procur/, /casal\s+procur/,
+    /pretende\s+(comprar|arrendar|adquirir)/, /necessit/, /arrendat[aá]rio/,
+    /interessad[oa]s?\s+em\s+comprar/, /orcamento\s+at[eé]/, /orçamento\s+at[eé]/,
+    /aprovad[oa]\s+para\s+cr[eé]dito/,
+  ];
+  if (procuraSignals.some((re) => re.test(t))) return true;
+  const ofertaSignals = [
+    /vende[- ]se/, /\bvendo\b/, /para\s+venda/, /arrenda[- ]se/, /para\s+arrendament/,
+    /oportunidade\s+[uú]nica/, /novo\s+no\s+mercado/, /km\s*0/,
+    /pre[cç]o\s+reduzid/, /remodelad/, /an[uú]ncio/, /vis(ite|ita\s+virtual)/,
+    /agende\s+visita/, /marque\s+visita/, /^t[0-6]\b/, /studio\s+novo/,
+  ];
+  if (ofertaSignals.some((re) => re.test(t))) return false;
+  return true;
+}
+
 function parseTipologia(v: unknown): string | null {
   const t = s(v);
   if (!t) return null;
@@ -183,6 +207,9 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
 
       // Regra mínima: precisa de telefone OU (nome + algum critério) para ser útil
       if (!telefone && !nome) continue;
+
+      // Release 1.2 bug #005 — só importar procuras de comprador.
+      if (!looksLikeBuyerSearch(mensagem ?? descricao)) continue;
 
       const caracExtras: string[] = [...(caract ?? [])];
       if (elevador) caracExtras.push("elevador");
