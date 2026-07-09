@@ -14,6 +14,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MessageSquare, ImagePlus, X, Sparkles, ArrowRight, UserPlus, MessageCircle, Phone, Copy, Radar } from "lucide-react";
 import { toast } from "sonner";
+import { PhoneButton } from "@/components/PhoneButton";
 
 export const Route = createFileRoute("/_authenticated/cruzar")({
   head: () => ({
