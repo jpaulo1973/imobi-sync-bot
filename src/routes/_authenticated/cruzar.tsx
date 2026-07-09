@@ -61,10 +61,12 @@ function CruzarPage() {
   const [savedRadarIdx, setSavedRadarIdx] = useState<Record<number, boolean>>({});
   const [durationByIdx, setDurationByIdx] = useState<Record<number, number>>({});
   const [savingRadarIdx, setSavingRadarIdx] = useState<number | null>(null);
+  const [savingAll, setSavingAll] = useState(false);
   const matchFn = useServerFn(matchWhatsappConversations);
   const createFn = useServerFn(createBuyersFromLeads);
   const saveRadarFn = useServerFn(saveActiveSearch);
   const fileRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const fileToDataUrl = (file: File) =>
     new Promise<string>((resolve, reject) => {
@@ -116,11 +118,16 @@ function CruzarPage() {
       if (res.results.length === 0) toast.info("Nenhum pedido de comprador foi identificado na conversa.");
       else if (totalMatches === 0) toast.info("Pedidos identificados, mas sem imóveis compatíveis na carteira.");
       else toast.success(`${totalMatches} imóvel(is) compatível(is) encontrado(s).`);
+      // Release 1.2 P1 #4 — sucesso: limpa a caixa e volta a focar.
+      setTexto("");
+      setImagens([]);
+      setTimeout(() => textareaRef.current?.focus(), 0);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Erro desconhecido";
       if (msg.includes("CREDITS_EXHAUSTED")) toast.error("Créditos de IA esgotados.");
       else if (msg.includes("RATE_LIMITED")) toast.error("Demasiados pedidos, tenta novamente em breve.");
       else toast.error(msg);
+      // Erro: mantém o texto para o utilizador poder tentar de novo.
     } finally {
       setLoading(false);
     }
@@ -184,6 +191,10 @@ function CruzarPage() {
           contact_grupo: lead.grupo_whatsapp ?? null,
           data_publicacao: lead.data_publicacao ?? null,
           duration_days: days,
+          consultor_nome: lead.contacto ?? null,
+          data_origem: lead.data_publicacao ?? null,
+          grupo_whatsapp: lead.grupo_whatsapp ?? null,
+          origem: "whatsapp",
         },
       });
       setSavedRadarIdx((m) => ({ ...m, [idx]: true }));
@@ -193,6 +204,53 @@ function CruzarPage() {
     } finally {
       setSavingRadarIdx(null);
     }
+  };
+
+  // Release 1.2 P1 #5 — uma mensagem com várias procuras gera vários registos.
+  const saveAllToRadar = async () => {
+    if (!results || results.length === 0) return;
+    setSavingAll(true);
+    let ok = 0;
+    let fail = 0;
+    for (let i = 0; i < results.length; i++) {
+      if (savedRadarIdx[i]) continue;
+      try {
+        await saveRadarFn({
+          data: {
+            criteria: {
+              nome: results[i].lead.nome ?? null,
+              finalidade: results[i].lead.finalidade,
+              tipo_imovel: results[i].lead.tipo_imovel ?? null,
+              tipologia: results[i].lead.tipologia ?? null,
+              zona: results[i].lead.zona ?? null,
+              budget_min: results[i].lead.budget_min ?? null,
+              budget_max: results[i].lead.budget_max ?? null,
+              area_min: results[i].lead.area_min ?? null,
+              quartos_min: results[i].lead.quartos_min ?? null,
+              caracteristicas: results[i].lead.caracteristicas ?? null,
+            },
+            resumo: results[i].lead.resumo,
+            texto_original: results[i].lead.mensagem_original ?? null,
+            contact_nome: results[i].lead.nome ?? null,
+            contact_telefone: results[i].lead.telefone ?? results[i].lead.contacto ?? null,
+            contact_grupo: results[i].lead.grupo_whatsapp ?? null,
+            data_publicacao: results[i].lead.data_publicacao ?? null,
+            duration_days: durationByIdx[i] ?? 14,
+            consultor_nome: results[i].lead.contacto ?? null,
+            data_origem: results[i].lead.data_publicacao ?? null,
+            grupo_whatsapp: results[i].lead.grupo_whatsapp ?? null,
+            origem: "whatsapp",
+          },
+        });
+        setSavedRadarIdx((m) => ({ ...m, [i]: true }));
+        ok++;
+      } catch {
+        fail++;
+      }
+    }
+    setSavingAll(false);
+    if (ok > 0) toast.success(`${ok} procura(s) guardada(s) no Radar.${fail ? ` ${fail} falha(s).` : ""}`);
+    else if (fail > 0) toast.error(`Falha ao guardar ${fail} procura(s).`);
   };
 
   return (
@@ -220,6 +278,7 @@ function CruzarPage() {
         </div>
 
         <Textarea
+          ref={textareaRef}
           value={texto}
           onChange={(e) => setTexto(e.target.value)}
           rows={6}
@@ -285,6 +344,22 @@ function CruzarPage() {
             {" "}
             Identificado(s) <strong>{results.length}</strong> pedido(s).
           </Card>
+
+          {results.length > 1 && (
+            <div className="flex items-center justify-end">
+              <Button
+                size="sm"
+                onClick={saveAllToRadar}
+                disabled={savingAll}
+                variant="secondary"
+              >
+                <Radar className="w-4 h-4 mr-2" />
+                {savingAll
+                  ? "A guardar todas..."
+                  : `Guardar as ${results.length} procuras no Radar`}
+              </Button>
+            </div>
+          )}
 
           {results.length === 0 && (
             <Card className="p-6 text-center text-muted-foreground">

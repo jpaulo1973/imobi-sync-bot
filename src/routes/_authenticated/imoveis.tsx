@@ -43,18 +43,16 @@ import {
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { importPropertyFromUrl } from "@/lib/properties.functions";
-import { matchPropertyAgainstActiveSearches } from "@/lib/active-searches.functions";
-import { runPropertyMatch, countPropertyMatches } from "@/lib/property-match.functions";
+import { recomputeOpportunitiesForProperty } from "@/lib/active-searches.functions";
+import {
+  runPropertyOpportunities,
+  countPropertyOpportunities,
+  type Opportunity,
+} from "@/lib/property-match.functions";
 import type { MatchCategoryResult } from "@/lib/matching-engine";
 
 type Property = Tables<"properties">;
-type BuyerClient = Tables<"buyer_clients">;
-type MatchResult = {
-  buyer: BuyerClient;
-  score: number;
-  reasons: string[];
-  categories: MatchCategoryResult[];
-};
+type MatchResult = Opportunity;
 
 export const Route = createFileRoute("/_authenticated/imoveis")({
   head: () => ({
@@ -159,27 +157,19 @@ const fromProperty = (p: Property): FormState => ({
 
 function ImoveisPage() {
   const importFn = useServerFn(importPropertyFromUrl);
-  const matchFn = useServerFn(runPropertyMatch);
-  const countsFn = useServerFn(countPropertyMatches);
-  const radarFn = useServerFn(matchPropertyAgainstActiveSearches);
+  const oppsFn = useServerFn(runPropertyOpportunities);
+  const countsFn = useServerFn(countPropertyOpportunities);
+  const recomputeFn = useServerFn(recomputeOpportunitiesForProperty);
 
-  const checkRadar = async (propertyId: string) => {
+  const recomputeForProp = async (propertyId: string) => {
     try {
-      const res = await radarFn({ data: { propertyId } });
-      if (res.matches.length > 0) {
-        const m = res.matches[0];
-        const days = m.created_at
-          ? Math.floor((Date.now() - new Date(m.created_at).getTime()) / (24 * 60 * 60 * 1000))
-          : null;
-        toast.success(
-          `Novo Match no Radar: ${res.matches.length} procura(s) compatível(is)${
-            days != null ? ` (recebida há ${days} dia${days === 1 ? "" : "s"})` : ""
-          }. Consulta o Radar.`,
-          { duration: 8000 },
-        );
-      }
+      const res = await recomputeFn({ data: { propertyId } });
+      if (res.created > 0)
+        toast.success(`${res.created} nova(s) oportunidade(s) do Radar para este imóvel.`, {
+          duration: 6000,
+        });
     } catch {
-      // silencioso — o radar não deve bloquear o fluxo principal
+      // silencioso
     }
   };
 
@@ -202,6 +192,7 @@ function ImoveisPage() {
   const [matchLoading, setMatchLoading] = useState(false);
   const [matches, setMatches] = useState<MatchResult[]>([]);
   const [totalBuyers, setTotalBuyers] = useState(0);
+  const [totalGlobal, setTotalGlobal] = useState(0);
 
   const load = async () => {
     setLoading(true);
@@ -268,10 +259,11 @@ function ImoveisPage() {
           .then((r) => setMatchCounts(r.counts ?? {}))
           .catch(() => {});
         if (matchOpen && matchProperty) {
-          matchFn({ data: { propertyId: matchProperty.id } })
+          oppsFn({ data: { propertyId: matchProperty.id } })
             .then((res) => {
-              setMatches(res.matches);
+              setMatches(res.opportunities);
               setTotalBuyers(res.totalBuyers);
+              setTotalGlobal(res.totalGlobal);
             })
             .catch(() => {});
         }
@@ -289,7 +281,7 @@ function ImoveisPage() {
       if (debounce) clearTimeout(debounce);
       supabase.removeChannel(channel);
     };
-  }, [countsFn, matchFn, matchOpen, matchProperty]);
+  }, [countsFn, oppsFn, matchOpen, matchProperty]);
 
   const openNew = () => {
     setEditingId(null);
@@ -311,12 +303,15 @@ function ImoveisPage() {
     setMatchLoading(true);
     setMatches([]);
     try {
-      const res = await matchFn({ data: { propertyId: p.id } });
-      setMatches(res.matches);
+      const res = await oppsFn({ data: { propertyId: p.id } });
+      setMatches(res.opportunities);
       setTotalBuyers(res.totalBuyers);
-      setMatchCounts((prev) => ({ ...prev, [p.id]: res.matches.length }));
+      setTotalGlobal(res.totalGlobal);
+      setMatchCounts((prev) => ({ ...prev, [p.id]: res.opportunities.length }));
+      // fundo: recomputa persistidas (Radar) sem bloquear a UI
+      void recomputeFn({ data: { propertyId: p.id } }).catch(() => {});
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erro ao calcular Property Match");
+      toast.error(e instanceof Error ? e.message : "Erro ao calcular oportunidades");
     } finally {
       setMatchLoading(false);
     }
@@ -386,8 +381,8 @@ function ImoveisPage() {
     await load();
     if (savedRow) {
       await runMatch(savedRow);
-      // Release 1.1: recalcular Radar sempre que entra OU se atualiza um imóvel.
-      await checkRadar(savedRow.id);
+      // Release 1.2: recalcular oportunidades vs Base Global em segundo plano.
+      await recomputeForProp(savedRow.id);
     }
   };
 
@@ -414,7 +409,7 @@ function ImoveisPage() {
         await runMatch(res.property as Property);
       }
       const imported = res.property as Property;
-      if (imported?.id) await checkRadar(imported.id);
+      if (imported?.id) await recomputeForProp(imported.id);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao importar");
     } finally {
@@ -724,24 +719,48 @@ function ImoveisPage() {
             <p className="text-sm text-muted-foreground py-6 text-center">A analisar compradores...</p>
           ) : matches.length === 0 ? (
             <p className="text-sm text-muted-foreground py-6 text-center">
-              Nenhum comprador compatível entre os {totalBuyers} clientes ativos.
+              Nenhuma oportunidade compatível ({totalBuyers} cliente(s) · {totalGlobal} procura(s) na Base Global).
             </p>
           ) : (
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground">
-                {matches.length} de {totalBuyers} compradores · ordenados por compatibilidade
+                {matches.length} oportunidade(s) · {totalBuyers} cliente(s) + {totalGlobal} procura(s) na Base Global · ordenadas por compatibilidade
               </p>
               {matches.map((m, i) => {
-                const tel = m.buyer.telefone?.replace(/\D/g, "");
+                const tel = m.telefone?.replace(/\D/g, "");
+                const sourceLabel =
+                  m.source === "cliente" ? "Cliente"
+                  : m.source === "excel" ? "Excel"
+                  : m.source === "whatsapp" ? "WhatsApp"
+                  : m.source === "texto" ? "Texto"
+                  : "Captura";
+                const contextBits: string[] = [];
+                if (m.consultor_nome) contextBits.push(`Consultor: ${m.consultor_nome}`);
+                if (m.consultor_telefone) contextBits.push(m.consultor_telefone);
+                if (m.data_origem) contextBits.push(String(m.data_origem));
+                if (m.hora_origem) contextBits.push(String(m.hora_origem));
+                if (m.grupo_whatsapp) contextBits.push(`Grupo: ${m.grupo_whatsapp}`);
+                if (m.comunidade) contextBits.push(`Comunidade: ${m.comunidade}`);
                 return (
-                  <div key={m.buyer.id} className="p-3 rounded-lg border bg-secondary/40">
+                  <div key={m.key} className="p-3 rounded-lg border bg-secondary/40">
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <div className="font-semibold flex items-center gap-2">
+                        <div className="font-semibold flex items-center gap-2 flex-wrap">
                           <span className="text-primary">#{i + 1}</span>
-                          {m.buyer.nome}
+                          {m.nome ?? "—"}
+                          <Badge variant="outline" className="text-[10px]">{sourceLabel}</Badge>
                           <Badge className="bg-accent text-accent-foreground">{m.score}% compatível</Badge>
                         </div>
+                        {contextBits.length > 0 && (
+                          <p className="text-[11px] text-muted-foreground mt-1">
+                            {contextBits.join(" · ")}
+                          </p>
+                        )}
+                        {m.resumo && (
+                          <p className="text-xs mt-1 italic text-muted-foreground line-clamp-2">
+                            "{m.resumo}"
+                          </p>
+                        )}
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {m.categories
                             .filter((c) => c.weight > 0 || c.key === "tipo")
@@ -771,13 +790,13 @@ function ImoveisPage() {
                             <Button variant="ghost" size="icon" title="WhatsApp"><MessageCircle className="w-4 h-4" /></Button>
                           </a>
                         )}
-                        {m.buyer.telefone && (
-                          <a href={`tel:${m.buyer.telefone}`}>
+                        {m.telefone && (
+                          <a href={`tel:${m.telefone}`}>
                             <Button variant="ghost" size="icon" title="Ligar"><Phone className="w-4 h-4" /></Button>
                           </a>
                         )}
-                        {m.buyer.email && (
-                          <a href={`mailto:${m.buyer.email}`}>
+                        {m.email && (
+                          <a href={`mailto:${m.email}`}>
                             <Button variant="ghost" size="icon" title="Email"><Mail className="w-4 h-4" /></Button>
                           </a>
                         )}

@@ -16,17 +16,23 @@ export type Database = {
     Tables: {
       active_searches: {
         Row: {
+          comunidade: string | null
+          consultor_nome: string | null
+          consultor_telefone: string | null
           contact_email: string | null
           contact_grupo: string | null
           contact_nome: string | null
           contact_telefone: string | null
           created_at: string
           criteria: Json
+          data_origem: string | null
           data_publicacao: string | null
           decision_reason: string | null
           dedup_key: string | null
           expires_at: string
           flagged_for_review: boolean
+          grupo_whatsapp: string | null
+          hora_origem: string | null
           id: string
           import_batch_id: string | null
           last_match_at: string | null
@@ -40,17 +46,23 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          comunidade?: string | null
+          consultor_nome?: string | null
+          consultor_telefone?: string | null
           contact_email?: string | null
           contact_grupo?: string | null
           contact_nome?: string | null
           contact_telefone?: string | null
           created_at?: string
           criteria: Json
+          data_origem?: string | null
           data_publicacao?: string | null
           decision_reason?: string | null
           dedup_key?: string | null
           expires_at: string
           flagged_for_review?: boolean
+          grupo_whatsapp?: string | null
+          hora_origem?: string | null
           id?: string
           import_batch_id?: string | null
           last_match_at?: string | null
@@ -64,17 +76,23 @@ export type Database = {
           user_id: string
         }
         Update: {
+          comunidade?: string | null
+          consultor_nome?: string | null
+          consultor_telefone?: string | null
           contact_email?: string | null
           contact_grupo?: string | null
           contact_nome?: string | null
           contact_telefone?: string | null
           created_at?: string
           criteria?: Json
+          data_origem?: string | null
           data_publicacao?: string | null
           decision_reason?: string | null
           dedup_key?: string | null
           expires_at?: string
           flagged_for_review?: boolean
+          grupo_whatsapp?: string | null
+          hora_origem?: string | null
           id?: string
           import_batch_id?: string | null
           last_match_at?: string | null

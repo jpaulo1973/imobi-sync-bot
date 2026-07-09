@@ -35,6 +35,13 @@ const SaveInput = z.object({
   data_publicacao: z.string().nullable().optional(),
   duration_days: z.number().int().min(1).max(60).default(14),
   origem: z.enum(["excel", "whatsapp", "texto", "captura"]).default("whatsapp"),
+  // Release 1.2 — metadados de contexto da oportunidade
+  consultor_nome: z.string().nullable().optional(),
+  consultor_telefone: z.string().nullable().optional(),
+  data_origem: z.string().nullable().optional(),
+  hora_origem: z.string().nullable().optional(),
+  grupo_whatsapp: z.string().nullable().optional(),
+  comunidade: z.string().nullable().optional(),
 });
 
 export const saveActiveSearch = createServerFn({ method: "POST" })
@@ -64,6 +71,12 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
       expires_at: expires,
       origem: data.origem,
       import_batch_id: null,
+      consultor_nome: data.consultor_nome ?? null,
+      consultor_telefone: data.consultor_telefone ?? null,
+      data_origem: data.data_origem ?? null,
+      hora_origem: data.hora_origem ?? null,
+      grupo_whatsapp: data.grupo_whatsapp ?? data.contact_grupo ?? null,
+      comunidade: data.comunidade ?? null,
     });
     // Release 1.1: sempre que entra uma procura ativa, cruzar imediatamente
     // com todos os imóveis ativos e materializar oportunidades novas.
@@ -83,28 +96,28 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
 
 // Helper interno partilhado entre saveActiveSearch e a server fn pública.
 async function recomputeForSearch(supabase: any, userId: string, searchId: string): Promise<number> {
-  const { data: s } = await supabase
+  // Release 1.2 — Base Global: materializa oportunidades para TODOS os
+  // imóveis (independentemente do dono) usando o cliente de admin.
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: s } = await supabaseAdmin
     .from("active_searches")
     .select("id, criteria")
     .eq("id", searchId)
-    .eq("user_id", userId)
     .maybeSingle();
   if (!s) return 0;
-  const { data: props } = await supabase
+  const { data: props } = await supabaseAdmin
     .from("properties")
     .select(
-      "id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
+      "id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
     )
-    .eq("user_id", userId)
     .eq("ativo", true);
   const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria);
-  const { data: existing } = await supabase
+  const { data: existing } = await supabaseAdmin
     .from("match_opportunities")
-    .select("id, property_id, score")
-    .eq("user_id", userId)
+    .select("id, property_id, score, user_id")
     .eq("active_search_id", s.id);
-  const existingMap = new Map<string, { id: string; score: number }>(
-    (existing ?? []).map((e: any) => [e.property_id, { id: e.id, score: e.score }]),
+  const existingMap = new Map<string, { id: string; score: number; user_id: string }>(
+    (existing ?? []).map((e: any) => [e.property_id, { id: e.id, score: e.score, user_id: e.user_id }]),
   );
   let created = 0;
   for (const p of props ?? []) {
@@ -112,8 +125,8 @@ async function recomputeForSearch(supabase: any, userId: string, searchId: strin
     if (!r.compatible || r.score < 60) continue;
     const prev = existingMap.get(p.id);
     if (!prev) {
-      await supabase.from("match_opportunities").insert({
-        user_id: userId,
+      await supabaseAdmin.from("match_opportunities").insert({
+        user_id: (p as any).user_id,
         property_id: p.id,
         active_search_id: s.id,
         score: r.score,
@@ -122,7 +135,7 @@ async function recomputeForSearch(supabase: any, userId: string, searchId: strin
       });
       created++;
     } else if (prev.score !== r.score) {
-      await supabase
+      await supabaseAdmin
         .from("match_opportunities")
         .update({ score: r.score, reasons: r.reasons, categories: r.categories as any, viewed_at: null })
         .eq("id", prev.id);
@@ -132,6 +145,72 @@ async function recomputeForSearch(supabase: any, userId: string, searchId: strin
 }
 
 export { recomputeForSearch };
+
+// Release 1.2 — quando um imóvel é criado/atualizado, materializa
+// oportunidades cruzando com a Base Global de procuras (via admin).
+export async function recomputeForProperty(propertyId: string): Promise<number> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: p } = await supabaseAdmin
+    .from("properties")
+    .select("id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina, finalidade, ativo")
+    .eq("id", propertyId)
+    .maybeSingle();
+  if (!p || !p.ativo) return 0;
+  const nowIso = new Date().toISOString();
+  const { data: searches } = await supabaseAdmin
+    .from("active_searches")
+    .select("id, criteria")
+    .gt("expires_at", nowIso);
+  const { data: existing } = await supabaseAdmin
+    .from("match_opportunities")
+    .select("id, active_search_id, score")
+    .eq("property_id", p.id);
+  const existingMap = new Map<string, { id: string; score: number }>(
+    (existing ?? []).map((e: any) => [e.active_search_id, { id: e.id, score: e.score }]),
+  );
+  let created = 0;
+  for (const s of searches ?? []) {
+    const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria);
+    const r = scoreMatch(buyer, p as any);
+    if (!r.compatible || r.score < 60) continue;
+    const prev = existingMap.get(s.id);
+    if (!prev) {
+      await supabaseAdmin.from("match_opportunities").insert({
+        user_id: (p as any).user_id,
+        property_id: p.id,
+        active_search_id: s.id,
+        score: r.score,
+        reasons: r.reasons,
+        categories: r.categories as any,
+      });
+      created++;
+    } else if (prev.score !== r.score) {
+      await supabaseAdmin
+        .from("match_opportunities")
+        .update({ score: r.score, reasons: r.reasons, categories: r.categories as any, viewed_at: null })
+        .eq("id", prev.id);
+    }
+  }
+  return created;
+}
+
+// Server fn callable from the client after saving a property.
+export const recomputeOpportunitiesForProperty = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => z.object({ propertyId: z.string().uuid() }).parse(data))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    // Confirmar posse (RLS) antes de tocar via admin.
+    const { data: p } = await supabase
+      .from("properties")
+      .select("id")
+      .eq("id", data.propertyId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!p) return { created: 0 };
+    const created = await recomputeForProperty(data.propertyId);
+    return { created };
+  });
 
 // ---------------------------------------------------------------------------
 // Deduplicação inteligente — usada por Excel + WhatsApp + texto + captura.
@@ -159,6 +238,12 @@ export type UpsertRow = {
   expires_at: string;
   origem: "excel" | "whatsapp" | "texto" | "captura";
   import_batch_id: string | null;
+  consultor_nome?: string | null;
+  consultor_telefone?: string | null;
+  data_origem?: string | null;
+  hora_origem?: string | null;
+  grupo_whatsapp?: string | null;
+  comunidade?: string | null;
 };
 
 export type UpsertAction = "created" | "updated" | "kept_separate" | "flagged";
@@ -211,6 +296,12 @@ async function mergeInto(
     similarity_score: similarity,
     decision_reason: reason.slice(0, 900),
     merged_from_count: (existing.merged_from_count ?? 0) + 1,
+    consultor_nome: row.consultor_nome ?? existing.consultor_nome,
+    consultor_telefone: row.consultor_telefone ?? existing.consultor_telefone,
+    data_origem: row.data_origem ?? existing.data_origem,
+    hora_origem: row.hora_origem ?? existing.hora_origem,
+    grupo_whatsapp: row.grupo_whatsapp ?? existing.grupo_whatsapp,
+    comunidade: row.comunidade ?? existing.comunidade,
   };
   const { data: upd, error } = await supabase
     .from("active_searches")
@@ -257,6 +348,12 @@ async function insertNew(
       similarity_score: similarity,
       decision_reason: reason.slice(0, 900),
       flagged_for_review: action === "flagged",
+      consultor_nome: row.consultor_nome ?? null,
+      consultor_telefone: row.consultor_telefone ?? null,
+      data_origem: row.data_origem ?? null,
+      hora_origem: row.hora_origem ?? null,
+      grupo_whatsapp: row.grupo_whatsapp ?? null,
+      comunidade: row.comunidade ?? null,
     })
     .select("id, expires_at")
     .single();
