@@ -1,12 +1,12 @@
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Building2, Home, Sparkles, LogOut, Users, Shield, Radar, FileSpreadsheet } from "lucide-react";
+import { Building2, Home, Sparkles, LogOut, Users, Shield, Radar, FileSpreadsheet, UserCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { isCurrentUserAdmin } from "@/lib/admin.functions";
 import { useServerFn } from "@tanstack/react-start";
 import { countUnseenOpportunities } from "@/lib/active-searches.functions";
+import { getMyProfile } from "@/lib/profile.functions";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: async () => {
@@ -18,14 +18,23 @@ export const Route = createFileRoute("/_authenticated")({
 
 function Layout() {
   const navigate = useNavigate();
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [profile, setProfile] = useState<{ fullName: string | null; email: string | null; role: "admin" | "consultor" } | null>(null);
+  const isAdmin = profile?.role === "admin";
   const [unseen, setUnseen] = useState(0);
   const countFn = useServerFn(countUnseenOpportunities);
+  const profileFn = useServerFn(getMyProfile);
   useEffect(() => {
-    isCurrentUserAdmin()
-      .then((r) => setIsAdmin(r.isAdmin))
-      .catch(() => setIsAdmin(false));
-  }, []);
+    const load = () =>
+      profileFn()
+        .then((p) =>
+          setProfile({ fullName: p.fullName, email: p.email, role: p.role }),
+        )
+        .catch(() => setProfile(null));
+    load();
+    const onUpdated = () => load();
+    window.addEventListener("pm:profile-updated", onUpdated);
+    return () => window.removeEventListener("pm:profile-updated", onUpdated);
+  }, [profileFn]);
   useEffect(() => {
     const tick = () => countFn().then((r) => setUnseen(r.unseen)).catch(() => {});
     tick();
@@ -36,6 +45,8 @@ function Layout() {
     await supabase.auth.signOut();
     navigate({ to: "/auth" });
   };
+  const displayName = profile?.fullName || profile?.email || "";
+  const roleLabel = profile?.role === "admin" ? "Administrador" : "Consultor";
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <header className="border-b bg-card/80 backdrop-blur-sm sticky top-0 z-10">
@@ -98,6 +109,24 @@ function Layout() {
               >
                 <Shield className="w-4 h-4" /> Utilizadores
               </Link>
+            )}
+            <Link
+              to="/perfil"
+              className="px-3 py-2 rounded-md text-sm font-medium hover:bg-secondary inline-flex items-center gap-2 [&.active]:bg-secondary [&.active]:text-primary"
+              activeProps={{ className: "active" }}
+            >
+              <UserCircle className="w-4 h-4" /> Perfil
+            </Link>
+            {profile && (
+              <div
+                className="hidden md:flex items-center gap-2 ml-2 pl-3 border-l text-sm"
+                title={profile.email ?? undefined}
+              >
+                <span className="font-medium truncate max-w-[180px]">{displayName}</span>
+                <Badge variant={isAdmin ? "default" : "secondary"} className="whitespace-nowrap">
+                  {roleLabel}
+                </Badge>
+              </div>
             )}
             <Button
               variant="ghost"
