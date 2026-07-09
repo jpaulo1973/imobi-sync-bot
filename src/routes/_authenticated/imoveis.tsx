@@ -43,18 +43,16 @@ import {
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { importPropertyFromUrl } from "@/lib/properties.functions";
-import { matchPropertyAgainstActiveSearches } from "@/lib/active-searches.functions";
-import { runPropertyMatch, countPropertyMatches } from "@/lib/property-match.functions";
+import { recomputeOpportunitiesForProperty } from "@/lib/active-searches.functions";
+import {
+  runPropertyOpportunities,
+  countPropertyOpportunities,
+  type Opportunity,
+} from "@/lib/property-match.functions";
 import type { MatchCategoryResult } from "@/lib/matching-engine";
 
 type Property = Tables<"properties">;
-type BuyerClient = Tables<"buyer_clients">;
-type MatchResult = {
-  buyer: BuyerClient;
-  score: number;
-  reasons: string[];
-  categories: MatchCategoryResult[];
-};
+type MatchResult = Opportunity;
 
 export const Route = createFileRoute("/_authenticated/imoveis")({
   head: () => ({
@@ -159,27 +157,19 @@ const fromProperty = (p: Property): FormState => ({
 
 function ImoveisPage() {
   const importFn = useServerFn(importPropertyFromUrl);
-  const matchFn = useServerFn(runPropertyMatch);
-  const countsFn = useServerFn(countPropertyMatches);
-  const radarFn = useServerFn(matchPropertyAgainstActiveSearches);
+  const oppsFn = useServerFn(runPropertyOpportunities);
+  const countsFn = useServerFn(countPropertyOpportunities);
+  const recomputeFn = useServerFn(recomputeOpportunitiesForProperty);
 
-  const checkRadar = async (propertyId: string) => {
+  const recomputeForProp = async (propertyId: string) => {
     try {
-      const res = await radarFn({ data: { propertyId } });
-      if (res.matches.length > 0) {
-        const m = res.matches[0];
-        const days = m.created_at
-          ? Math.floor((Date.now() - new Date(m.created_at).getTime()) / (24 * 60 * 60 * 1000))
-          : null;
-        toast.success(
-          `Novo Match no Radar: ${res.matches.length} procura(s) compatível(is)${
-            days != null ? ` (recebida há ${days} dia${days === 1 ? "" : "s"})` : ""
-          }. Consulta o Radar.`,
-          { duration: 8000 },
-        );
-      }
+      const res = await recomputeFn({ data: { propertyId } });
+      if (res.created > 0)
+        toast.success(`${res.created} nova(s) oportunidade(s) do Radar para este imóvel.`, {
+          duration: 6000,
+        });
     } catch {
-      // silencioso — o radar não deve bloquear o fluxo principal
+      // silencioso
     }
   };
 
@@ -202,6 +192,7 @@ function ImoveisPage() {
   const [matchLoading, setMatchLoading] = useState(false);
   const [matches, setMatches] = useState<MatchResult[]>([]);
   const [totalBuyers, setTotalBuyers] = useState(0);
+  const [totalGlobal, setTotalGlobal] = useState(0);
 
   const load = async () => {
     setLoading(true);
@@ -311,12 +302,15 @@ function ImoveisPage() {
     setMatchLoading(true);
     setMatches([]);
     try {
-      const res = await matchFn({ data: { propertyId: p.id } });
-      setMatches(res.matches);
+      const res = await oppsFn({ data: { propertyId: p.id } });
+      setMatches(res.opportunities);
       setTotalBuyers(res.totalBuyers);
-      setMatchCounts((prev) => ({ ...prev, [p.id]: res.matches.length }));
+      setTotalGlobal(res.totalGlobal);
+      setMatchCounts((prev) => ({ ...prev, [p.id]: res.opportunities.length }));
+      // fundo: recomputa persistidas (Radar) sem bloquear a UI
+      void recomputeFn({ data: { propertyId: p.id } }).catch(() => {});
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erro ao calcular Property Match");
+      toast.error(e instanceof Error ? e.message : "Erro ao calcular oportunidades");
     } finally {
       setMatchLoading(false);
     }
@@ -386,8 +380,8 @@ function ImoveisPage() {
     await load();
     if (savedRow) {
       await runMatch(savedRow);
-      // Release 1.1: recalcular Radar sempre que entra OU se atualiza um imóvel.
-      await checkRadar(savedRow.id);
+      // Release 1.2: recalcular oportunidades vs Base Global em segundo plano.
+      await recomputeForProp(savedRow.id);
     }
   };
 
@@ -414,7 +408,7 @@ function ImoveisPage() {
         await runMatch(res.property as Property);
       }
       const imported = res.property as Property;
-      if (imported?.id) await checkRadar(imported.id);
+      if (imported?.id) await recomputeForProp(imported.id);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao importar");
     } finally {
