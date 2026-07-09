@@ -719,24 +719,48 @@ function ImoveisPage() {
             <p className="text-sm text-muted-foreground py-6 text-center">A analisar compradores...</p>
           ) : matches.length === 0 ? (
             <p className="text-sm text-muted-foreground py-6 text-center">
-              Nenhum comprador compatível entre os {totalBuyers} clientes ativos.
+              Nenhuma oportunidade compatível ({totalBuyers} cliente(s) · {totalGlobal} procura(s) na Base Global).
             </p>
           ) : (
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground">
-                {matches.length} de {totalBuyers} compradores · ordenados por compatibilidade
+                {matches.length} oportunidade(s) · {totalBuyers} cliente(s) + {totalGlobal} procura(s) na Base Global · ordenadas por compatibilidade
               </p>
               {matches.map((m, i) => {
-                const tel = m.buyer.telefone?.replace(/\D/g, "");
+                const tel = m.telefone?.replace(/\D/g, "");
+                const sourceLabel =
+                  m.source === "cliente" ? "Cliente"
+                  : m.source === "excel" ? "Excel"
+                  : m.source === "whatsapp" ? "WhatsApp"
+                  : m.source === "texto" ? "Texto"
+                  : "Captura";
+                const contextBits: string[] = [];
+                if (m.consultor_nome) contextBits.push(`Consultor: ${m.consultor_nome}`);
+                if (m.consultor_telefone) contextBits.push(m.consultor_telefone);
+                if (m.data_origem) contextBits.push(String(m.data_origem));
+                if (m.hora_origem) contextBits.push(String(m.hora_origem));
+                if (m.grupo_whatsapp) contextBits.push(`Grupo: ${m.grupo_whatsapp}`);
+                if (m.comunidade) contextBits.push(`Comunidade: ${m.comunidade}`);
                 return (
-                  <div key={m.buyer.id} className="p-3 rounded-lg border bg-secondary/40">
+                  <div key={m.key} className="p-3 rounded-lg border bg-secondary/40">
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <div className="font-semibold flex items-center gap-2">
+                        <div className="font-semibold flex items-center gap-2 flex-wrap">
                           <span className="text-primary">#{i + 1}</span>
-                          {m.buyer.nome}
+                          {m.nome ?? "—"}
+                          <Badge variant="outline" className="text-[10px]">{sourceLabel}</Badge>
                           <Badge className="bg-accent text-accent-foreground">{m.score}% compatível</Badge>
                         </div>
+                        {contextBits.length > 0 && (
+                          <p className="text-[11px] text-muted-foreground mt-1">
+                            {contextBits.join(" · ")}
+                          </p>
+                        )}
+                        {m.resumo && (
+                          <p className="text-xs mt-1 italic text-muted-foreground line-clamp-2">
+                            "{m.resumo}"
+                          </p>
+                        )}
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {m.categories
                             .filter((c) => c.weight > 0 || c.key === "tipo")
@@ -766,13 +790,13 @@ function ImoveisPage() {
                             <Button variant="ghost" size="icon" title="WhatsApp"><MessageCircle className="w-4 h-4" /></Button>
                           </a>
                         )}
-                        {m.buyer.telefone && (
-                          <a href={`tel:${m.buyer.telefone}`}>
+                        {m.telefone && (
+                          <a href={`tel:${m.telefone}`}>
                             <Button variant="ghost" size="icon" title="Ligar"><Phone className="w-4 h-4" /></Button>
                           </a>
                         )}
-                        {m.buyer.email && (
-                          <a href={`mailto:${m.buyer.email}`}>
+                        {m.email && (
+                          <a href={`mailto:${m.email}`}>
                             <Button variant="ghost" size="icon" title="Email"><Mail className="w-4 h-4" /></Button>
                           </a>
                         )}
