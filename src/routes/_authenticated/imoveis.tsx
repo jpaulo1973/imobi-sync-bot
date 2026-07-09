@@ -791,9 +791,7 @@ function ImoveisPage() {
                           </a>
                         )}
                         {m.telefone && (
-                          <a href={`tel:${m.telefone}`}>
-                            <Button variant="ghost" size="icon" title="Ligar"><Phone className="w-4 h-4" /></Button>
-                          </a>
+                          <PhoneButton telefone={m.telefone} variant="ghost" size="icon" compact />
                         )}
                         {m.email && (
                           <a href={`mailto:${m.email}`}>
