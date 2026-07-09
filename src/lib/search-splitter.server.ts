@@ -28,13 +28,22 @@ const Response = z.object({ searches: z.array(SplitSearchSchema) });
 export function mayContainMultipleSearches(text: string | null | undefined): boolean {
   if (!text) return false;
   const t = text.toLowerCase();
-  const intents = t.match(/procur[oa]|pretende\s+(comprar|arrendar|adquirir)|compra[dr]|arrendat[aá]rio|cliente\s+(pretende|procura|interess)/g);
-  if (!intents || intents.length < 2) {
-    // Também contamos múltiplos preços "até XXXX" como indicador
-    const budgets = t.match(/at[eé]\s*[\d\.\s]{3,}/g);
-    if (!budgets || budgets.length < 2) return false;
-  }
-  return true;
+  let signals = 0;
+  const intents = t.match(/procur[oa]|pretende\s+(comprar|arrendar|adquirir)|compra[dr]|arrendat[aá]rio|cliente\s+(pretende|procura|interess)|tenho\s+comprador/g);
+  if (intents && intents.length >= 2) signals += 2;
+  const budgets = t.match(/at[eé]\s*[\d.\s]{3,}\s*(€|eur|k|mil|000)?/g);
+  if (budgets && budgets.length >= 2) signals += 2;
+  // Múltiplas tipologias distintas na mesma frase (T2 e T3, T2 ou T4...)
+  const tipologias = new Set((t.match(/\bt[0-6]\b/g) ?? []).map((x) => x.toLowerCase()));
+  if (tipologias.size >= 2) signals += 2;
+  // Bullets/numerados
+  if (/(\n|^)\s*(\d+[).]|[-*•])\s+/g.test(t)) signals += 1;
+  // Múltiplas zonas com preposição "em" seguido de nome próprio
+  const enZonas = t.match(/\bem\s+[a-zçãáéíóú]{3,}/g);
+  if (enZonas && enZonas.length >= 2) signals += 1;
+  // Ligação explícita "outra procura" / "também"
+  if (/(outra\s+procura|tamb[eé]m\s+procur|segunda\s+procura)/.test(t)) signals += 2;
+  return signals >= 2;
 }
 
 /**
