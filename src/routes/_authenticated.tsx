@@ -1,7 +1,7 @@
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Building2, Home, Sparkles, LogOut, Users, Shield, Radar, FileSpreadsheet, UserCircle } from "lucide-react";
+import { Building2, Home, Sparkles, LogOut, Users, Shield, Radar, FileSpreadsheet, UserCircle, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useServerFn } from "@tanstack/react-start";
@@ -87,6 +87,13 @@ function Layout() {
                   activeProps={{ className: "active" }}
                 >
                   <FileSpreadsheet className="w-4 h-4" /> Importar
+                </Link>
+                <Link
+                  to="/revisao"
+                  className="px-3 py-2 rounded-md text-sm font-medium hover:bg-secondary inline-flex items-center gap-2 [&.active]:bg-secondary [&.active]:text-primary"
+                  activeProps={{ className: "active" }}
+                >
+                  <AlertTriangle className="w-4 h-4" /> Revisão
                 </Link>
               </>
             )}

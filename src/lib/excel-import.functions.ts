@@ -6,6 +6,7 @@ import { scoreMatch, type BuyerLike } from "./matching-engine";
 import { buildDedupKey } from "./dedup";
 import { upsertOne, recomputeForSearch, type UpsertRow } from "./active-searches.functions";
 import { normalizeLocationsBatch } from "./location-normalize.server";
+import { splitBuyerSearches, type SplitSearch } from "./search-splitter.server";
 
 const DURATION_DAYS = 30;
 
@@ -215,7 +216,7 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
       if (elevador) caracExtras.push("elevador");
       if (garagem) caracExtras.push("garagem");
 
-      const criteria = {
+      const baseCriteria = {
         nome,
         finalidade,
         tipo_imovel: tipoImovel,
@@ -233,56 +234,99 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
         caracteristicas: caracExtras.length ? caracExtras : null,
       };
 
-      const dedup_key = buildDedupKey({
-        telefone,
-        nome,
+      // Release 2.1 — separar automaticamente múltiplas procuras num único texto.
+      const rawText = mensagem ?? descricao ?? "";
+      const splits = await splitBuyerSearches(rawText, {
         finalidade,
-        tipologia,
         tipo_imovel: tipoImovel,
-        zona: zona ?? municipio ?? freguesia,
+        tipologia,
+        zona,
+        budget_min: budget.min,
+        budget_max: budget.max,
+        area_min: area,
+        quartos_min: baseCriteria.quartos_min,
+        caracteristicas: baseCriteria.caracteristicas,
+        resumo: descricao,
       });
 
-      const row: UpsertRow = {
-        dedup_key,
-        criteria,
-        resumo: descricao,
-        texto_original: mensagem ?? descricao,
-        contact_nome: nome,
-        contact_telefone: telefone,
-        contact_email: email,
-        contact_grupo: grupoWhatsapp,
-        data_publicacao: dataPub,
-        expires_at: expires,
-        origem: "excel",
-        import_batch_id: batch_id,
-        consultor_nome: consultorNome,
-        consultor_telefone: consultorTelefone,
-        data_origem: dataOrigem,
-        hora_origem: horaOrigem,
-        grupo_whatsapp: grupoWhatsapp,
-        comunidade,
-      };
+      for (let idx = 0; idx < splits.length; idx++) {
+        const sp: SplitSearch = splits[idx];
+        // Cada procura é INDEPENDENTE: só herda contactos e metadados. Nunca
+        // partilhamos zona/tipologia/orçamento entre procuras separadas.
+        const spZona = sp.zona ?? null;
+        const spMunicipio = sp.municipio ?? null;
+        const spFreguesia = sp.freguesia ?? null;
+        const spTipologia = sp.tipologia ?? null;
+        const criteria = {
+          nome,
+          finalidade: sp.finalidade ?? "indefinido",
+          tipo_imovel: sp.tipo_imovel ?? null,
+          tipologia: spTipologia,
+          zona: spZona,
+          freguesia: spFreguesia,
+          municipio: spMunicipio,
+          distrito: distrito,
+          budget_min: sp.budget_min ?? null,
+          budget_max: sp.budget_max ?? null,
+          area_min: sp.area_min ?? null,
+          area_terreno_min: area_terreno,
+          wc_min: wc,
+          quartos_min:
+            sp.quartos_min ??
+            (spTipologia ? Number(spTipologia.replace(/\D/g, "")) || null : null),
+          caracteristicas: sp.caracteristicas ?? null,
+        };
 
-      try {
-        const res = await upsertOne(supabase, userId, row);
-        upsertedIds.push(res.id);
-        switch (res.action) {
-          case "created":
-            novas++;
-            break;
-          case "updated":
-            atualizadas++;
-            break;
-          case "kept_separate":
-            mantidas_separadas++;
-            break;
-          case "flagged":
-            sinalizadas_revisao++;
-            break;
+        const dedup_key = buildDedupKey({
+          telefone,
+          nome,
+          finalidade: (sp.finalidade ?? "indefinido") as any,
+          tipologia: spTipologia,
+          tipo_imovel: sp.tipo_imovel ?? null,
+          zona: spZona ?? spMunicipio ?? spFreguesia,
+        });
+
+        const row: UpsertRow = {
+          dedup_key,
+          criteria,
+          resumo: sp.resumo ?? descricao,
+          texto_original: rawText,
+          contact_nome: nome,
+          contact_telefone: telefone,
+          contact_email: email,
+          contact_grupo: grupoWhatsapp,
+          data_publicacao: dataPub,
+          expires_at: expires,
+          origem: "excel",
+          import_batch_id: batch_id,
+          consultor_nome: consultorNome,
+          consultor_telefone: consultorTelefone,
+          data_origem: dataOrigem,
+          hora_origem: horaOrigem,
+          grupo_whatsapp: grupoWhatsapp,
+          comunidade,
+        };
+
+        try {
+          const res = await upsertOne(supabase, userId, row);
+          upsertedIds.push(res.id);
+          switch (res.action) {
+            case "created":
+              novas++;
+              break;
+            case "updated":
+              atualizadas++;
+              break;
+            case "kept_separate":
+              mantidas_separadas++;
+              break;
+            case "flagged":
+              sinalizadas_revisao++;
+              break;
+          }
+        } catch (e) {
+          console.error("Excel row upsert failed", e);
         }
-      } catch (e) {
-        // linha inválida — segue
-        console.error("Excel row upsert failed", e);
       }
     }
 

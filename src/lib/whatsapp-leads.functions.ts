@@ -52,6 +52,7 @@ INSTRUÇÕES:
 1. Se receberes várias imagens, trata-as como uma única conversa contínua na ordem dada. Agrupa mensagens do mesmo pedido antes de decidir.
 2. Interpreta a INTENÇÃO, não apenas palavras exactas. Expressões como "procuro", "tenho comprador", "cliente aprovado para crédito", "casal procura", "família precisa", "alguém tem", "necessito de", "compra urgente", "pretende arrendar" etc. sinalizam leads.
 3. IGNORA: cabeçalhos WhatsApp (hora, "online", "digitando"), emojis isolados, reações, mensagens repetidas, assinaturas, saudações, ofertas de imóveis.
+4. SEPARAÇÃO DE PROCURAS: se UMA mensagem contém várias procuras INDEPENDENTES (diferentes tipologias, zonas ou orçamentos), cria UM lead separado por cada procura. NUNCA mistures critérios entre procuras diferentes.
 4. Para CADA lead identificada extrai:
    - nome: nome do cliente/família se referido (ou null; não é o nome de quem envia a mensagem)
    - finalidade: "venda" (comprar) | "arrendamento" (arrendar) | "indefinido"
@@ -220,6 +221,8 @@ export const matchWhatsappConversations = createServerFn({ method: "POST" })
 OBJECTIVO: identificar POTENCIAIS COMPRADORES ou ARRENDATÁRIOS — pessoas que PROCURAM imóvel. IGNORA ofertas de imóveis para venda/arrendamento, anúncios, partilhas de portais.
 
 Interpreta a INTENÇÃO. Ignora cabeçalhos WhatsApp, emojis isolados, reações. Se receberes várias imagens, trata-as como uma única conversa contínua.
+
+IMPORTANTE — SEPARAÇÃO DE PROCURAS: Se UMA única mensagem contém várias procuras INDEPENDENTES (por exemplo tipologias, zonas ou orçamentos diferentes na mesma frase — "procura T2 até 400k. Procura moradia em Cascais até 1M. Procura apartamento na Lourinhã"), cria UM lead separado por cada procura. NUNCA mistures zona, tipologia ou orçamento entre procuras diferentes.
 
 Para CADA pedido identificado extrai: nome (do consultor ou cliente que envia o pedido, quando existir), finalidade (venda|arrendamento|indefinido), tipo_imovel (array), tipologia, zona, budget_min, budget_max, area_min, quartos_min, caracteristicas (array), contacto, telefone (número em formato português, apenas dígitos com prefixo se aplicável), grupo_whatsapp (nome do grupo WhatsApp visível no cabeçalho da conversa quando existir), data_publicacao (data ISO da mensagem quando visível), resumo (1 frase), mensagem_original (excerto ≤300 char), confianca (alta|media|baixa). Não inventes dados: desconhecido = null.
 

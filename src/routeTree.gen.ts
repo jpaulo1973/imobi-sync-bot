@@ -15,6 +15,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedUtilizadoresRouteImport } from './routes/_authenticated/utilizadores'
+import { Route as AuthenticatedRevisaoRouteImport } from './routes/_authenticated/revisao'
 import { Route as AuthenticatedRadarRouteImport } from './routes/_authenticated/radar'
 import { Route as AuthenticatedPerfilRouteImport } from './routes/_authenticated/perfil'
 import { Route as AuthenticatedImportarRouteImport } from './routes/_authenticated/importar'
@@ -56,6 +57,11 @@ const AuthenticatedUtilizadoresRoute =
     path: '/utilizadores',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedRevisaoRoute = AuthenticatedRevisaoRouteImport.update({
+  id: '/revisao',
+  path: '/revisao',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedRadarRoute = AuthenticatedRadarRouteImport.update({
   id: '/radar',
   path: '/radar',
@@ -123,6 +129,7 @@ export interface FileRoutesByFullPath {
   '/importar': typeof AuthenticatedImportarRoute
   '/perfil': typeof AuthenticatedPerfilRoute
   '/radar': typeof AuthenticatedRadarRoute
+  '/revisao': typeof AuthenticatedRevisaoRoute
   '/utilizadores': typeof AuthenticatedUtilizadoresRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
@@ -140,6 +147,7 @@ export interface FileRoutesByTo {
   '/importar': typeof AuthenticatedImportarRoute
   '/perfil': typeof AuthenticatedPerfilRoute
   '/radar': typeof AuthenticatedRadarRoute
+  '/revisao': typeof AuthenticatedRevisaoRoute
   '/utilizadores': typeof AuthenticatedUtilizadoresRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
@@ -159,6 +167,7 @@ export interface FileRoutesById {
   '/_authenticated/importar': typeof AuthenticatedImportarRoute
   '/_authenticated/perfil': typeof AuthenticatedPerfilRoute
   '/_authenticated/radar': typeof AuthenticatedRadarRoute
+  '/_authenticated/revisao': typeof AuthenticatedRevisaoRoute
   '/_authenticated/utilizadores': typeof AuthenticatedUtilizadoresRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
@@ -178,6 +187,7 @@ export interface FileRouteTypes {
     | '/importar'
     | '/perfil'
     | '/radar'
+    | '/revisao'
     | '/utilizadores'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
@@ -195,6 +205,7 @@ export interface FileRouteTypes {
     | '/importar'
     | '/perfil'
     | '/radar'
+    | '/revisao'
     | '/utilizadores'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
@@ -213,6 +224,7 @@ export interface FileRouteTypes {
     | '/_authenticated/importar'
     | '/_authenticated/perfil'
     | '/_authenticated/radar'
+    | '/_authenticated/revisao'
     | '/_authenticated/utilizadores'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
@@ -272,6 +284,13 @@ declare module '@tanstack/react-router' {
       path: '/utilizadores'
       fullPath: '/utilizadores'
       preLoaderRoute: typeof AuthenticatedUtilizadoresRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/revisao': {
+      id: '/_authenticated/revisao'
+      path: '/revisao'
+      fullPath: '/revisao'
+      preLoaderRoute: typeof AuthenticatedRevisaoRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/radar': {
@@ -354,6 +373,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedImportarRoute: typeof AuthenticatedImportarRoute
   AuthenticatedPerfilRoute: typeof AuthenticatedPerfilRoute
   AuthenticatedRadarRoute: typeof AuthenticatedRadarRoute
+  AuthenticatedRevisaoRoute: typeof AuthenticatedRevisaoRoute
   AuthenticatedUtilizadoresRoute: typeof AuthenticatedUtilizadoresRoute
 }
 
@@ -364,6 +384,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedImportarRoute: AuthenticatedImportarRoute,
   AuthenticatedPerfilRoute: AuthenticatedPerfilRoute,
   AuthenticatedRadarRoute: AuthenticatedRadarRoute,
+  AuthenticatedRevisaoRoute: AuthenticatedRevisaoRoute,
   AuthenticatedUtilizadoresRoute: AuthenticatedUtilizadoresRoute,
 }
 
