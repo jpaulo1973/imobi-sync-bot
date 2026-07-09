@@ -221,6 +221,8 @@ OBJECTIVO: identificar POTENCIAIS COMPRADORES ou ARRENDATÁRIOS — pessoas que 
 
 Interpreta a INTENÇÃO. Ignora cabeçalhos WhatsApp, emojis isolados, reações. Se receberes várias imagens, trata-as como uma única conversa contínua.
 
+IMPORTANTE — SEPARAÇÃO DE PROCURAS: Se UMA única mensagem contém várias procuras INDEPENDENTES (por exemplo tipologias, zonas ou orçamentos diferentes na mesma frase — "procura T2 até 400k. Procura moradia em Cascais até 1M. Procura apartamento na Lourinhã"), cria UM lead separado por cada procura. NUNCA mistures zona, tipologia ou orçamento entre procuras diferentes.
+
 Para CADA pedido identificado extrai: nome (do consultor ou cliente que envia o pedido, quando existir), finalidade (venda|arrendamento|indefinido), tipo_imovel (array), tipologia, zona, budget_min, budget_max, area_min, quartos_min, caracteristicas (array), contacto, telefone (número em formato português, apenas dígitos com prefixo se aplicável), grupo_whatsapp (nome do grupo WhatsApp visível no cabeçalho da conversa quando existir), data_publicacao (data ISO da mensagem quando visível), resumo (1 frase), mensagem_original (excerto ≤300 char), confianca (alta|media|baixa). Não inventes dados: desconhecido = null.
 
 RESPOSTA: APENAS JSON válido:
