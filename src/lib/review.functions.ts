@@ -3,11 +3,48 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { recomputeForSearch } from "./active-searches.functions";
 import { buildDedupKey } from "./dedup";
+import { scoreMatch, type BuyerLike } from "./matching-engine";
 
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase.rpc("has_role", { _user_id: userId, _role: "admin" });
   if (error) throw new Error(error.message);
   if (!data) throw new Error("Apenas administradores.");
+}
+
+function completenessScore(row: any): number {
+  const c = (row.criteria ?? {}) as any;
+  let s = 0;
+  if (row.contact_telefone) s += 3;
+  if (c.finalidade && c.finalidade !== "indefinido") s += 2;
+  if (c.tipologia) s += 2;
+  if (Array.isArray(c.tipo_imovel) && c.tipo_imovel.length) s += 2;
+  if (c.zona || c.freguesia || c.municipio) s += 3;
+  if (c.budget_max) s += 2;
+  if (c.budget_min) s += 1;
+  if (c.area_min) s += 1;
+  if (Array.isArray(c.caracteristicas) && c.caracteristicas.length) s += 1;
+  if (row.texto_original && row.texto_original.length > 40) s += 1;
+  return s;
+}
+
+function criteriaToBuyer(c: any): BuyerLike {
+  const finalidade = c?.finalidade === "indefinido" ? undefined : c?.finalidade;
+  const gar = ((c?.caracteristicas ?? []) as string[]).some((x) => /garagem/i.test(x));
+  const ele = ((c?.caracteristicas ?? []) as string[]).some((x) => /elevador/i.test(x));
+  return {
+    finalidade,
+    tipo_imovel: c?.tipo_imovel ?? null,
+    tipologia: c?.tipologia ?? null,
+    zona: c?.zona ?? c?.municipio ?? c?.freguesia ?? null,
+    freguesia: c?.freguesia ?? null,
+    municipio: c?.municipio ?? null,
+    budget_min: c?.budget_min ?? null,
+    budget_max: c?.budget_max ?? null,
+    area_min: c?.area_min ?? null,
+    quartos_min: c?.quartos_min ?? null,
+    garagem_obrigatoria: gar,
+    elevador_obrigatorio: ele,
+  };
 }
 
 export const listPendingReview = createServerFn({ method: "GET" })
@@ -205,4 +242,139 @@ export const splitReviewSearch = createServerFn({ method: "POST" })
       }
     }
     return { ok: true, ids: createdIds };
+  });
+
+/**
+ * Deduplicação inteligente por chave. Para cada grupo com >1 registo:
+ *   1) Mantém o mais COMPLETO (mais campos preenchidos).
+ *   2) Empate → mantém o mais RECENTE.
+ *   3) Elimina os restantes.
+ * Recruza o registo mantido.
+ */
+export const mergeDuplicateSearches = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    await assertAdmin(supabase, userId);
+    const { data: all, error } = await supabase
+      .from("active_searches")
+      .select("id, user_id, dedup_key, criteria, contact_telefone, texto_original, created_at")
+      .not("dedup_key", "is", null);
+    if (error) throw new Error(error.message);
+
+    const groups = new Map<string, any[]>();
+    for (const r of all ?? []) {
+      const k = `${r.user_id}::${r.dedup_key}`;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k)!.push(r);
+    }
+
+    let merged = 0;
+    let removed = 0;
+    const keptIds: string[] = [];
+    for (const rows of groups.values()) {
+      if (rows.length < 2) continue;
+      // Escolhe o keeper: maior completeness; empate → mais recente.
+      rows.sort((a, b) => {
+        const ca = completenessScore(a);
+        const cb = completenessScore(b);
+        if (ca !== cb) return cb - ca;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+      const [keeper, ...losers] = rows;
+      const loserIds = losers.map((x) => x.id);
+      const { error: dErr } = await supabase
+        .from("active_searches")
+        .delete()
+        .in("id", loserIds);
+      if (dErr) {
+        console.error("dedup delete failed", dErr);
+        continue;
+      }
+      removed += loserIds.length;
+      merged++;
+      keptIds.push(keeper.id);
+    }
+
+    // Recruzar cada keeper para regenerar oportunidades.
+    for (const id of keptIds) {
+      try {
+        const { data: k } = await supabase
+          .from("active_searches")
+          .select("user_id")
+          .eq("id", id)
+          .maybeSingle();
+        if (k) await recomputeForSearch(supabase, k.user_id, id);
+      } catch (e) {
+        console.error("dedup recompute failed", e);
+      }
+    }
+    return { grupos_com_duplicados: merged, registos_removidos: removed };
+  });
+
+/**
+ * "Recruzar tudo" — passo administrativo único que:
+ *   1) Corre mergeDuplicateSearches.
+ *   2) Purga match_opportunities cujas procuras ou imóveis já não passam
+ *      nos hard filters actuais.
+ */
+export const recruzarTudo = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    await assertAdmin(supabase, userId);
+
+    // 1) Merge duplicados (partilhar a mesma lógica sem chamar o wrapper).
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: all } = await supabaseAdmin
+      .from("active_searches")
+      .select("id, user_id, dedup_key, criteria, contact_telefone, texto_original, created_at")
+      .not("dedup_key", "is", null);
+    const groups = new Map<string, any[]>();
+    for (const r of all ?? []) {
+      const k = `${r.user_id}::${r.dedup_key}`;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k)!.push(r);
+    }
+    let dupsRemoved = 0;
+    const keptIds: string[] = [];
+    for (const rows of groups.values()) {
+      if (rows.length < 2) continue;
+      rows.sort((a, b) => {
+        const ca = completenessScore(a);
+        const cb = completenessScore(b);
+        if (ca !== cb) return cb - ca;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+      const [keeper, ...losers] = rows;
+      await supabaseAdmin.from("active_searches").delete().in("id", losers.map((x) => x.id));
+      dupsRemoved += losers.length;
+      keptIds.push(keeper.id);
+    }
+
+    // 2) Purge stale opportunities — re-executa hard filters em memória.
+    const { data: opps } = await supabaseAdmin
+      .from("match_opportunities")
+      .select(
+        "id, user_id, active_search_id, property_id, active_searches(criteria), properties(*)",
+      );
+    const staleIds: string[] = [];
+    for (const o of opps ?? []) {
+      const s = (o as any).active_searches;
+      const p = (o as any).properties;
+      if (!s || !p) {
+        staleIds.push(o.id);
+        continue;
+      }
+      const r = scoreMatch(criteriaToBuyer(s.criteria), p);
+      if (!r.compatible || r.score < 60) staleIds.push(o.id);
+    }
+    if (staleIds.length > 0) {
+      await supabaseAdmin.from("match_opportunities").delete().in("id", staleIds);
+    }
+    return {
+      duplicados_removidos: dupsRemoved,
+      oportunidades_purgadas: staleIds.length,
+      registos_dedup_mantidos: keptIds.length,
+    };
   });
