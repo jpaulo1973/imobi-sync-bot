@@ -7,6 +7,7 @@ import { buildDedupKey } from "./dedup";
 import { upsertOne, recomputeForSearch, type UpsertRow } from "./active-searches.functions";
 import { normalizeLocationsBatch } from "./location-normalize.server";
 import { splitBuyerSearches, type SplitSearch } from "./search-splitter.server";
+import { mayContainMultipleSearches } from "./search-splitter.server";
 
 const DURATION_DAYS = 30;
 
@@ -258,7 +259,9 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
 
       // Release 2.1 — separar automaticamente múltiplas procuras num único texto.
       const rawText = mensagem ?? descricao ?? "";
-      const splits = await splitBuyerSearches(rawText, {
+      // Release 1.2.1 — só chamamos IA quando o pré-detector determinístico
+      // aponta para múltiplas procuras. Poupa créditos e latência.
+      const fallbackSearch: SplitSearch = {
         finalidade,
         tipo_imovel: tipoImovel,
         tipologia,
@@ -269,7 +272,10 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
         quartos_min: baseCriteria.quartos_min,
         caracteristicas: baseCriteria.caracteristicas,
         resumo: descricao,
-      });
+      };
+      const splits = mayContainMultipleSearches(rawText)
+        ? await splitBuyerSearches(rawText, fallbackSearch)
+        : [fallbackSearch];
 
       for (let idx = 0; idx < splits.length; idx++) {
         const sp: SplitSearch = splits[idx];
@@ -332,6 +338,20 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
         try {
           const res = await upsertOne(supabase, userId, row);
           upsertedIds.push(res.id);
+          if (flagAsReview) {
+            // Sinaliza para revisão manual sem impedir o fluxo.
+            try {
+              await supabase
+                .from("active_searches")
+                .update({
+                  flagged_for_review: true,
+                  decision_reason: "Não parece procura de comprador — rever manualmente",
+                })
+                .eq("id", res.id);
+            } catch (e) {
+              console.error("flag ambiguous failed", e);
+            }
+          }
           switch (res.action) {
             case "created":
               novas++;
