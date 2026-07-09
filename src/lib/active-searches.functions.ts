@@ -641,7 +641,40 @@ export const listOpportunities = createServerFn({ method: "GET" })
       .order("updated_at", { ascending: false })
       .limit(200);
     if (error) throw new Error(error.message);
-    return { opportunities: data ?? [] };
+
+    // Release 1.2.1 — REVALIDAÇÃO OBRIGATÓRIA em tempo real. Nunca confiamos
+    // no que está persistido: cada oportunidade é re-executada nos Hard
+    // Filters actuais. Se deixar de passar, apagamos a linha e não devolvemos.
+    const rows = data ?? [];
+    const staleIds: string[] = [];
+    const valid: typeof rows = [];
+    for (const row of rows) {
+      const p = (row as any).properties;
+      const s = (row as any).active_searches;
+      if (!p || !s) {
+        staleIds.push(row.id);
+        continue;
+      }
+      const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria);
+      // Aumentar com dados de área/preço vindos do imóvel completo
+      const { data: fullProp } = await supabase
+        .from("properties")
+        .select("area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina")
+        .eq("id", p.id)
+        .maybeSingle();
+      const propFull = { ...p, ...(fullProp ?? {}) };
+      const res = scoreMatch(buyer, propFull);
+      if (!res.compatible || res.score < 60) {
+        staleIds.push(row.id);
+        continue;
+      }
+      valid.push({ ...row, score: res.score, reasons: res.reasons } as any);
+    }
+    if (staleIds.length > 0) {
+      // Fire-and-forget cleanup — não bloqueia a resposta.
+      void supabase.from("match_opportunities").delete().in("id", staleIds).eq("user_id", userId);
+    }
+    return { opportunities: valid };
   });
 
 // Contagem de oportunidades por visualizar (para o badge do menu).
