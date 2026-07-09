@@ -6,6 +6,7 @@ import {
   updateReviewSearch,
   deleteReviewSearch,
   splitReviewSearch,
+  recruzarTudo,
 } from "@/lib/review.functions";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Save, Split, Trash2, Plus, X } from "lucide-react";
+import { AlertTriangle, Save, Split, Trash2, Plus, X, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/revisao")({
@@ -72,8 +73,10 @@ function formToCriteria(f: CriteriaForm) {
 
 function RevisaoPage() {
   const listFn = useServerFn(listPendingReview);
+  const recruzarFn = useServerFn(recruzarTudo);
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
+  const [recruzando, setRecruzando] = useState(false);
 
   const reload = () => {
     setLoading(true);
@@ -87,19 +90,38 @@ function RevisaoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const runRecruzar = async () => {
+    setRecruzando(true);
+    try {
+      const r = await recruzarFn();
+      toast.success(
+        `Recruzamento concluído: ${r.duplicados_removidos} duplicado(s) removido(s), ${r.oportunidades_purgadas} oportunidade(s) obsoleta(s) purgada(s).`,
+      );
+      reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro no recruzamento");
+    } finally {
+      setRecruzando(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-3 flex-wrap">
         <div className="w-10 h-10 rounded-lg bg-secondary text-primary inline-flex items-center justify-center shrink-0">
           <AlertTriangle className="w-5 h-5" />
         </div>
-        <div>
+        <div className="flex-1 min-w-[240px]">
           <h1 className="text-3xl font-bold tracking-tight">Revisão</h1>
           <p className="text-muted-foreground mt-1">
             Caixa de entrada de exceções. Procuras sinalizadas pelo sistema como ambíguas que
             precisam de intervenção humana.
           </p>
         </div>
+        <Button variant="outline" onClick={runRecruzar} disabled={recruzando}>
+          <RefreshCw className={"w-4 h-4 mr-2 " + (recruzando ? "animate-spin" : "")} />
+          {recruzando ? "A recruzar…" : "Recruzar tudo"}
+        </Button>
       </div>
 
       {loading ? (
