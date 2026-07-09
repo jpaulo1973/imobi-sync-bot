@@ -345,6 +345,22 @@ function CruzarPage() {
             Identificado(s) <strong>{results.length}</strong> pedido(s).
           </Card>
 
+          {results.length > 1 && (
+            <div className="flex items-center justify-end">
+              <Button
+                size="sm"
+                onClick={saveAllToRadar}
+                disabled={savingAll}
+                variant="secondary"
+              >
+                <Radar className="w-4 h-4 mr-2" />
+                {savingAll
+                  ? "A guardar todas..."
+                  : `Guardar as ${results.length} procuras no Radar`}
+              </Button>
+            </div>
+          )}
+
           {results.length === 0 && (
             <Card className="p-6 text-center text-muted-foreground">
               Nenhum pedido de comprador identificado na conversa.
