@@ -5,6 +5,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { scoreMatch, type BuyerLike } from "./matching-engine";
 import { buildDedupKey } from "./dedup";
 import { upsertOne, recomputeForSearch, type UpsertRow } from "./active-searches.functions";
+import { normalizeLocationsBatch } from "./location-normalize.server";
 
 const DURATION_DAYS = 30;
 
@@ -136,6 +137,18 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
     let sinalizadas_revisao = 0;
     const upsertedIds: string[] = [];
 
+    // --- Release 1.2 P2#9: normalização IA das localidades em lote ---
+    const rawZones = new Set<string>();
+    for (const raw of rows) {
+      const z = s(col(raw, "localizacao", "localização", "zona"));
+      if (z) rawZones.add(z);
+      const f = s(col(raw, "Freguesia"));
+      if (f) rawZones.add(f);
+      const m = s(col(raw, "Municipio", "Município", "Concelho"));
+      if (m) rawZones.add(m);
+    }
+    const zoneMap = await normalizeLocationsBatch(rawZones);
+
     for (const raw of rows) {
       const nome = s(col(raw, "Nome"));
       const telefone = s(col(raw, "WhatsApp", "Telefone", "Telemovel", "Telemóvel"));
@@ -144,9 +157,12 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
       const tipoImovel = parseTipoImovel(col(raw, "tipo_imovel", "tipo"));
       const tipologia = parseTipologia(col(raw, "tipologia"));
       const budget = pickBudget(col(raw, "budget", "orcamento", "orçamento"));
-      const zona = s(col(raw, "localizacao", "localização", "zona"));
-      const freguesia = s(col(raw, "Freguesia"));
-      const municipio = s(col(raw, "Municipio", "Município", "Concelho"));
+      const zonaRaw = s(col(raw, "localizacao", "localização", "zona"));
+      const freguesiaRaw = s(col(raw, "Freguesia"));
+      const municipioRaw = s(col(raw, "Municipio", "Município", "Concelho"));
+      const zona = zonaRaw ? zoneMap[zonaRaw] ?? zonaRaw : null;
+      const freguesia = freguesiaRaw ? zoneMap[freguesiaRaw] ?? freguesiaRaw : null;
+      const municipio = municipioRaw ? zoneMap[municipioRaw] ?? municipioRaw : null;
       const distrito = s(col(raw, "distrito", "Distrito"));
       const area = n(col(raw, "area", "área"));
       const area_terreno = n(col(raw, "area_terreno", "área_terreno"));
@@ -157,6 +173,13 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
       const descricao = s(col(raw, "descricao", "descrição"));
       const mensagem = s(col(raw, "mensagem_original", "mensagem"));
       const dataPub = combineDate(col(raw, "data"), col(raw, "hora"));
+      // Release 1.2 — metadados de contexto
+      const dataOrigem = s(col(raw, "data"));
+      const horaOrigem = s(col(raw, "hora"));
+      const consultorNome = s(col(raw, "Consultor", "consultor", "Agente", "agente"));
+      const consultorTelefone = s(col(raw, "Consultor_Telefone", "Telefone_Consultor", "consultor_telefone"));
+      const comunidade = s(col(raw, "Comunidade", "comunidade"));
+      const grupoWhatsapp = s(col(raw, "Grupo", "grupo", "grupo_whatsapp"));
 
       // Regra mínima: precisa de telefone OU (nome + algum critério) para ser útil
       if (!telefone && !nome) continue;
@@ -200,11 +223,17 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
         contact_nome: nome,
         contact_telefone: telefone,
         contact_email: email,
-        contact_grupo: null,
+        contact_grupo: grupoWhatsapp,
         data_publicacao: dataPub,
         expires_at: expires,
         origem: "excel",
         import_batch_id: batch_id,
+        consultor_nome: consultorNome,
+        consultor_telefone: consultorTelefone,
+        data_origem: dataOrigem,
+        hora_origem: horaOrigem,
+        grupo_whatsapp: grupoWhatsapp,
+        comunidade,
       };
 
       try {
