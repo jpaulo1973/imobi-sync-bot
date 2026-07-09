@@ -61,20 +61,24 @@ function Layout() {
             >
               <Users className="w-4 h-4" /> Clientes
             </Link>
-            <Link
-              to="/cruzar"
-              className="px-3 py-2 rounded-md text-sm font-medium hover:bg-secondary inline-flex items-center gap-2 [&.active]:bg-secondary [&.active]:text-primary"
-              activeProps={{ className: "active" }}
-            >
-              <Sparkles className="w-4 h-4" /> Match WhatsApp
-            </Link>
-            <Link
-              to="/importar"
-              className="px-3 py-2 rounded-md text-sm font-medium hover:bg-secondary inline-flex items-center gap-2 [&.active]:bg-secondary [&.active]:text-primary"
-              activeProps={{ className: "active" }}
-            >
-              <FileSpreadsheet className="w-4 h-4" /> Importar
-            </Link>
+            {isAdmin && (
+              <>
+                <Link
+                  to="/cruzar"
+                  className="px-3 py-2 rounded-md text-sm font-medium hover:bg-secondary inline-flex items-center gap-2 [&.active]:bg-secondary [&.active]:text-primary"
+                  activeProps={{ className: "active" }}
+                >
+                  <Sparkles className="w-4 h-4" /> Match WhatsApp
+                </Link>
+                <Link
+                  to="/importar"
+                  className="px-3 py-2 rounded-md text-sm font-medium hover:bg-secondary inline-flex items-center gap-2 [&.active]:bg-secondary [&.active]:text-primary"
+                  activeProps={{ className: "active" }}
+                >
+                  <FileSpreadsheet className="w-4 h-4" /> Importar
+                </Link>
+              </>
+            )}
             <Link
               to="/radar"
               className="px-3 py-2 rounded-md text-sm font-medium hover:bg-secondary inline-flex items-center gap-2 [&.active]:bg-secondary [&.active]:text-primary"
