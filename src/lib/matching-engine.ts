@@ -118,9 +118,14 @@ function fail(key: MatchCategoryKey, label: string, detail: string): MatchScore 
 // ---------- Hard Filters ----------
 
 function checkFinalidade(buyer: BuyerLike, property: PropertyLike): MatchCategoryResult | string {
-  if (buyer.finalidade && property.finalidade && buyer.finalidade !== property.finalidade) {
-    return `Finalidade incompatível (${property.finalidade})`;
-  }
+  // Hard Filter estrito: finalidade tem de estar declarada em ambos os lados
+  // e ser compatível. "ambos" no lado do comprador aceita venda ou arrendamento.
+  const b = (buyer.finalidade ?? "").toString().toLowerCase();
+  const p = (property.finalidade ?? "").toString().toLowerCase();
+  if (!b || b === "indefinido") return "Finalidade da procura não indicada";
+  if (!p) return "Finalidade do imóvel não indicada";
+  const buyerAcceptsBoth = b === "ambos" || b === "venda_arrendamento";
+  if (!buyerAcceptsBoth && b !== p) return `Finalidade incompatível (procura ${b}, imóvel ${p})`;
   return {
     key: "finalidade",
     label: "Finalidade",
@@ -134,9 +139,9 @@ function checkFinalidade(buyer: BuyerLike, property: PropertyLike): MatchCategor
 function checkTipo(buyer: BuyerLike, property: PropertyLike): MatchCategoryResult | string {
   const buyerTipos = (buyer.tipo_imovel ?? []).map(normalizeLocation).filter(Boolean);
   const pTipo = normalizeLocation(property.tipo_imovel);
-  if (buyerTipos.length === 0) {
-    return { key: "tipo", label: "Tipo", ok: true, detail: property.tipo_imovel ?? "—", score: 0, weight: 0 };
-  }
+  // Hard Filter estrito: tipo tem de estar declarado na procura e no imóvel
+  // e ser compatível (Hotel ≠ Moradia ≠ Apartamento ≠ Terreno...).
+  if (buyerTipos.length === 0) return "Tipo de imóvel não indicado na procura";
   if (!pTipo) return "Tipo do imóvel não declarado";
   if (!buyerTipos.includes(pTipo)) return `Tipo ${property.tipo_imovel} fora do pedido`;
   return { key: "tipo", label: "Tipo", ok: true, detail: property.tipo_imovel!, score: 0, weight: 0 };
@@ -226,19 +231,8 @@ function checkLocalizacao(
   const weight = WEIGHTS.localizacao;
   const buyerTokens = tokens(buyer.zona);
 
-  if (buyerTokens.length === 0) {
-    return {
-      category: {
-        key: "localizacao",
-        label: "Localização",
-        ok: true,
-        detail: "Sem preferência de zona",
-        score: Math.round(weight * 0.8),
-        weight,
-      },
-      softScore: Math.round(weight * 0.8),
-    };
-  }
+  // Hard Filter estrito: localização é obrigatória na procura.
+  if (buyerTokens.length === 0) return "Localização não indicada na procura";
 
   const pFreg = normalizeLocation(property.freguesia);
   const pZona = normalizeLocation(property.zona);
