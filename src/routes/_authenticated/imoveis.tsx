@@ -35,7 +35,6 @@ import {
   Target,
   Phone,
   Mail,
-  MessageCircle,
   Users,
   Check,
   X,
