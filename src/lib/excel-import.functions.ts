@@ -6,6 +6,7 @@ import { scoreMatch, type BuyerLike } from "./matching-engine";
 import { buildDedupKey } from "./dedup";
 import { upsertOne, recomputeForSearch, type UpsertRow } from "./active-searches.functions";
 import { normalizeLocationsBatch } from "./location-normalize.server";
+import { splitBuyerSearches, type SplitSearch } from "./search-splitter.server";
 
 const DURATION_DAYS = 30;
 
