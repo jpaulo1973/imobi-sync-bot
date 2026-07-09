@@ -6,7 +6,7 @@ import { scoreMatch, type BuyerLike } from "./matching-engine";
 import { buildDedupKey } from "./dedup";
 import { upsertOne, recomputeForSearch, type UpsertRow } from "./active-searches.functions";
 import { normalizeLocationsBatch } from "./location-normalize.server";
-import { splitBuyerSearches, type SplitSearch } from "./search-splitter.server";
+import { splitBuyerSearches, mayContainMultipleSearches, type SplitSearch } from "./search-splitter.server";
 
 const DURATION_DAYS = 30;
 
@@ -42,28 +42,47 @@ function parseFinalidade(v: unknown): "venda" | "arrendamento" | "indefinido" {
   return "indefinido";
 }
 
-// Heurística — descarta linhas que claramente NÃO são procuras de comprador
-// (ofertas de imóveis, anúncios, mensagens institucionais). Devolve `true`
-// quando a linha parece uma procura legítima.
-function looksLikeBuyerSearch(text: string | null): boolean {
-  if (!text) return true; // sem descrição, decidimos pelos outros critérios
+// Classifica um texto como procura de comprador, oferta/anúncio, ou ambíguo.
+// Regra 1.2.1: exigimos sinal EXPLÍCITO de procura para importar directamente.
+// Se apenas parece anúncio → descartar. Se ambíguo → sinalizar para revisão.
+export type BuyerTextClass = "procura" | "anuncio" | "ambiguo";
+
+function classifyBuyerText(text: string | null): BuyerTextClass {
+  if (!text) return "ambiguo";
   const t = text.toLowerCase();
   const procuraSignals = [
-    /procur/, /compra(dor|)/, /cliente\s+(aprovad|pretende|interess|procura)/,
-    /tenho\s+comprador/, /familia\s+procur/, /casal\s+procur/,
-    /pretende\s+(comprar|arrendar|adquirir)/, /necessit/, /arrendat[aá]rio/,
-    /interessad[oa]s?\s+em\s+comprar/, /orcamento\s+at[eé]/, /orçamento\s+at[eé]/,
-    /aprovad[oa]\s+para\s+cr[eé]dito/,
+    /procur[oa]\b/, /procura(m|)\s+(por\s+)?[a-z]/,
+    /(tenho|temos)\s+(cliente|comprador|casal|fam[ií]lia)/,
+    /cliente\s+(aprovad|pretende|interess|procura|com\s+cr[eé]dito)/,
+    /pretende\s+(comprar|arrendar|adquirir)/, /necessit[ao]/, /arrendat[aá]rio/,
+    /interessad[oa]s?\s+em\s+(comprar|arrendar)/,
+    /aprovad[oa]\s+para\s+cr[eé]dito/, /or[cç]amento\s+at[eé]/,
+    /compra\s+urgente/, /precisa[m]?\s+de\s+(casa|apartamento|moradia)/,
   ];
-  if (procuraSignals.some((re) => re.test(t))) return true;
+  const hasProcura = procuraSignals.some((re) => re.test(t));
   const ofertaSignals = [
     /vende[- ]se/, /\bvendo\b/, /para\s+venda/, /arrenda[- ]se/, /para\s+arrendament/,
     /oportunidade\s+[uú]nica/, /novo\s+no\s+mercado/, /km\s*0/,
-    /pre[cç]o\s+reduzid/, /remodelad/, /an[uú]ncio/, /vis(ite|ita\s+virtual)/,
-    /agende\s+visita/, /marque\s+visita/, /^t[0-6]\b/, /studio\s+novo/,
+    /pre[cç]o\s+reduzid/, /an[uú]ncio/, /vis(ite|ita\s+virtual)/,
+    /agende\s+visita/, /marque\s+visita/, /studio\s+novo/,
+    /vista\s+(mar|rio)/, /inclui\s+garagem/, /remodelad[oa]\s+t[0-6]/,
+    /\d+\s*€\s*\/\s*m[²2]/, /apresenta[cç][aã]o\s+de\s+(im[oó]vel|apartamento|moradia)/,
   ];
-  if (ofertaSignals.some((re) => re.test(t))) return false;
-  return true;
+  const hasOferta = ofertaSignals.some((re) => re.test(t));
+  // Sinal estrutural: preço + área + tipologia + morada sem verbo de procura.
+  const hasPrice = /\d[\d.\s]{2,}\s*(€|eur)/.test(t);
+  const hasArea = /\d+\s*m[²2]/.test(t);
+  const hasTipologia = /\bt[0-6]\b/.test(t);
+  const structuralAd = hasPrice && hasArea && hasTipologia && !hasProcura;
+
+  if (hasProcura && !hasOferta) return "procura";
+  if (hasOferta || structuralAd) return "anuncio";
+  return "ambiguo";
+}
+
+// Mantém compatibilidade — devolve true quando não é anúncio confirmado.
+function looksLikeBuyerSearch(text: string | null): boolean {
+  return classifyBuyerText(text) !== "anuncio";
 }
 
 function parseTipologia(v: unknown): string | null {
@@ -209,8 +228,11 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
       // Regra mínima: precisa de telefone OU (nome + algum critério) para ser útil
       if (!telefone && !nome) continue;
 
-      // Release 1.2 bug #005 — só importar procuras de comprador.
-      if (!looksLikeBuyerSearch(mensagem ?? descricao)) continue;
+      // Release 1.2.1 — classificar rigorosamente. Anúncios são descartados;
+      // casos ambíguos são importados mas sinalizados para revisão manual.
+      const textClass = classifyBuyerText(mensagem ?? descricao);
+      if (textClass === "anuncio") continue;
+      const flagAsReview = textClass === "ambiguo";
 
       const caracExtras: string[] = [...(caract ?? [])];
       if (elevador) caracExtras.push("elevador");
@@ -236,7 +258,9 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
 
       // Release 2.1 — separar automaticamente múltiplas procuras num único texto.
       const rawText = mensagem ?? descricao ?? "";
-      const splits = await splitBuyerSearches(rawText, {
+      // Release 1.2.1 — só chamamos IA quando o pré-detector determinístico
+      // aponta para múltiplas procuras. Poupa créditos e latência.
+      const fallbackSearch: SplitSearch = {
         finalidade,
         tipo_imovel: tipoImovel,
         tipologia,
@@ -247,7 +271,10 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
         quartos_min: baseCriteria.quartos_min,
         caracteristicas: baseCriteria.caracteristicas,
         resumo: descricao,
-      });
+      };
+      const splits = mayContainMultipleSearches(rawText)
+        ? await splitBuyerSearches(rawText, fallbackSearch)
+        : [fallbackSearch];
 
       for (let idx = 0; idx < splits.length; idx++) {
         const sp: SplitSearch = splits[idx];
@@ -310,6 +337,20 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
         try {
           const res = await upsertOne(supabase, userId, row);
           upsertedIds.push(res.id);
+          if (flagAsReview) {
+            // Sinaliza para revisão manual sem impedir o fluxo.
+            try {
+              await supabase
+                .from("active_searches")
+                .update({
+                  flagged_for_review: true,
+                  decision_reason: "Não parece procura de comprador — rever manualmente",
+                })
+                .eq("id", res.id);
+            } catch (e) {
+              console.error("flag ambiguous failed", e);
+            }
+          }
           switch (res.action) {
             case "created":
               novas++;

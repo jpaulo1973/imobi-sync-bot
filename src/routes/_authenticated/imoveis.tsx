@@ -35,7 +35,6 @@ import {
   Target,
   Phone,
   Mail,
-  MessageCircle,
   Users,
   Check,
   X,
@@ -786,11 +785,6 @@ function ImoveisPage() {
                         </p>
                       </div>
                       <div className="flex gap-1">
-                        {tel && (
-                          <a href={`https://wa.me/${tel.startsWith("351") ? tel : "351" + tel}`} target="_blank" rel="noreferrer">
-                            <Button variant="ghost" size="icon" title="WhatsApp"><MessageCircle className="w-4 h-4" /></Button>
-                          </a>
-                        )}
                         {m.telefone && (
                           <PhoneButton telefone={m.telefone} variant="ghost" size="icon" compact />
                         )}

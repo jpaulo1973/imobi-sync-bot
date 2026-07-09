@@ -10,7 +10,7 @@ import {
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Radar, Trash2, MessageCircle, Phone, Sparkles, ArrowRight } from "lucide-react";
+import { Radar, Trash2, Phone, Sparkles, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { PhoneButton } from "@/components/PhoneButton";
 
@@ -214,16 +214,7 @@ function RadarPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
-                    {tel && (
-                      <>
-                        <Button asChild size="sm" variant="outline">
-                          <a href={`https://wa.me/${tel.replace(/^\+/, "")}`} target="_blank" rel="noreferrer">
-                            <MessageCircle className="w-4 h-4 mr-1" /> WhatsApp
-                          </a>
-                        </Button>
-                        <PhoneButton telefone={tel} />
-                      </>
-                    )}
+                    {tel && <PhoneButton telefone={tel} />}
                     <Button size="sm" variant="ghost" onClick={() => remove(r.id)} aria-label="Remover procura">
                       <Trash2 className="w-4 h-4" />
                     </Button>

@@ -1,92 +1,117 @@
+# Release 1.2.1 — Consolidação do Motor de Oportunidades
 
-# Sprint 1 — Property Match MVP
+Objetivo: eliminar falsos positivos e devolver total confiança nos resultados. Sem features novas — só consolidação.
 
-## 1. Rebranding: Cross Match → Property Match
+---
 
-Alterar todas as strings visíveis e referências internas de "Cross Match" / "cruzar" / "ImoMatch" (quando aplicável ao produto) para **Property Match**.
+## 1. Hard Filters estritos e configuráveis (`src/lib/matching-engine.ts`)
 
-Alvos identificados:
-- `public/manifest.webmanifest` — `name`, `short_name`, `description`.
-- `src/routes/__root.tsx` — `<title>`, meta description, OG tags.
-- `src/routes/_authenticated.tsx` — nome no header/sidebar.
-- `src/routes/_authenticated/cruzar.tsx` — títulos, botões, mensagens (mantenho a rota `/cruzar` para não partir links; o label passa a "Property Match").
-- Títulos de páginas em `imoveis.tsx`, `clientes.tsx`, `portais.tsx`, `utilizadores.tsx` (sufixo "— Property Match").
-- `src/routes/auth.tsx` — nome do produto.
-- Toasts / textos em `.functions.ts` que mencionem cruzamento passam a "Property Match".
-- `AGENTS.md` e `.lovable/project.json` (nome descritivo apenas).
+Nova arquitetura baseada em **registo configurável** de filtros:
 
-Não altero: nome do repo, IDs Supabase, nomes de tabelas/colunas, nome do package (`package.json` `name`) — evita rebuilds pesados sem valor funcional.
-
-## 2. Importação Century 21 mais robusta + apenas campos essenciais
-
-Reescrever `importPropertyFromUrl` em `src/lib/properties.functions.ts`:
-
-**Extração (Firecrawl):**
-- Chamar Firecrawl com `formats: ["markdown", "html"]`, `onlyMainContent: false`, `waitFor: 3500`, e passar `includeTags` úteis. Fallback: se markdown vier vazio, extrair texto do HTML como já faz.
-- Aumentar limite de conteúdo para 60k chars (Century 21 tem páginas grandes).
-- Se Firecrawl devolver 402/erro → mensagem clara em português.
-
-**Schema essencial (novo):**
 ```
-referencia, tipo_imovel (apartamento|moradia|terreno|outro),
-tipologia (T0..T5+|Moradia),
-preco (number),
-distrito, concelho, freguesia, zona,
-area_util_m2,
-garagem (bool|null), elevador (bool|null),
-jardim (bool|null), piscina (bool|null),
-finalidade (venda|arrendamento)
+HARD_FILTERS: HardFilter[] = [
+  finalidadeFilter, tipoFilter, localizacaoFilter,
+  areaMinFilter, precoMaxFilter,
+  ...featureFilters (garagem, elevador, ...)
+]
 ```
 
-**Prompt IA:** instruções específicas para Century 21 (padrões de URL, breadcrumb "Distrito › Concelho › Freguesia", label "Área útil", ícones de características). Devolver `null` quando não encontrar — nunca inventar. Modelo: `google/gemini-2.5-flash`.
+Cada filtro devolve `{ ok: true } | { ok: false, reason } | { ok: false, needsReview: true, reason }`. Acrescentar futuros hard filters = juntar entrada ao array; motor não muda.
 
-**Importação parcial:**
-- Nunca rejeitar por falta de campos. Só falha se **nem preço nem localização nem tipologia** vierem (imóvel vazio real).
-- Devolver `{ property, missing_fields: string[] }` para o frontend indicar o que preencher.
+Filtros iniciais, por ordem:
 
-**Alterações de schema (migração):**
-Adicionar colunas a `public.properties`:
-- `tipo_imovel text`
-- `distrito text`, `freguesia text`
-- `area_util_m2 numeric` (mantém `area_m2` para compatibilidade; nova coluna é a canónica para match)
-- `garagem boolean`, `elevador boolean`, `jardim boolean`, `piscina boolean`
+1. **Finalidade** — venda/arrendamento tem de coincidir. `indefinido` em qualquer lado → falha.
+2. **Tipo de imóvel** — declarado em ambos e coincidente.
+3. **Localização** — ver §2.
+4. **Área mínima**:
+   - `buyer.area_min` existe e `imóvel.area < area_min` → falha eliminatória.
+   - `buyer.area_min` existe e imóvel sem área → `needsReview: "Área do imóvel em falta"`.
+5. **Preço máximo** — `price > budget_max * 1.10` → falha.
+6. **Características obrigatórias** (garagem, elevador, futuras) — declarativas via `REQUIRED_FEATURES` map; se pedidas e ausentes → falha.
 
-Todas nullable, sem defaults destrutivos. Não removo colunas existentes.
+Só depois: score soft (tipologia, preço dentro do intervalo, área acima do mínimo, extras opcionais, nível de localização).
 
-## 3. UI de imóveis: preenchimento manual dos campos em falta
+## 2. Localização por freguesia (`src/lib/location-graph.ts` + engine)
 
-Em `src/routes/_authenticated/imoveis.tsx`:
-- Após importar, se `missing_fields.length > 0`, abrir automaticamente o diálogo de edição pré-preenchido com o que foi importado e destacar os campos em falta (badge "em falta").
-- Formulário de criação/edição passa a incluir os novos campos essenciais (distrito, freguesia, zona, área útil, tipo, checkboxes garagem/elevador/jardim/piscina).
+- Mesma freguesia → Nível 1 (compatível).
+- Freguesia limítrofe configurada em `ADJACENT` → Nível 2 (compatível, score reduzido).
+- Qualquer outra combinação — **incluindo mesmo concelho sem adjacência** → incompatível.
+- **Procura pede freguesia, imóvel só tem concelho** → `needsReview: "Freguesia do imóvel em falta"`. Não gera oportunidade automática, mas surge na Revisão.
+- Removido Nível 3 e o toggle `expandSearch`.
+- Grafo `ADJACENT` inicial: freguesias de Lisboa, Cascais, Oeiras, Sintra, Setúbal. Editável sem tocar em código.
 
-## 4. Property Match automático após criar/importar
+## 3. Revalidação obrigatória em tempo real (`src/lib/property-match.functions.ts`)
 
-Novo server fn `runPropertyMatch({ propertyId })` em `src/lib/property-match.functions.ts`:
-- Carrega o imóvel e todos os `buyer_clients` ativos do user.
-- Score determinístico (finalidade, tipo, tipologia, preço dentro do budget, área ≥ min, quartos, localização hierárquica distrito→concelho→freguesia→zona, garagem/elevador obrigatórios do comprador).
-- Devolve top 20 compradores com `score` e `reasons[]`.
+- Listagens de oportunidades deixam de confiar em `match_opportunities` persistidas: cada linha é **re-executada nos Hard Filters em tempo real** com os dados atuais do imóvel e da procura.
+- Se deixar de passar → linha apagada de `match_opportunities` e não é devolvida ao consultor.
+- Se o motivo for `needsReview`, oportunidade não é devolvida como match e o registo é marcado `flagged_for_review = true` com o motivo apropriado.
+- Igual comportamento em recomputações após edição de imóvel, procura, split ou dedup.
 
-Fluxo automático:
-- No `imoveis.tsx`, após `save()` bem sucedido ou após `importFn()`, chamar `runPropertyMatch` com o id do imóvel criado e mostrar um **painel de resultados imediato** (drawer/dialog) com a lista ordenada e contactos (nome, telefone, email, botão "abrir WhatsApp").
-- Sem botão manual para lançar o match; o botão só existe para **re-executar** num imóvel já existente (ícone Sparkles no cartão).
+## 4. Splitter determinístico + eliminação do original (`search-splitter.server.ts`, `excel-import.functions.ts`, `whatsapp-leads.functions.ts`, `active-searches.functions.ts`)
 
-## 5. Localização — estrutura pronta para futuro
+- `mayContainMultipleSearches` reforçada: separadores (`\n-`, `•`, `1)`), múltiplos verbos de procura, múltiplos `até XXX €`, tipologias distintas, localizações distintas.
+- **IA (`splitBuyerSearches`) só é chamada quando o pré-detector devolve `true`**. Procura simples → zero IA.
+- Quando splitter devolve N ≥ 2: cria N novos registos e **elimina o registo original**. Nunca coexistem pai + filhos.
+- Aplicado em Excel, WhatsApp e página Cruzar.
 
-- Guardar `distrito`, `concelho`, `freguesia`, `zona` separadamente (feito em §2).
-- Score de localização hierárquico com pesos decrescentes: freguesia exata > mesma zona > mesmo concelho > mesmo distrito. Ainda sem "zonas vizinhas" — apenas correspondência textual normalizada (lowercase + strip acentos).
-- Deixar helper `normalizeLocation()` isolado para futura expansão (proximidade por lista de zonas relacionadas).
+## 5. Deduplicação inteligente (`src/lib/dedup.ts` + migração + `review.functions.ts`)
 
-## 6. Página `/cruzar`
+- `dedup_key` = telefone normalizado + finalidade + tipologia + tipo + freguesia + faixa de orçamento arredondada.
+- Migração: `UNIQUE (user_id, dedup_key) WHERE dedup_key IS NOT NULL` em `active_searches` + `ON CONFLICT DO NOTHING` no insert.
+- `mergeDuplicateSearches` (admin, botão na Revisão): para cada grupo `(user_id, dedup_key)` com >1 registo:
+  1. **Preferir o mais completo** — `completeness_score` = soma ponderada de campos preenchidos (telefone, freguesia, tipologia, orçamento min+max, área, características, texto_original).
+  2. **Empate → mais recente**.
+  3. Apagar os restantes; re-cruzar o mantido.
 
-Mantém-se para o fluxo WhatsApp (leads → imóveis), mas renomeada para "Property Match — Leads WhatsApp" para deixar claro que é o caminho inverso. Sem alterações funcionais nesta Sprint.
+## 6. Filtro de anúncios reforçado (`excel-import.functions.ts` + WhatsApp)
 
-## Critérios de aceitação
-- App inteira diz "Property Match".
-- Importar link Century 21 com campos parciais cria sempre o imóvel e sinaliza o que falta.
-- Após criar/importar imóvel, resultados de compatibilidade aparecem sem clique adicional.
-- Compradores ordenados por score, com razões visíveis.
+- Alargar `ofertaSignals` (novo/km0/vista mar/preço €/m²/inclui garagem/agende visita/T3 remodelado/etc.).
+- Inverter a regra: passa a **exigir sinal explícito de procura** para importar. Sem sinal → `flagged_for_review = true` com motivo "Não parece procura de comprador", em vez de descartar silenciosamente.
+- Sinais estruturais: `preço + área + tipologia + morada` sem verbo de procura → classificado como anúncio.
 
-## Fora do âmbito (Sprint 2+)
-- Proximidade por zonas vizinhas / geocoding.
-- Importação de outros portais (Idealista, Imovirtula, etc.) com o mesmo nível de robustez.
-- Notificações automáticas ao comprador.
+## 7. Botão WhatsApp corrigido (`src/components/PhoneButton.tsx` + call sites)
+
+- Passa a usar sempre `https://wa.me/<E164 sem +>`; nunca `api.whatsapp.com`.
+- Normalizador único (retira espaços/`+`/`00`; garante `351` para números PT sem indicativo).
+- Link sempre `target="_blank" rel="noreferrer noopener"`.
+- Botão WhatsApp adicionado ao popover do `PhoneButton`.
+- Substituir os call sites que ainda constroem URL à mão (`radar.tsx`, `imoveis.tsx`).
+
+## 8. Página Revisão (`src/routes/_authenticated/revisao.tsx` + `review.functions.ts`)
+
+Colunas visíveis: origem, consultor, comunidade, grupo, texto original, motivo (novo enum: `multi_procura`, `freguesia_em_falta`, `area_em_falta`, `nao_parece_procura`, `revisao_manual`), data, telefone.
+
+Ações:
+- Editar / Dividir / Guardar / Eliminar (já existem).
+- **"Guardar e reintegrar"** limpa `flagged_for_review` e recruza.
+- **"Recruzar tudo"** (admin): corre `mergeDuplicateSearches` → reaplica hard filters → regenera `match_opportunities`.
+
+## 9. Auditoria de dados existentes (migração + função única)
+
+Migração:
+- Índice único parcial descrito em §5.
+- Coluna `decision_reason` já existe; documenta o enum de motivos.
+
+Função executada via "Recruzar tudo":
+- Marca `flagged_for_review = true` para registos multi-procura detectados pelo pré-detector.
+- Purga `match_opportunities` que já não passem nos novos hard filters (via revalidação de §3).
+- Corre `mergeDuplicateSearches`.
+
+---
+
+## Ficheiros afetados
+
+Alterados: `src/lib/matching-engine.ts`, `src/lib/location-graph.ts`, `src/lib/search-splitter.server.ts`, `src/lib/dedup.ts`, `src/lib/excel-import.functions.ts`, `src/lib/whatsapp-leads.functions.ts`, `src/lib/active-searches.functions.ts`, `src/lib/property-match.functions.ts`, `src/lib/review.functions.ts`, `src/components/PhoneButton.tsx`, `src/routes/_authenticated/revisao.tsx`, `src/routes/_authenticated/radar.tsx`, `src/routes/_authenticated/imoveis.tsx`.
+
+Novos: migração SQL (índice único parcial em `active_searches`).
+
+## Notas técnicas
+
+- Remoção do Nível 3 é intencional. Menos resultados, todos válidos. Badge "modo estrito" no Radar.
+- Revalidação em tempo real assegura que edições a imóveis/procuras purgam automaticamente oportunidades obsoletas — sem jobs periódicos.
+- IA só é invocada quando o pré-detector determinístico o justifica — poupa créditos.
+- Helpers dos `HARD_FILTERS` vivem em módulo `.server.ts` importado pelo motor (evita `ReferenceError` do transform `tss-serverfn-split` quando reutilizados por server functions).
+
+## Fora de âmbito
+
+Sem novas features, sem alterações de UI/UX além do `PhoneButton`, badge "modo estrito" no Radar e enum de motivos na Revisão. Sem novas tabelas.

@@ -1,21 +1,23 @@
-// Motor de compatibilidade Property Match.
+// Motor de compatibilidade Property Match — Release 1.2.1.
 //
-// Filosofia: qualidade > quantidade. Antes de pontuar, aplica Hard Filters
-// pela ordem definida no briefing (Sprint — Hard Filters de Compatibilidade):
+// Arquitetura: registo configurável de Hard Filters. Cada filtro devolve
+// {ok:true} | {ok:false, reason} | {ok:false, needsReview, reviewReason, reason}.
+// Um único filtro falhado impede totalmente a geração da oportunidade.
+// Só depois de TODOS passarem é calculado o soft score (0-100).
 //
-//   1) Finalidade  2) Tipo de imóvel  3) Tipologia  4) Orçamento  5) Localização
-//
-// Só imóveis que sobrevivem a TODOS os filtros recebem pontuação. A percentagem
-// de Match reflecte apenas critérios "soft" (nível de localização, tipologia
-// exata vs superior, área, extras) — os Hard Filters não somam pontos.
+// Adicionar um novo Hard Filter = juntar entrada em HARD_FILTERS. O motor
+// não precisa de mudar.
 
-import { locationLevel, normalizeLocation } from "./location-graph";
+import { areFreguesiasAdjacent, isKnownConcelho, normalizeLocation } from "./location-graph";
 
 export type BuyerLike = {
   finalidade?: string | null;
   tipo_imovel?: string[] | null;
   tipologia?: string | null;
   zona?: string | null;
+  freguesia?: string | null;
+  municipio?: string | null;
+  concelho?: string | null;
   budget_min?: number | string | null;
   budget_max?: number | string | null;
   area_min?: number | string | null;
@@ -60,16 +62,21 @@ export type MatchCategoryResult = {
   weight: number;
 };
 
+export type ReviewReason =
+  | "freguesia_em_falta"
+  | "area_em_falta";
+
+export type NeedsReview = { reviewReason: ReviewReason; reason: string };
+
 export type MatchScore = {
   score: number; // 0-100
   compatible: boolean;
+  needsReview: NeedsReview | null;
   categories: MatchCategoryResult[];
   reasons: string[];
 };
 
 export type MatchOptions = {
-  /** Permite apresentar zonas de Nível 3 (mercados próximos mas distintos). */
-  expandSearch?: boolean;
   /**
    * Tolerância adicional ao orçamento máximo (0-1). Por defeito 0.10
    * (regra de negócio do Property Match — margem inteligente de 10%).
@@ -99,217 +106,227 @@ function tipologiaQuartos(t: string | null | undefined): number | null {
   return m ? Number(m[1]) : null;
 }
 
-function tokens(v: string | null | undefined): string[] {
-  return normalizeLocation(v)
-    .split(/[,;/|]+/)
-    .map((s: string) => s.trim())
-    .filter(Boolean);
-}
-
-function fail(key: MatchCategoryKey, label: string, detail: string): MatchScore {
+function fail(key: MatchCategoryKey, label: string, detail: string, needsReview: NeedsReview | null = null): MatchScore {
   return {
     score: 0,
     compatible: false,
+    needsReview,
     categories: [{ key, label, ok: false, detail, score: 0, weight: 0 }],
     reasons: [],
   };
 }
 
-// ---------- Hard Filters ----------
+// ---------- Hard Filters (configurable registry) ----------
 
-function checkFinalidade(buyer: BuyerLike, property: PropertyLike): MatchCategoryResult | string {
-  // Hard Filter estrito: finalidade tem de estar declarada em ambos os lados
-  // e ser compatível. "ambos" no lado do comprador aceita venda ou arrendamento.
+export type HardFilterOk = { ok: true; category: MatchCategoryResult };
+export type HardFilterFail = { ok: false; category: MatchCategoryResult; needsReview?: NeedsReview };
+export type HardFilterResult = HardFilterOk | HardFilterFail;
+
+export type HardFilter = {
+  name: string;
+  key: MatchCategoryKey;
+  run: (buyer: BuyerLike, property: PropertyLike) => HardFilterResult;
+};
+
+function finalidadeFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResult {
   const b = (buyer.finalidade ?? "").toString().toLowerCase();
   const p = (property.finalidade ?? "").toString().toLowerCase();
-  if (!b || b === "indefinido") return "Finalidade da procura não indicada";
-  if (!p) return "Finalidade do imóvel não indicada";
+  if (!b || b === "indefinido") {
+    return { ok: false, category: cat("finalidade", "Finalidade", false, "Finalidade da procura não indicada") };
+  }
+  if (!p) {
+    return { ok: false, category: cat("finalidade", "Finalidade", false, "Finalidade do imóvel não indicada") };
+  }
   const buyerAcceptsBoth = b === "ambos" || b === "venda_arrendamento";
-  if (!buyerAcceptsBoth && b !== p) return `Finalidade incompatível (procura ${b}, imóvel ${p})`;
-  return {
-    key: "finalidade",
-    label: "Finalidade",
-    ok: true,
-    detail: property.finalidade ?? "—",
-    score: 0,
-    weight: 0,
-  };
+  if (!buyerAcceptsBoth && b !== p) {
+    return { ok: false, category: cat("finalidade", "Finalidade", false, `Finalidade incompatível (procura ${b}, imóvel ${p})`) };
+  }
+  return { ok: true, category: cat("finalidade", "Finalidade", true, property.finalidade ?? "—") };
 }
 
-function checkTipo(buyer: BuyerLike, property: PropertyLike): MatchCategoryResult | string {
+function tipoFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResult {
   const buyerTipos = (buyer.tipo_imovel ?? []).map(normalizeLocation).filter(Boolean);
   const pTipo = normalizeLocation(property.tipo_imovel);
-  // Hard Filter estrito: tipo tem de estar declarado na procura e no imóvel
-  // e ser compatível (Hotel ≠ Moradia ≠ Apartamento ≠ Terreno...).
-  if (buyerTipos.length === 0) return "Tipo de imóvel não indicado na procura";
-  if (!pTipo) return "Tipo do imóvel não declarado";
-  if (!buyerTipos.includes(pTipo)) return `Tipo ${property.tipo_imovel} fora do pedido`;
-  return { key: "tipo", label: "Tipo", ok: true, detail: property.tipo_imovel!, score: 0, weight: 0 };
+  if (buyerTipos.length === 0) {
+    return { ok: false, category: cat("tipo", "Tipo", false, "Tipo de imóvel não indicado na procura") };
+  }
+  if (!pTipo) {
+    return { ok: false, category: cat("tipo", "Tipo", false, "Tipo do imóvel não declarado") };
+  }
+  if (!buyerTipos.includes(pTipo)) {
+    return { ok: false, category: cat("tipo", "Tipo", false, `Tipo ${property.tipo_imovel} fora do pedido`) };
+  }
+  return { ok: true, category: cat("tipo", "Tipo", true, property.tipo_imovel!) };
 }
 
-function checkTipologia(
-  buyer: BuyerLike,
-  property: PropertyLike,
-): { category: MatchCategoryResult; softScore: number } | string {
-  const bQ = buyer.quartos_min ?? tipologiaQuartos(buyer.tipologia);
-  const pQ = property.quartos ?? tipologiaQuartos(property.tipologia);
-  const weight = WEIGHTS.tipologia;
+function cat(key: MatchCategoryKey, label: string, ok: boolean, detail: string, score = 0, weight = 0): MatchCategoryResult {
+  return { key, label, ok, detail, score, weight };
+}
 
-  // Sem preferência do comprador → aceita tudo, score cheio nesta categoria.
-  if (bQ == null) {
-    return {
-      category: {
-        key: "tipologia",
-        label: "Tipologia",
-        ok: true,
-        detail: property.tipologia ?? (pQ != null ? `${pQ} quartos` : "—"),
-        score: weight,
-        weight,
-      },
-      softScore: weight,
-    };
+function localizacaoFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResult {
+  const bZone = normalizeLocation(buyer.zona ?? buyer.freguesia ?? buyer.municipio);
+  if (!bZone) {
+    return { ok: false, category: cat("localizacao", "Localização", false, "Localização não indicada na procura") };
   }
-  // Comprador pediu tipologia mas o imóvel não a declara → excluir.
-  if (pQ == null) return "Tipologia do imóvel não declarada";
-  // Regra de compatibilidade ascendente: nunca apresentar tipologia inferior.
-  if (pQ < bQ) return `Tipologia inferior (T${pQ} < T${bQ})`;
 
-  const diff = pQ - bQ;
-  const softScore = diff === 0 ? weight : diff === 1 ? Math.round(weight * 0.9) : Math.round(weight * 0.75);
-  const detail =
-    diff === 0
-      ? property.tipologia ?? `T${pQ}`
-      : `${property.tipologia ?? `T${pQ}`} (superior ao pedido T${bQ})`;
+  const pFreg = normalizeLocation(property.freguesia);
+  const pConc = normalizeLocation(property.concelho);
+  const pZona = normalizeLocation(property.zona);
+
+  // Modo CONCELHO — comprador aceita qualquer freguesia dentro do concelho.
+  if (isKnownConcelho(bZone)) {
+    if (pConc && pConc === bZone) {
+      const detail = property.freguesia ?? property.concelho ?? bZone;
+      const weight = WEIGHTS.localizacao;
+      return { ok: true, category: cat("localizacao", "Localização", true, detail, weight, weight) };
+    }
+    // Também aceitar via zona quando o imóvel só tem zona preenchida.
+    if (!pConc && pZona && pZona === bZone) {
+      const weight = WEIGHTS.localizacao;
+      return { ok: true, category: cat("localizacao", "Localização", true, property.zona ?? bZone, weight, weight) };
+    }
+    return { ok: false, category: cat("localizacao", "Localização", false, `Fora do concelho (${property.concelho ?? property.zona ?? "?"} ≠ ${buyer.zona})`) };
+  }
+
+  // Modo FREGUESIA — comprador pediu uma freguesia específica.
+  if (pFreg) {
+    if (pFreg === bZone) {
+      const weight = WEIGHTS.localizacao;
+      return { ok: true, category: cat("localizacao", "Localização", true, property.freguesia ?? bZone, weight, weight) };
+    }
+    if (areFreguesiasAdjacent(bZone, pFreg)) {
+      const weight = WEIGHTS.localizacao;
+      return {
+        ok: true,
+        category: cat("localizacao", "Localização", true, `${property.freguesia} (freguesia limítrofe)`, Math.round(weight * 0.75), weight),
+      };
+    }
+    return { ok: false, category: cat("localizacao", "Localização", false, `Freguesia diferente (${property.freguesia} ≠ ${buyer.zona})`) };
+  }
+
+  // Imóvel sem freguesia — não podemos afirmar compatibilidade automática,
+  // mas o consultor pode querer rever manualmente.
   return {
-    category: { key: "tipologia", label: "Tipologia", ok: true, detail, score: softScore, weight },
-    softScore,
+    ok: false,
+    needsReview: { reviewReason: "freguesia_em_falta", reason: "Freguesia do imóvel em falta" },
+    category: cat("localizacao", "Localização", false, "Imóvel sem freguesia — revisão manual"),
   };
 }
 
-function checkPreco(
-  buyer: BuyerLike,
-  property: PropertyLike,
-  tolerance: number,
-): { category: MatchCategoryResult; softScore: number } | string {
+function areaMinFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResult {
+  const areaMin = num(buyer.area_min);
+  if (areaMin == null) {
+    return { ok: true, category: cat("area", "Área", true, "Sem mínimo pedido") };
+  }
+  const pArea = num(property.area_util_m2) ?? num(property.area_m2);
+  if (pArea == null) {
+    return {
+      ok: false,
+      needsReview: { reviewReason: "area_em_falta", reason: "Área do imóvel em falta" },
+      category: cat("area", "Área", false, "Imóvel sem área declarada — revisão manual"),
+    };
+  }
+  if (pArea < areaMin) {
+    return { ok: false, category: cat("area", "Área", false, `${pArea} m² < ${areaMin} m² pedidos`) };
+  }
+  return { ok: true, category: cat("area", "Área", true, `${pArea} m² (≥ ${areaMin})`) };
+}
+
+function precoMaxFilter(buyer: BuyerLike, property: PropertyLike, tolerance: number): HardFilterResult {
+  const price = num(property.preco);
+  const budgetMax = num(buyer.budget_max);
+  if (budgetMax == null) {
+    return { ok: true, category: cat("preco", "Preço", true, "Sem orçamento") };
+  }
+  if (price == null) {
+    return { ok: false, category: cat("preco", "Preço", false, "Imóvel sem preço definido") };
+  }
+  const cap = budgetMax * (1 + Math.max(0, tolerance));
+  if (price > cap) {
+    return { ok: false, category: cat("preco", "Preço", false, `Acima do orçamento (${Math.round(((price - budgetMax) / budgetMax) * 100)}%)`) };
+  }
+  return { ok: true, category: cat("preco", "Preço", true, "Dentro do orçamento") };
+}
+
+// Registo declarativo de características obrigatórias — acrescentar aqui
+// futuros hard filters de features (piscina obrigatória, etc.) não requer
+// mudança no motor.
+const REQUIRED_FEATURES: Array<{ buyerField: keyof BuyerLike; propField: keyof PropertyLike; label: string }> = [
+  { buyerField: "garagem_obrigatoria", propField: "garagem", label: "garagem" },
+  { buyerField: "elevador_obrigatorio", propField: "elevador", label: "elevador" },
+];
+
+function featuresFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResult {
+  const missing: string[] = [];
+  for (const f of REQUIRED_FEATURES) {
+    if ((buyer as any)[f.buyerField]) {
+      if (!(property as any)[f.propField]) missing.push(f.label);
+    }
+  }
+  if (missing.length > 0) {
+    return { ok: false, category: cat("extras", "Características", false, `Falta: ${missing.join(", ")}`) };
+  }
+  return { ok: true, category: cat("extras", "Características", true, "Requisitos obrigatórios cumpridos") };
+}
+
+// ORDEM ESTRITA. Falha em qualquer um → oportunidade não é gerada.
+export const HARD_FILTERS: HardFilter[] = [
+  { name: "finalidade", key: "finalidade", run: finalidadeFilter },
+  { name: "tipo", key: "tipo", run: tipoFilter },
+  { name: "localizacao", key: "localizacao", run: localizacaoFilter },
+  { name: "area_min", key: "area", run: areaMinFilter },
+  { name: "features", key: "extras", run: featuresFilter },
+  // preço é adicionado dinamicamente por causa da tolerância
+];
+
+// ---------- Soft scoring (só corre depois de TODOS os hard filters passarem) ----------
+
+function scoreTipologia(buyer: BuyerLike, property: PropertyLike): MatchCategoryResult {
+  const weight = WEIGHTS.tipologia;
+  const bQ = buyer.quartos_min ?? tipologiaQuartos(buyer.tipologia);
+  const pQ = property.quartos ?? tipologiaQuartos(property.tipologia);
+  if (bQ == null) {
+    return cat("tipologia", "Tipologia", true, property.tipologia ?? (pQ != null ? `${pQ} quartos` : "—"), weight, weight);
+  }
+  if (pQ == null) {
+    return cat("tipologia", "Tipologia", true, "Tipologia do imóvel não declarada", Math.round(weight * 0.6), weight);
+  }
+  if (pQ < bQ) {
+    return cat("tipologia", "Tipologia", false, `Tipologia inferior (T${pQ} < T${bQ})`, 0, weight);
+  }
+  const diff = pQ - bQ;
+  const s = diff === 0 ? weight : diff === 1 ? Math.round(weight * 0.9) : Math.round(weight * 0.75);
+  const detail = diff === 0
+    ? property.tipologia ?? `T${pQ}`
+    : `${property.tipologia ?? `T${pQ}`} (superior ao pedido T${bQ})`;
+  return cat("tipologia", "Tipologia", true, detail, s, weight);
+}
+
+function scorePreco(buyer: BuyerLike, property: PropertyLike): MatchCategoryResult {
   const weight = WEIGHTS.preco;
   const price = num(property.preco);
   const budgetMax = num(buyer.budget_max);
   const budgetMin = num(buyer.budget_min);
-
-  if (price == null) return "Imóvel sem preço definido";
-  if (budgetMax == null) {
-    return {
-      category: { key: "preco", label: "Preço", ok: true, detail: "Sem orçamento", score: weight, weight },
-      softScore: weight,
-    };
+  if (price == null || budgetMax == null) {
+    return cat("preco", "Preço", true, "Sem dados de preço", weight, weight);
   }
-
-  const cap = budgetMax * (1 + Math.max(0, tolerance));
-  if (price > cap) return `Acima do orçamento (${Math.round(((price - budgetMax) / budgetMax) * 100)}%)`;
-
-  // Score soft: dentro do orçamento máximo é o normal.
-  let softScore = weight;
-  let detail = "Dentro do orçamento";
   if (price > budgetMax) {
-    softScore = Math.round(weight * 0.85);
-    detail = `Dentro da tolerância (+${Math.round(((price - budgetMax) / budgetMax) * 100)}%)`;
-  } else if (budgetMin != null && price < budgetMin * 0.7) {
-    softScore = Math.round(weight * 0.6);
-    detail = "Abaixo do intervalo pretendido";
+    return cat("preco", "Preço", true, `Dentro da tolerância (+${Math.round(((price - budgetMax) / budgetMax) * 100)}%)`, Math.round(weight * 0.85), weight);
   }
-  return {
-    category: { key: "preco", label: "Preço", ok: true, detail, score: softScore, weight },
-    softScore,
-  };
-}
-
-function checkLocalizacao(
-  buyer: BuyerLike,
-  property: PropertyLike,
-  expandSearch: boolean,
-): { category: MatchCategoryResult; softScore: number } | string {
-  const weight = WEIGHTS.localizacao;
-  const buyerTokens = tokens(buyer.zona);
-
-  // Hard Filter estrito: localização é obrigatória na procura.
-  if (buyerTokens.length === 0) return "Localização não indicada na procura";
-
-  const pFreg = normalizeLocation(property.freguesia);
-  const pZona = normalizeLocation(property.zona);
-  const pConc = normalizeLocation(property.concelho);
-  const propTokens = [pFreg, pZona, pConc].filter(Boolean);
-  if (propTokens.length === 0) return "Imóvel sem localização";
-
-  let bestLevel: 1 | 2 | 3 | null = null;
-  let bestDetail = "";
-  const consider = (lvl: 1 | 2 | 3, detail: string) => {
-    if (bestLevel == null || lvl < bestLevel) {
-      bestLevel = lvl;
-      bestDetail = detail;
-    }
-  };
-
-  for (const bt of buyerTokens) {
-    for (const pt of propTokens) {
-      const lvl = locationLevel(bt, pt);
-      if (lvl != null) {
-        const labelSrc = property.freguesia ?? property.zona ?? property.concelho ?? pt;
-        consider(
-          lvl,
-          lvl === 1 ? labelSrc : lvl === 2 ? `${labelSrc} (mercado relacionado)` : `${labelSrc} (mercado próximo)`,
-        );
-      }
-    }
+  if (budgetMin != null && price < budgetMin * 0.7) {
+    return cat("preco", "Preço", true, "Abaixo do intervalo pretendido", Math.round(weight * 0.6), weight);
   }
-
-  if (bestLevel == null) return "Fora da zona pretendida";
-  if (bestLevel === 3 && !expandSearch) return "Fora da zona pretendida (mercado distinto)";
-
-  const softScore =
-    bestLevel === 1 ? weight : bestLevel === 2 ? Math.round(weight * 0.8) : Math.round(weight * 0.5);
-  return {
-    category: { key: "localizacao", label: "Localização", ok: true, detail: bestDetail, score: softScore, weight },
-    softScore,
-  };
+  return cat("preco", "Preço", true, "Dentro do orçamento", weight, weight);
 }
-
-// ---------- Soft scoring ----------
 
 function scoreArea(buyer: BuyerLike, property: PropertyLike): MatchCategoryResult {
   const weight = WEIGHTS.area;
   const pArea = num(property.area_util_m2) ?? num(property.area_m2);
   const areaMin = num(buyer.area_min);
   if (pArea == null || areaMin == null) {
-    return {
-      key: "area",
-      label: "Área",
-      ok: true,
-      detail: pArea != null ? `${pArea} m²` : "Sem dados",
-      score: Math.round(weight * 0.7),
-      weight,
-    };
+    return cat("area", "Área", true, pArea != null ? `${pArea} m²` : "Sem dados", Math.round(weight * 0.7), weight);
   }
-  if (pArea >= areaMin) {
-    return { key: "area", label: "Área", ok: true, detail: `${pArea} m² (≥ ${areaMin})`, score: weight, weight };
-  }
-  const ratio = pArea / areaMin;
-  if (ratio >= 0.9)
-    return {
-      key: "area",
-      label: "Área",
-      ok: false,
-      detail: `${pArea} m² (ligeiramente abaixo)`,
-      score: Math.round(weight * 0.65),
-      weight,
-    };
-  return {
-    key: "area",
-    label: "Área",
-    ok: false,
-    detail: `${pArea} m² abaixo de ${areaMin}`,
-    score: Math.round(weight * 0.3),
-    weight,
-  };
+  return cat("area", "Área", true, `${pArea} m² (≥ ${areaMin})`, weight, weight);
 }
 
 function scoreExtras(buyer: BuyerLike, property: PropertyLike): MatchCategoryResult {
@@ -326,10 +343,8 @@ function scoreExtras(buyer: BuyerLike, property: PropertyLike): MatchCategoryRes
       if (has === true) {
         s += per;
         parts.push(`✓ ${label}`);
-      } else {
-        s -= per * 0.5;
-        parts.push(`sem ${label}`);
       }
+      // Se required && !has → já teria falhado no featuresFilter.
     } else if (has === true) {
       s += per * 0.3;
       parts.push(label);
@@ -340,14 +355,7 @@ function scoreExtras(buyer: BuyerLike, property: PropertyLike): MatchCategoryRes
   if (property.jardim) { s += per * 0.3; parts.push("jardim"); }
   if (property.piscina) { s += per * 0.3; parts.push("piscina"); }
   const score = Math.max(0, Math.min(weight, Math.round(s)));
-  return {
-    key: "extras",
-    label: "Extras",
-    ok: score >= per,
-    detail: parts.join(", ") || "Sem extras relevantes",
-    score,
-    weight,
-  };
+  return cat("extras", "Extras", true, parts.join(", ") || "Sem extras relevantes", score, weight);
 }
 
 // ---------- Entry point ----------
@@ -358,45 +366,50 @@ export function scoreMatch(
   options: MatchOptions = {},
 ): MatchScore {
   const tolerance = options.priceTolerance ?? 0.1;
-  const expandSearch = options.expandSearch ?? false;
 
-  // 1) Finalidade
-  const fin = checkFinalidade(buyer, property);
-  if (typeof fin === "string") return fail("finalidade", "Finalidade", fin);
+  // Corre a lista configurável de hard filters, em ordem estrita.
+  const passed: MatchCategoryResult[] = [];
+  for (const f of HARD_FILTERS) {
+    const r = f.run(buyer, property);
+    if (!r.ok) {
+      return fail(r.category.key, r.category.label, r.category.detail, r.needsReview ?? null);
+    }
+    passed.push(r.category);
+  }
+  // Filtro de preço (usa tolerância configurável)
+  const precoR = precoMaxFilter(buyer, property, tolerance);
+  if (!precoR.ok) {
+    return fail(precoR.category.key, precoR.category.label, precoR.category.detail, precoR.needsReview ?? null);
+  }
+  passed.push(precoR.category);
 
-  // 2) Tipo de imóvel
-  const tipo = checkTipo(buyer, property);
-  if (typeof tipo === "string") return fail("tipo", "Tipo", tipo);
-
-  // 3) Tipologia (compatibilidade ascendente)
-  const tip = checkTipologia(buyer, property);
-  if (typeof tip === "string") return fail("tipologia", "Tipologia", tip);
-
-  // 4) Orçamento
-  const preco = checkPreco(buyer, property, tolerance);
-  if (typeof preco === "string") return fail("preco", "Preço", preco);
-
-  // 5) Localização
-  const loc = checkLocalizacao(buyer, property, expandSearch);
-  if (typeof loc === "string") return fail("localizacao", "Localização", loc);
-
-  // Soft
+  // Todos os hard filters passaram → soft scoring.
+  const tip = scoreTipologia(buyer, property);
+  if (!tip.ok) {
+    // Ainda que a tipologia seja hard-ish (não apresentar T2 quando pediu T3),
+    // tratamos como falha eliminatória de compatibilidade.
+    return fail("tipologia", "Tipologia", tip.detail);
+  }
+  const preco = scorePreco(buyer, property);
   const area = scoreArea(buyer, property);
   const extras = scoreExtras(buyer, property);
 
-  const categories: MatchCategoryResult[] = [
-    fin,
-    tipo,
-    loc.category,
-    tip.category,
-    preco.category,
-    area,
-    extras,
-  ];
+  // Reconstruir categorias com os soft scores para as métricas visuais.
+  const categories: MatchCategoryResult[] = [];
+  for (const c of passed) {
+    if (c.key === "localizacao") categories.push({ ...c }); // já traz soft score
+    else if (c.key === "preco") categories.push(preco);
+    else if (c.key === "area") categories.push(area);
+    else if (c.key === "extras") categories.push(extras);
+    else categories.push(c);
+  }
+  // Adicionar tipologia (não é hard filter no registry)
+  categories.push(tip);
 
-  const total = loc.softScore + tip.softScore + preco.softScore + area.score + extras.score;
+  const locScore = categories.find((c) => c.key === "localizacao")?.score ?? 0;
+  const total = locScore + tip.score + preco.score + area.score + extras.score;
   const score = Math.max(0, Math.min(100, Math.round(total)));
   const reasons = categories.filter((c) => c.ok && c.detail).map((c) => c.detail);
 
-  return { score, compatible: true, categories, reasons };
+  return { score, compatible: true, needsReview: null, categories, reasons };
 }
