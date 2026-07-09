@@ -10,7 +10,7 @@ import {
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Radar, Trash2, MessageCircle, Phone, Sparkles, ArrowRight } from "lucide-react";
+import { Radar, Trash2, Phone, Sparkles, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { PhoneButton } from "@/components/PhoneButton";
 
