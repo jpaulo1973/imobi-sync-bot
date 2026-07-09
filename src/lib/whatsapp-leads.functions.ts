@@ -52,6 +52,7 @@ INSTRUÇÕES:
 1. Se receberes várias imagens, trata-as como uma única conversa contínua na ordem dada. Agrupa mensagens do mesmo pedido antes de decidir.
 2. Interpreta a INTENÇÃO, não apenas palavras exactas. Expressões como "procuro", "tenho comprador", "cliente aprovado para crédito", "casal procura", "família precisa", "alguém tem", "necessito de", "compra urgente", "pretende arrendar" etc. sinalizam leads.
 3. IGNORA: cabeçalhos WhatsApp (hora, "online", "digitando"), emojis isolados, reações, mensagens repetidas, assinaturas, saudações, ofertas de imóveis.
+4. SEPARAÇÃO DE PROCURAS: se UMA mensagem contém várias procuras INDEPENDENTES (diferentes tipologias, zonas ou orçamentos), cria UM lead separado por cada procura. NUNCA mistures critérios entre procuras diferentes.
 4. Para CADA lead identificada extrai:
    - nome: nome do cliente/família se referido (ou null; não é o nome de quem envia a mensagem)
    - finalidade: "venda" (comprar) | "arrendamento" (arrendar) | "indefinido"
