@@ -259,10 +259,11 @@ function ImoveisPage() {
           .then((r) => setMatchCounts(r.counts ?? {}))
           .catch(() => {});
         if (matchOpen && matchProperty) {
-          matchFn({ data: { propertyId: matchProperty.id } })
+          oppsFn({ data: { propertyId: matchProperty.id } })
             .then((res) => {
-              setMatches(res.matches);
+              setMatches(res.opportunities);
               setTotalBuyers(res.totalBuyers);
+              setTotalGlobal(res.totalGlobal);
             })
             .catch(() => {});
         }
@@ -280,7 +281,7 @@ function ImoveisPage() {
       if (debounce) clearTimeout(debounce);
       supabase.removeChannel(channel);
     };
-  }, [countsFn, matchFn, matchOpen, matchProperty]);
+  }, [countsFn, oppsFn, matchOpen, matchProperty]);
 
   const openNew = () => {
     setEditingId(null);
