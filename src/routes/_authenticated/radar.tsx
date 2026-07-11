@@ -10,9 +10,14 @@ import {
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Radar, Trash2, Phone, Sparkles, ArrowRight } from "lucide-react";
+import { Radar, Trash2, Sparkles, ArrowRight, Users } from "lucide-react";
 import { toast } from "sonner";
 import { PhoneButton } from "@/components/PhoneButton";
+import { supabase } from "@/integrations/supabase/client";
+import type { Tables } from "@/integrations/supabase/types";
+import {
+  countBuyerOpportunities,
+} from "@/lib/buyer-opportunities.functions";
 
 export const Route = createFileRoute("/_authenticated/radar")({
   head: () => ({
