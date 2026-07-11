@@ -185,6 +185,39 @@ function RadarPage() {
             </section>
           )}
 
+          {buyers.length > 0 && (
+            <section className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-primary" />
+                <h2 className="text-lg font-semibold">Os meus compradores ({buyers.length})</h2>
+              </div>
+              <div className="grid gap-2">
+                {buyers.slice(0, 20).map((b) => {
+                  const n = buyerCounts[b.id] ?? 0;
+                  return (
+                    <Card key={b.id} className={`p-3 flex items-center gap-3 flex-wrap ${n > 0 ? "border-primary/40 bg-primary/5" : ""}`}>
+                      {n > 0 && <Badge variant="default">{n} imóveis</Badge>}
+                      <div className="text-sm min-w-0 flex-1">
+                        <div className="font-medium truncate">{b.nome}</div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {b.finalidade === "venda" ? "Comprar" : "Arrendar"}
+                          {b.tipologia ? ` · ${b.tipologia}` : ""}
+                          {b.zona ? ` · ${b.zona}` : ""}
+                          {b.budget_max ? ` · até ${euros(Number(b.budget_max))}` : ""}
+                        </div>
+                      </div>
+                      <Button asChild size="sm" variant="outline">
+                        <Link to="/clientes">
+                          Abrir <ArrowRight className="w-3 h-3 ml-1" />
+                        </Link>
+                      </Button>
+                    </Card>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
           {rows.length === 0 ? (
         <Card className="p-8 text-center text-muted-foreground">
           Sem procuras ativas no momento. Podes ativar uma procura no final de cada análise em{" "}
