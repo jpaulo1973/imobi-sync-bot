@@ -138,7 +138,178 @@ function RevisaoPage() {
       ) : (
         items.map((it) => <ReviewCard key={it.id} item={it} onDone={reload} />)
       )}
+
+      <UnknownZonesPanel />
     </div>
+  );
+}
+
+function UnknownZonesPanel() {
+  const listFn = useServerFn(listUnknownZones);
+  const createFn = useServerFn(createFunctionalZoneFromReview);
+  const ignoreFn = useServerFn(ignoreUnknownZone);
+  const [zones, setZones] = useState<
+    Array<{ key: string; expression: string; count: number; search_ids: string[]; samples: string[] }>
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [openFor, setOpenFor] = useState<string | null>(null);
+
+  const reload = () => {
+    setLoading(true);
+    listFn()
+      .then((r) => setZones(r.zones as any))
+      .catch((e) => toast.error(e instanceof Error ? e.message : "Erro"))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => {
+    reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const onIgnore = async (search_ids: string[]) => {
+    try {
+      await ignoreFn({ data: { search_ids } });
+      toast.success("Expressão ignorada.");
+      reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro");
+    }
+  };
+
+  return (
+    <section className="space-y-3 pt-6 border-t">
+      <div className="flex items-center gap-2">
+        <MapPin className="w-4 h-4 text-primary" />
+        <h2 className="text-lg font-semibold">Zonas por Aprovar</h2>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Expressões de localização que o motor não reconheceu. Aprovar como zona funcional
+        permite reutilizá-las em todas as procuras futuras.
+      </p>
+      {loading ? (
+        <p className="text-sm text-muted-foreground">A carregar…</p>
+      ) : zones.length === 0 ? (
+        <Card className="p-4 text-sm text-muted-foreground text-center">
+          Sem zonas por aprovar.
+        </Card>
+      ) : (
+        zones.map((z) => (
+          <Card key={z.key} className="p-3 flex flex-wrap items-center gap-3">
+            <Badge variant="outline" className="uppercase">{z.count}×</Badge>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium truncate">{z.expression}</p>
+              {z.samples[0] && (
+                <p className="text-xs text-muted-foreground truncate">"{z.samples[0]}"</p>
+              )}
+            </div>
+            <Button size="sm" onClick={() => setOpenFor(z.key)}>
+              <Plus className="w-4 h-4 mr-1" /> Criar Zona Funcional
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => onIgnore(z.search_ids)}>
+              Ignorar
+            </Button>
+            <CreateZoneDialog
+              open={openFor === z.key}
+              onClose={() => setOpenFor(null)}
+              expression={z.expression}
+              searchIds={z.search_ids}
+              onCreated={reload}
+              createFn={createFn}
+            />
+          </Card>
+        ))
+      )}
+    </section>
+  );
+}
+
+function CreateZoneDialog({
+  open,
+  onClose,
+  expression,
+  searchIds,
+  onCreated,
+  createFn,
+}: {
+  open: boolean;
+  onClose: () => void;
+  expression: string;
+  searchIds: string[];
+  onCreated: () => void;
+  createFn: (args: any) => Promise<any>;
+}) {
+  const [nome, setNome] = useState(expression);
+  const [aliases, setAliases] = useState(expression);
+  const [freguesias, setFreguesias] = useState("");
+  const [municipios, setMunicipios] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setNome(expression);
+    setAliases(expression);
+  }, [expression]);
+
+  const save = async () => {
+    if (!nome.trim()) {
+      toast.error("Indique um nome.");
+      return;
+    }
+    const split = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
+    setSaving(true);
+    try {
+      const r = await createFn({
+        data: {
+          nome: nome.trim(),
+          aliases: split(aliases),
+          coverage: {
+            freguesias: split(freguesias),
+            municipios: split(municipios),
+          },
+          search_ids: searchIds,
+        },
+      });
+      toast.success(`Zona "${r.nome}" criada. ${r.recomputed} procura(s) recruzada(s).`);
+      onCreated();
+      onClose();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Criar Zona Funcional</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label className="text-xs">Nome</Label>
+            <Input value={nome} onChange={(e) => setNome(e.target.value)} />
+          </div>
+          <div>
+            <Label className="text-xs">Aliases (separados por vírgula)</Label>
+            <Input value={aliases} onChange={(e) => setAliases(e.target.value)} />
+          </div>
+          <div>
+            <Label className="text-xs">Freguesias cobertas (separadas por vírgula)</Label>
+            <Textarea value={freguesias} onChange={(e) => setFreguesias(e.target.value)} rows={2} />
+          </div>
+          <div>
+            <Label className="text-xs">Concelhos cobertos (separados por vírgula)</Label>
+            <Textarea value={municipios} onChange={(e) => setMunicipios(e.target.value)} rows={2} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={save} disabled={saving}>
+            {saving ? "A criar…" : "Criar Zona"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
