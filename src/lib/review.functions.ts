@@ -4,6 +4,8 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { recomputeForSearch } from "./active-searches.functions";
 import { buildDedupKey } from "./dedup";
 import { scoreMatch, type BuyerLike } from "./matching-engine";
+import { loadZoneContext, resolveZone } from "./functional-zones";
+import { normalizeLocation } from "./location-graph";
 
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase.rpc("has_role", { _user_id: userId, _role: "admin" });
@@ -377,4 +379,152 @@ export const recruzarTudo = createServerFn({ method: "POST" })
       oportunidades_purgadas: staleIds.length,
       registos_dedup_mantidos: keptIds.length,
     };
+  });
+
+// ---------------------------------------------------------------------------
+// Release 1.2 — Zonas por Aprovar (Motor Geo Funcional)
+// ---------------------------------------------------------------------------
+
+/**
+ * Lista expressões de zona desconhecidas, agrupadas por texto normalizado
+ * e ordenadas pela ocorrência mais frequente. Cada grupo contém os ids das
+ * procuras afetadas, permitindo recruzamento cirúrgico após aprovação.
+ */
+export const listUnknownZones = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    await assertAdmin(supabase, userId);
+    const { data, error } = await supabase
+      .from("active_searches")
+      .select("id, user_id, criteria, texto_original, resumo, created_at, decision_reason")
+      .ilike("decision_reason", "%zona_desconhecida%")
+      .order("created_at", { ascending: false })
+      .limit(1000);
+    if (error) throw new Error(error.message);
+    const groups = new Map<
+      string,
+      { expression: string; count: number; search_ids: string[]; samples: string[] }
+    >();
+    for (const r of data ?? []) {
+      const c = (r.criteria ?? {}) as any;
+      const expr = c?.zona ?? c?.municipio ?? c?.freguesia ?? null;
+      if (!expr) continue;
+      const key = normalizeLocation(expr);
+      if (!key) continue;
+      const g =
+        groups.get(key) ??
+        { expression: expr, count: 0, search_ids: [] as string[], samples: [] as string[] };
+      g.count++;
+      g.search_ids.push(r.id);
+      if (g.samples.length < 3 && r.texto_original) g.samples.push(r.texto_original.slice(0, 160));
+      groups.set(key, g);
+    }
+    const zones = Array.from(groups.entries())
+      .map(([key, v]) => ({ key, ...v }))
+      .sort((a, b) => b.count - a.count);
+    return { zones };
+  });
+
+const CoverageSchema = z.object({
+  freguesias: z.array(z.string()).default([]),
+  municipios: z.array(z.string()).default([]),
+});
+
+/**
+ * Cria uma nova zona funcional a partir de uma expressão sinalizada.
+ * Depois de inserir, limpa `flagged_for_review` e recruza APENAS os
+ * registos afetados.
+ */
+export const createFunctionalZoneFromReview = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z
+      .object({
+        nome: z.string().min(2),
+        aliases: z.array(z.string()).default([]),
+        coverage: CoverageSchema,
+        search_ids: z.array(z.string().uuid()).default([]),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    await assertAdmin(supabase, userId);
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    // Normalizar aliases para minúsculas sem acentos — o resolver compara já normalizado.
+    const aliases = Array.from(
+      new Set(
+        [data.nome, ...data.aliases]
+          .map((a) => normalizeLocation(a))
+          .filter(Boolean),
+      ),
+    );
+    const { data: zone, error: zErr } = await supabaseAdmin
+      .from("functional_zones")
+      .insert({
+        nome: data.nome.trim(),
+        aliases,
+        coverage: {
+          freguesias: data.coverage.freguesias.map((s) => s.trim()).filter(Boolean),
+          municipios: data.coverage.municipios.map((s) => s.trim()).filter(Boolean),
+        },
+        approved: true,
+        created_by: userId,
+      })
+      .select("id, nome")
+      .single();
+    if (zErr) throw new Error(zErr.message);
+
+    // Limpar flags e recruzar apenas os registos afetados.
+    let recomputed = 0;
+    if (data.search_ids.length > 0) {
+      const { error: uErr } = await supabaseAdmin
+        .from("active_searches")
+        .update({
+          flagged_for_review: false,
+          decision_reason: `Zona reconhecida como funcional: ${zone.nome}`,
+        })
+        .in("id", data.search_ids);
+      if (uErr) console.error("clear flags failed", uErr);
+      for (const sid of data.search_ids) {
+        try {
+          const { data: s } = await supabaseAdmin
+            .from("active_searches")
+            .select("user_id")
+            .eq("id", sid)
+            .maybeSingle();
+          if (s) {
+            await recomputeForSearch(supabaseAdmin, s.user_id, sid);
+            recomputed++;
+          }
+        } catch (e) {
+          console.error("zone recompute failed", e);
+        }
+      }
+    }
+    return { zone_id: zone.id, nome: zone.nome, recomputed };
+  });
+
+/**
+ * Ignora uma expressão de zona sem criar zona funcional — apenas limpa o
+ * flag para os ids indicados.
+ */
+export const ignoreUnknownZone = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ search_ids: z.array(z.string().uuid()).min(1) }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    await assertAdmin(supabase, userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin
+      .from("active_searches")
+      .update({
+        flagged_for_review: false,
+        decision_reason: "Expressão de zona ignorada pelo administrador",
+      })
+      .in("id", data.search_ids);
+    if (error) throw new Error(error.message);
+    return { ok: true, cleared: data.search_ids.length };
   });

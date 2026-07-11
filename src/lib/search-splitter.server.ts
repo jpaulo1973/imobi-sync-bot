@@ -1,6 +1,13 @@
 import { callLovableAI } from "./ai-gateway.server";
 import { z } from "zod";
 
+// Release 1.2 — critério de proximidade estruturado (não valida tempos).
+export const ProximitySchema = z.object({
+  poi: z.string(),
+  minutes: z.number().int().positive(),
+});
+export type ProximityCriterion = z.infer<typeof ProximitySchema>;
+
 // Estrutura de UMA procura independente devolvida pela IA.
 // Cada campo é opcional e independente: NUNCA misturar critérios entre procuras.
 export const SplitSearchSchema = z.object({
@@ -16,6 +23,7 @@ export const SplitSearchSchema = z.object({
   quartos_min: z.number().nullable().optional(),
   caracteristicas: z.array(z.string()).nullable().optional(),
   resumo: z.string().nullable().optional(),
+  proximity: z.array(ProximitySchema).nullable().optional(),
 });
 export type SplitSearch = z.infer<typeof SplitSearchSchema>;
 
@@ -44,6 +52,55 @@ export function mayContainMultipleSearches(text: string | null | undefined): boo
   // Ligação explícita "outra procura" / "também"
   if (/(outra\s+procura|tamb[eé]m\s+procur|segunda\s+procura)/.test(t)) signals += 2;
   return signals >= 2;
+}
+
+// -------------------------------------------------------------------------
+// Parser determinístico de critérios de proximidade
+// (ex.: "até 20 minutos do aeroporto", "a 30 min do centro de lisboa").
+// Mapeia POIs conhecidos para slugs estáveis.
+// -------------------------------------------------------------------------
+
+const POI_MAP: Array<{ slug: string; patterns: RegExp[] }> = [
+  {
+    slug: "aeroporto_lisboa",
+    patterns: [/aeroporto\s+(de\s+)?lisboa/i, /aeroporto\s+humberto\s+delgado/i, /^aeroporto$/i],
+  },
+  {
+    slug: "aeroporto_porto",
+    patterns: [/aeroporto\s+(do\s+)?porto/i, /aeroporto\s+sa\s+carneiro/i, /aeroporto\s+francisco\s+sa\s+carneiro/i],
+  },
+  {
+    slug: "centro_lisboa",
+    patterns: [/centro\s+de\s+lisboa/i, /baixa\s+de\s+lisboa/i, /lisboa\s+centro/i],
+  },
+  {
+    slug: "centro_porto",
+    patterns: [/centro\s+do\s+porto/i, /baixa\s+do\s+porto/i, /porto\s+centro/i],
+  },
+];
+
+function detectPoi(fragment: string): string | null {
+  for (const p of POI_MAP) {
+    if (p.patterns.some((r) => r.test(fragment))) return p.slug;
+  }
+  return null;
+}
+
+export function extractProximityCriteria(text: string | null | undefined): ProximityCriterion[] {
+  if (!text) return [];
+  const results: ProximityCriterion[] = [];
+  const re = /(?:at[eé]|a)\s+(\d{1,3})\s*min(?:utos)?\s+(?:do|da|de|dos|das)\s+([a-zçãáéíóúâêô\s]{3,60})/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const minutes = Number(m[1]);
+    if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 180) continue;
+    const rawPoi = m[2].trim().replace(/[.,;].*$/, "").trim();
+    const poi = detectPoi(rawPoi);
+    if (!poi) continue;
+    if (results.some((r) => r.poi === poi && r.minutes === minutes)) continue;
+    results.push({ poi, minutes });
+  }
+  return results;
 }
 
 /**
