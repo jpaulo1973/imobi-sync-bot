@@ -146,6 +146,15 @@ function buildBiMap(src: Record<string, string[]>): Map<string, Set<string>> {
 
 const ADJACENT_MAP = buildBiMap(ADJACENT);
 
+/**
+ * Freguesias reconhecidas como administrativas — todas as chaves do grafo
+ * de adjacências. Usado por `resolveZone` para distinguir freguesias
+ * conhecidas de expressões novas.
+ */
+export function isKnownFreguesia(v: string | null | undefined): boolean {
+  return ADJACENT_MAP.has(normalizeLocation(v));
+}
+
 export function areFreguesiasAdjacent(a: string, b: string): boolean {
   const na = normalizeLocation(a);
   const nb = normalizeLocation(b);

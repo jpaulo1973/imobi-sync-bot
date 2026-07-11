@@ -3,6 +3,8 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { scoreMatch, type BuyerLike } from "./matching-engine";
 import { buildDedupKey, normalizePhone, scoreSimilarity, type SimilarityCriteria } from "./dedup";
+import { loadZoneContext } from "./functional-zones";
+import { extractProximityCriteria } from "./search-splitter.server";
 
 const CriteriaSchema = z.object({
   nome: z.string().nullable().optional(),
@@ -20,6 +22,10 @@ const CriteriaSchema = z.object({
   distrito: z.string().nullable().optional(),
   area_terreno_min: z.number().nullable().optional(),
   wc_min: z.number().nullable().optional(),
+  proximity: z
+    .array(z.object({ poi: z.string(), minutes: z.number().int().positive() }))
+    .nullable()
+    .optional(),
 });
 
 export type ActiveSearchCriteria = z.infer<typeof CriteriaSchema>;
@@ -85,6 +91,27 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
     } catch (e) {
       console.error("recomputeForSearch failed", e);
     }
+    // Release 1.2 — se a zona indicada não é reconhecida como administrativa
+    // nem como zona funcional, marcar para Revisão (motivo zona_desconhecida).
+    try {
+      const zonaText = data.criteria.zona ?? data.criteria.municipio ?? data.criteria.freguesia ?? null;
+      if (zonaText) {
+        const zoneCtx = await loadZoneContext();
+        const resolved = (await import("./functional-zones")).resolveZone(zonaText, zoneCtx);
+        if (resolved.unknown) {
+          await supabase
+            .from("active_searches")
+            .update({
+              flagged_for_review: true,
+              decision_reason: `zona_desconhecida: "${zonaText}"`,
+            })
+            .eq("id", res.id)
+            .eq("user_id", userId);
+        }
+      }
+    } catch (e) {
+      console.error("zone review flagging failed", e);
+    }
     return {
       id: res.id,
       expires_at: res.expires_at,
@@ -112,6 +139,7 @@ async function recomputeForSearch(supabase: any, userId: string, searchId: strin
     )
     .eq("ativo", true);
   const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria);
+  const zoneContext = await loadZoneContext();
   const { data: existing } = await supabaseAdmin
     .from("match_opportunities")
     .select("id, property_id, score, user_id")
@@ -121,7 +149,7 @@ async function recomputeForSearch(supabase: any, userId: string, searchId: strin
   );
   let created = 0;
   for (const p of props ?? []) {
-    const r = scoreMatch(buyer, p);
+    const r = scoreMatch(buyer, p, { zoneContext });
     if (!r.compatible || r.score < 60) continue;
     const prev = existingMap.get(p.id);
     if (!prev) {
@@ -157,6 +185,7 @@ export async function recomputeForProperty(propertyId: string): Promise<number> 
     .maybeSingle();
   if (!p || !p.ativo) return 0;
   const nowIso = new Date().toISOString();
+  const zoneContext = await loadZoneContext();
   const { data: searches } = await supabaseAdmin
     .from("active_searches")
     .select("id, criteria")
@@ -171,7 +200,7 @@ export async function recomputeForProperty(propertyId: string): Promise<number> 
   let created = 0;
   for (const s of searches ?? []) {
     const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria);
-    const r = scoreMatch(buyer, p as any);
+    const r = scoreMatch(buyer, p as any, { zoneContext });
     if (!r.compatible || r.score < 60) continue;
     const prev = existingMap.get(s.id);
     if (!prev) {
@@ -523,12 +552,15 @@ function criteriaToBuyer(c: ActiveSearchCriteria): BuyerLike {
     tipo_imovel: c.tipo_imovel ?? null,
     tipologia: c.tipologia ?? null,
     zona: c.zona ?? null,
+    freguesia: c.freguesia ?? null,
+    municipio: c.municipio ?? null,
     budget_min: c.budget_min ?? null,
     budget_max: c.budget_max ?? null,
     area_min: c.area_min ?? null,
     quartos_min: c.quartos_min ?? null,
     garagem_obrigatoria: gar,
     elevador_obrigatorio: ele,
+    proximity: c.proximity ?? null,
   };
 }
 
@@ -570,9 +602,10 @@ export const matchPropertyAgainstActiveSearches = createServerFn({ method: "POST
 
     const matches: ActiveSearchMatch[] = [];
     const persist: Array<{ search_id: string; score: number; reasons: string[]; categories: any }> = [];
+    const zoneContext = await loadZoneContext();
     for (const s of searches ?? []) {
       const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria);
-      const res = scoreMatch(buyer, prop);
+      const res = scoreMatch(buyer, prop, { zoneContext });
       if (res.compatible && res.score >= 60) {
         matches.push({
           search_id: s.id,
@@ -648,6 +681,7 @@ export const listOpportunities = createServerFn({ method: "GET" })
     const rows = data ?? [];
     const staleIds: string[] = [];
     const valid: typeof rows = [];
+    const zoneContext = await loadZoneContext();
     for (const row of rows) {
       const p = (row as any).properties;
       const s = (row as any).active_searches;
@@ -663,7 +697,7 @@ export const listOpportunities = createServerFn({ method: "GET" })
         .eq("id", p.id)
         .maybeSingle();
       const propFull = { ...p, ...(fullProp ?? {}) };
-      const res = scoreMatch(buyer, propFull);
+      const res = scoreMatch(buyer, propFull, { zoneContext });
       if (!res.compatible || res.score < 60) {
         staleIds.push(row.id);
         continue;
@@ -739,8 +773,9 @@ export const recomputeOpportunitiesForSearch = createServerFn({ method: "POST" }
     );
 
     let created = 0;
+    const zoneContext = await loadZoneContext();
     for (const p of props ?? []) {
-      const r = scoreMatch(buyer, p);
+      const r = scoreMatch(buyer, p, { zoneContext });
       if (!r.compatible || r.score < 60) continue;
       const prev = existingMap.get(p.id);
       if (!prev) {

@@ -2,6 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { scoreMatch, type BuyerLike, type MatchCategoryResult } from "./matching-engine";
+import { loadZoneContext } from "./functional-zones";
+import { loadConsultorMeta } from "./opportunity-privacy";
 
 // ---------------------------------------------------------------------------
 // Release 1.2 — Property Opportunities
@@ -52,12 +54,15 @@ function criteriaToBuyer(c: any): BuyerLike {
     tipo_imovel: c?.tipo_imovel ?? null,
     tipologia: c?.tipologia ?? null,
     zona: c?.zona ?? c?.municipio ?? c?.freguesia ?? null,
+    freguesia: c?.freguesia ?? null,
+    municipio: c?.municipio ?? null,
     budget_min: c?.budget_min ?? null,
     budget_max: c?.budget_max ?? null,
     area_min: c?.area_min ?? null,
     quartos_min: c?.quartos_min ?? null,
     garagem_obrigatoria: gar,
     elevador_obrigatorio: ele,
+    proximity: c?.proximity ?? null,
   };
 }
 
@@ -93,10 +98,21 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
       .select("*")
       .gt("expires_at", nowIso);
 
+    const zoneContext = await loadZoneContext();
+    // Consultor meta para procuras de OUTROS consultores (Privacy Layer).
+    const otherUserIds = Array.from(
+      new Set(
+        (searches ?? [])
+          .filter((q: any) => q.user_id && q.user_id !== userId)
+          .map((q: any) => q.user_id as string),
+      ),
+    );
+    const consultorMap = await loadConsultorMeta(otherUserIds);
+
     const opps: Opportunity[] = [];
 
     for (const b of buyers ?? []) {
-      const s = scoreMatch(b as BuyerLike, property as any);
+      const s = scoreMatch(b as BuyerLike, property as any, { zoneContext });
       if (!s.compatible) continue;
       opps.push({
         key: `cliente-${b.id}`,
@@ -125,26 +141,29 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
 
     for (const q of searches ?? []) {
       const buyer = criteriaToBuyer(q.criteria);
-      const s = scoreMatch(buyer, property as any);
+      const s = scoreMatch(buyer, property as any, { zoneContext });
       if (!s.compatible) continue;
       const c = (q.criteria ?? {}) as any;
       const origem = (q.origem as OpportunitySource) ?? "excel";
+      const isOwner = q.user_id === userId;
+      const consultor = !isOwner ? consultorMap.get(q.user_id) ?? null : null;
       opps.push({
         key: `search-${q.id}`,
         source: origem,
         score: s.score,
         reasons: s.reasons,
         categories: s.categories,
-        nome: q.contact_nome ?? c?.nome ?? null,
-        telefone: q.contact_telefone ?? null,
-        email: q.contact_email ?? null,
+        // Privacy Layer: PII do comprador só é devolvida ao dono da procura.
+        nome: isOwner ? q.contact_nome ?? c?.nome ?? null : null,
+        telefone: isOwner ? q.contact_telefone ?? null : null,
+        email: isOwner ? q.contact_email ?? null : null,
         finalidade: c?.finalidade ?? null,
         tipologia: c?.tipologia ?? null,
         zona: c?.zona ?? c?.municipio ?? c?.freguesia ?? null,
         budget_min: c?.budget_min ?? null,
         budget_max: c?.budget_max ?? null,
-        consultor_nome: q.consultor_nome ?? null,
-        consultor_telefone: q.consultor_telefone ?? null,
+        consultor_nome: consultor?.nome ?? q.consultor_nome ?? null,
+        consultor_telefone: consultor?.telefone ?? q.consultor_telefone ?? null,
         data_origem: q.data_origem ?? null,
         hora_origem: q.hora_origem ?? null,
         grupo_whatsapp: q.grupo_whatsapp ?? q.contact_grupo ?? null,
@@ -178,14 +197,15 @@ export const countPropertyOpportunities = createServerFn({ method: "POST" })
       .select("id, criteria, origem, expires_at")
       .gt("expires_at", new Date().toISOString());
 
+    const zoneContext = await loadZoneContext();
     const counts: Record<string, number> = {};
     for (const p of properties ?? []) {
       let n = 0;
       for (const b of buyers ?? []) {
-        if (scoreMatch(b as BuyerLike, p as any).compatible) n++;
+        if (scoreMatch(b as BuyerLike, p as any, { zoneContext }).compatible) n++;
       }
       for (const q of searches ?? []) {
-        if (scoreMatch(criteriaToBuyer(q.criteria), p as any).compatible) n++;
+        if (scoreMatch(criteriaToBuyer(q.criteria), p as any, { zoneContext }).compatible) n++;
       }
       counts[p.id] = n;
     }
@@ -212,7 +232,8 @@ export const runPropertyMatch = createServerFn({ method: "POST" })
     if (bErr) throw new Error(bErr.message);
     if (!property) throw new Error("Imóvel não encontrado.");
 
-    const scored = (buyers ?? []).map((b) => ({ buyer: b, ...scoreMatch(b, property) }));
+    const zoneContext = await loadZoneContext();
+    const scored = (buyers ?? []).map((b) => ({ buyer: b, ...scoreMatch(b, property, { zoneContext }) }));
     const catOk = (m: (typeof scored)[number], key: string) =>
       m.categories.find((c) => c.key === key)?.ok ? 1 : 0;
     const matches = scored
@@ -242,11 +263,12 @@ export const countPropertyMatches = createServerFn({ method: "POST" })
     if (pErr) throw new Error(pErr.message);
     if (bErr) throw new Error(bErr.message);
 
+    const zoneContext = await loadZoneContext();
     const counts: Record<string, number> = {};
     for (const p of properties ?? []) {
       let n = 0;
       for (const b of buyers ?? []) {
-        if (scoreMatch(b, p).compatible) n++;
+        if (scoreMatch(b, p, { zoneContext }).compatible) n++;
       }
       counts[p.id] = n;
     }

@@ -39,6 +39,7 @@ export type Database = {
           matches_count: number
           merged_from_count: number
           origem: string
+          proximity: Json | null
           resumo: string | null
           similarity_score: number | null
           texto_original: string | null
@@ -69,6 +70,7 @@ export type Database = {
           matches_count?: number
           merged_from_count?: number
           origem?: string
+          proximity?: Json | null
           resumo?: string | null
           similarity_score?: number | null
           texto_original?: string | null
@@ -99,6 +101,7 @@ export type Database = {
           matches_count?: number
           merged_from_count?: number
           origem?: string
+          proximity?: Json | null
           resumo?: string | null
           similarity_score?: number | null
           texto_original?: string | null
@@ -122,6 +125,7 @@ export type Database = {
           id: string
           nome: string
           notas: string | null
+          proximity: Json | null
           quartos_min: number | null
           telefone: string | null
           tipo_imovel: string[] | null
@@ -144,6 +148,7 @@ export type Database = {
           id?: string
           nome: string
           notas?: string | null
+          proximity?: Json | null
           quartos_min?: number | null
           telefone?: string | null
           tipo_imovel?: string[] | null
@@ -166,6 +171,7 @@ export type Database = {
           id?: string
           nome?: string
           notas?: string | null
+          proximity?: Json | null
           quartos_min?: number | null
           telefone?: string | null
           tipo_imovel?: string[] | null
@@ -173,6 +179,39 @@ export type Database = {
           updated_at?: string
           user_id?: string
           zona?: string | null
+        }
+        Relationships: []
+      }
+      functional_zones: {
+        Row: {
+          aliases: string[]
+          approved: boolean
+          coverage: Json
+          created_at: string
+          created_by: string | null
+          id: string
+          nome: string
+          updated_at: string
+        }
+        Insert: {
+          aliases?: string[]
+          approved?: boolean
+          coverage?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          nome: string
+          updated_at?: string
+        }
+        Update: {
+          aliases?: string[]
+          approved?: boolean
+          coverage?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          nome?: string
+          updated_at?: string
         }
         Relationships: []
       }

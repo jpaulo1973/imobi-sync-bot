@@ -11,8 +11,22 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, Phone, Mail, MapPin, Euro } from "lucide-react";
+import { Plus, Trash2, Phone, Mail, MapPin, Euro, Home, Sparkles, Lock } from "lucide-react";
 import { toast } from "sonner";
+import { useServerFn } from "@tanstack/react-start";
+import {
+  runBuyerOpportunities,
+  countBuyerOpportunities,
+  type BuyerPropertyMatch,
+} from "@/lib/buyer-opportunities.functions";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
+import { PhoneButton } from "@/components/PhoneButton";
 
 type Buyer = Tables<"buyer_clients">;
 
@@ -72,6 +86,9 @@ function ClientesPage() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
   const [saving, setSaving] = useState(false);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [drawerBuyerId, setDrawerBuyerId] = useState<string | null>(null);
+  const countFn = useServerFn(countBuyerOpportunities);
 
   const load = async () => {
     setLoading(true);
@@ -82,6 +99,12 @@ function ClientesPage() {
     if (error) toast.error(error.message);
     setItems(data ?? []);
     setLoading(false);
+    try {
+      const r = await countFn();
+      setCounts(r.counts ?? {});
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   useEffect(() => {
@@ -155,10 +178,18 @@ function ClientesPage() {
               <div className="space-y-2">
                 <Label>Nome *</Label>
                 <Input value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} required />
+                <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                  <Lock className="w-3 h-3" /> Interno • Apenas visível para si
+                </p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <Label>Telefone</Label>
+                  <Label className="flex items-center gap-2">
+                    Telefone
+                    <Badge variant="outline" className="text-[10px] font-normal">
+                      <Lock className="w-2.5 h-2.5 mr-1" /> Interno • Apenas visível para si
+                    </Badge>
+                  </Label>
                   <Input value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} />
                 </div>
                 <div className="space-y-2">
@@ -274,6 +305,17 @@ function ClientesPage() {
                   <Trash2 className="w-4 h-4 text-destructive" />
                 </Button>
               </div>
+              {counts[c.id] > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setDrawerBuyerId(c.id)}
+                  className="w-full text-left text-sm px-3 py-2 rounded-md border border-primary/30 bg-primary/5 hover:bg-primary/10 transition flex items-center gap-2"
+                >
+                  <Sparkles className="w-4 h-4 text-primary" />
+                  <span className="font-medium">Imóveis compatíveis ({counts[c.id]})</span>
+                  <span className="ml-auto text-xs text-muted-foreground">Ver</span>
+                </button>
+              )}
               <div className="text-sm space-y-1 text-muted-foreground">
                 {c.telefone && <p className="flex items-center gap-1"><Phone className="w-3 h-3" /> {c.telefone}</p>}
                 {c.email && <p className="flex items-center gap-1"><Mail className="w-3 h-3" /> {c.email}</p>}
@@ -299,6 +341,98 @@ function ClientesPage() {
           ))}
         </div>
       )}
+
+      <BuyerOpportunitiesDrawer
+        buyerId={drawerBuyerId}
+        buyerName={items.find((x) => x.id === drawerBuyerId)?.nome ?? null}
+        onClose={() => setDrawerBuyerId(null)}
+      />
     </div>
+  );
+}
+
+function euros(v: number | null | undefined) {
+  if (v == null) return "—";
+  return v.toLocaleString("pt-PT", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
+}
+
+function BuyerOpportunitiesDrawer({
+  buyerId,
+  buyerName,
+  onClose,
+}: {
+  buyerId: string | null;
+  buyerName: string | null;
+  onClose: () => void;
+}) {
+  const runFn = useServerFn(runBuyerOpportunities);
+  const [matches, setMatches] = useState<BuyerPropertyMatch[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!buyerId) return;
+    setLoading(true);
+    runFn({ data: { buyerId } })
+      .then((r) => setMatches(r.matches))
+      .catch((e) => toast.error(e instanceof Error ? e.message : "Erro"))
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buyerId]);
+
+  return (
+    <Sheet open={!!buyerId} onOpenChange={(o) => !o && onClose()}>
+      <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+        <SheetHeader>
+          <SheetTitle className="flex items-center gap-2">
+            <Home className="w-5 h-5 text-primary" /> Imóveis compatíveis
+          </SheetTitle>
+          <SheetDescription>
+            Comprador: <strong>{buyerName ?? "—"}</strong>. Contactos do angariador visíveis; os
+            dados do proprietário permanecem privados.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="mt-4 space-y-3">
+          {loading ? (
+            <p className="text-sm text-muted-foreground">A carregar…</p>
+          ) : matches.length === 0 ? (
+            <Card className="p-4 text-sm text-muted-foreground text-center">
+              Sem imóveis compatíveis no momento.
+            </Card>
+          ) : (
+            matches.map((m) => (
+              <Card key={m.id} className="p-3 space-y-2">
+                <div className="flex items-start gap-2">
+                  <Badge variant="default">{m.score}%</Badge>
+                  <div className="text-sm min-w-0 flex-1">
+                    <div className="font-medium truncate">
+                      {m.tipologia ? `${m.tipologia} · ` : ""}
+                      {m.freguesia ?? m.concelho ?? m.zona ?? "Imóvel"}
+                      {m.preco ? ` · ${euros(m.preco)}` : ""}
+                    </div>
+                    <div className="text-xs text-muted-foreground truncate">
+                      {m.tipo_imovel ?? "—"}
+                      {m.area_util_m2 ? ` · ${m.area_util_m2} m²` : m.area_m2 ? ` · ${m.area_m2} m²` : ""}
+                      {m.referencia ? ` · Ref: ${m.referencia}` : ""}
+                    </div>
+                  </div>
+                </div>
+                {m.reasons.length > 0 && (
+                  <p className="text-xs text-muted-foreground line-clamp-2">
+                    {m.reasons.slice(0, 3).join(" · ")}
+                  </p>
+                )}
+                <div className="flex items-center gap-2 pt-1 border-t text-xs">
+                  <span className="text-muted-foreground">Angariação:</span>
+                  <span className="font-medium">{m.consultor_nome ?? "—"}</span>
+                  {m.consultor_telefone && (
+                    <div className="ml-auto"><PhoneButton telefone={m.consultor_telefone} /></div>
+                  )}
+                </div>
+              </Card>
+            ))
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }

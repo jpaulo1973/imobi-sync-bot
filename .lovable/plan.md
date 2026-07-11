@@ -1,117 +1,140 @@
-# Release 1.2.1 — Consolidação do Motor de Oportunidades
+# Release 1.2 — Colaboração Inteligente + Motor Geo Funcional
 
-Objetivo: eliminar falsos positivos e devolver total confiança nos resultados. Sem features novas — só consolidação.
-
----
-
-## 1. Hard Filters estritos e configuráveis (`src/lib/matching-engine.ts`)
-
-Nova arquitetura baseada em **registo configurável** de filtros:
-
-```
-HARD_FILTERS: HardFilter[] = [
-  finalidadeFilter, tipoFilter, localizacaoFilter,
-  areaMinFilter, precoMaxFilter,
-  ...featureFilters (garagem, elevador, ...)
-]
-```
-
-Cada filtro devolve `{ ok: true } | { ok: false, reason } | { ok: false, needsReview: true, reason }`. Acrescentar futuros hard filters = juntar entrada ao array; motor não muda.
-
-Filtros iniciais, por ordem:
-
-1. **Finalidade** — venda/arrendamento tem de coincidir. `indefinido` em qualquer lado → falha.
-2. **Tipo de imóvel** — declarado em ambos e coincidente.
-3. **Localização** — ver §2.
-4. **Área mínima**:
-   - `buyer.area_min` existe e `imóvel.area < area_min` → falha eliminatória.
-   - `buyer.area_min` existe e imóvel sem área → `needsReview: "Área do imóvel em falta"`.
-5. **Preço máximo** — `price > budget_max * 1.10` → falha.
-6. **Características obrigatórias** (garagem, elevador, futuras) — declarativas via `REQUIRED_FEATURES` map; se pedidas e ausentes → falha.
-
-Só depois: score soft (tipologia, preço dentro do intervalo, área acima do mínimo, extras opcionais, nível de localização).
-
-## 2. Localização por freguesia (`src/lib/location-graph.ts` + engine)
-
-- Mesma freguesia → Nível 1 (compatível).
-- Freguesia limítrofe configurada em `ADJACENT` → Nível 2 (compatível, score reduzido).
-- Qualquer outra combinação — **incluindo mesmo concelho sem adjacência** → incompatível.
-- **Procura pede freguesia, imóvel só tem concelho** → `needsReview: "Freguesia do imóvel em falta"`. Não gera oportunidade automática, mas surge na Revisão.
-- Removido Nível 3 e o toggle `expandSearch`.
-- Grafo `ADJACENT` inicial: freguesias de Lisboa, Cascais, Oeiras, Sintra, Setúbal. Editável sem tocar em código.
-
-## 3. Revalidação obrigatória em tempo real (`src/lib/property-match.functions.ts`)
-
-- Listagens de oportunidades deixam de confiar em `match_opportunities` persistidas: cada linha é **re-executada nos Hard Filters em tempo real** com os dados atuais do imóvel e da procura.
-- Se deixar de passar → linha apagada de `match_opportunities` e não é devolvida ao consultor.
-- Se o motivo for `needsReview`, oportunidade não é devolvida como match e o registo é marcado `flagged_for_review = true` com o motivo apropriado.
-- Igual comportamento em recomputações após edição de imóvel, procura, split ou dedup.
-
-## 4. Splitter determinístico + eliminação do original (`search-splitter.server.ts`, `excel-import.functions.ts`, `whatsapp-leads.functions.ts`, `active-searches.functions.ts`)
-
-- `mayContainMultipleSearches` reforçada: separadores (`\n-`, `•`, `1)`), múltiplos verbos de procura, múltiplos `até XXX €`, tipologias distintas, localizações distintas.
-- **IA (`splitBuyerSearches`) só é chamada quando o pré-detector devolve `true`**. Procura simples → zero IA.
-- Quando splitter devolve N ≥ 2: cria N novos registos e **elimina o registo original**. Nunca coexistem pai + filhos.
-- Aplicado em Excel, WhatsApp e página Cruzar.
-
-## 5. Deduplicação inteligente (`src/lib/dedup.ts` + migração + `review.functions.ts`)
-
-- `dedup_key` = telefone normalizado + finalidade + tipologia + tipo + freguesia + faixa de orçamento arredondada.
-- Migração: `UNIQUE (user_id, dedup_key) WHERE dedup_key IS NOT NULL` em `active_searches` + `ON CONFLICT DO NOTHING` no insert.
-- `mergeDuplicateSearches` (admin, botão na Revisão): para cada grupo `(user_id, dedup_key)` com >1 registo:
-  1. **Preferir o mais completo** — `completeness_score` = soma ponderada de campos preenchidos (telefone, freguesia, tipologia, orçamento min+max, área, características, texto_original).
-  2. **Empate → mais recente**.
-  3. Apagar os restantes; re-cruzar o mantido.
-
-## 6. Filtro de anúncios reforçado (`excel-import.functions.ts` + WhatsApp)
-
-- Alargar `ofertaSignals` (novo/km0/vista mar/preço €/m²/inclui garagem/agende visita/T3 remodelado/etc.).
-- Inverter a regra: passa a **exigir sinal explícito de procura** para importar. Sem sinal → `flagged_for_review = true` com motivo "Não parece procura de comprador", em vez de descartar silenciosamente.
-- Sinais estruturais: `preço + área + tipologia + morada` sem verbo de procura → classificado como anúncio.
-
-## 7. Botão WhatsApp corrigido (`src/components/PhoneButton.tsx` + call sites)
-
-- Passa a usar sempre `https://wa.me/<E164 sem +>`; nunca `api.whatsapp.com`.
-- Normalizador único (retira espaços/`+`/`00`; garante `351` para números PT sem indicativo).
-- Link sempre `target="_blank" rel="noreferrer noopener"`.
-- Botão WhatsApp adicionado ao popover do `PhoneButton`.
-- Substituir os call sites que ainda constroem URL à mão (`radar.tsx`, `imoveis.tsx`).
-
-## 8. Página Revisão (`src/routes/_authenticated/revisao.tsx` + `review.functions.ts`)
-
-Colunas visíveis: origem, consultor, comunidade, grupo, texto original, motivo (novo enum: `multi_procura`, `freguesia_em_falta`, `area_em_falta`, `nao_parece_procura`, `revisao_manual`), data, telefone.
-
-Ações:
-- Editar / Dividir / Guardar / Eliminar (já existem).
-- **"Guardar e reintegrar"** limpa `flagged_for_review` e recruza.
-- **"Recruzar tudo"** (admin): corre `mergeDuplicateSearches` → reaplica hard filters → regenera `match_opportunities`.
-
-## 9. Auditoria de dados existentes (migração + função única)
-
-Migração:
-- Índice único parcial descrito em §5.
-- Coluna `decision_reason` já existe; documenta o enum de motivos.
-
-Função executada via "Recruzar tudo":
-- Marca `flagged_for_review = true` para registos multi-procura detectados pelo pré-detector.
-- Purga `match_opportunities` que já não passem nos novos hard filters (via revalidação de §3).
-- Corre `mergeDuplicateSearches`.
+Matches visíveis para ambos os lados, privacidade decidida no servidor, motor geo com zonas funcionais e estrutura para proximidade. Sem alterar scoring, tolerâncias, Hard Filters 1.2.1 ou schema de `match_opportunities`.
 
 ---
 
-## Ficheiros afetados
+## 1. Visibilidade Bidirecional
 
-Alterados: `src/lib/matching-engine.ts`, `src/lib/location-graph.ts`, `src/lib/search-splitter.server.ts`, `src/lib/dedup.ts`, `src/lib/excel-import.functions.ts`, `src/lib/whatsapp-leads.functions.ts`, `src/lib/active-searches.functions.ts`, `src/lib/property-match.functions.ts`, `src/lib/review.functions.ts`, `src/components/PhoneButton.tsx`, `src/routes/_authenticated/revisao.tsx`, `src/routes/_authenticated/radar.tsx`, `src/routes/_authenticated/imoveis.tsx`.
+`match_opportunities` continua fonte única.
 
-Novos: migração SQL (índice único parcial em `active_searches`).
+- **Angariador** (`property-match.functions.ts`): comportamento atual preservado; toda a saída passa pelo Privacy Layer.
+- **Comprador** — novo `src/lib/buyer-opportunities.functions.ts`:
+  - `runBuyerOpportunities({ buyerId })` — lê o buyer via RLS (só o dono), corre o **mesmo** motor + Hard Filters 1.2.1 contra `properties` da base global via `supabaseAdmin`, devolve DTO sanitizado com contactos do angariador.
+  - `countBuyerOpportunities()` — mapa `buyerId → count` para as badges.
 
-## Notas técnicas
+UI:
+- `clientes.tsx` — badge **"Imóveis compatíveis (N)"** por linha e drawer **"Ver imóveis compatíveis"**.
+- `radar.tsx` — novo bloco **"Os meus compradores"**, espelho exato de "Os meus imóveis".
 
-- Remoção do Nível 3 é intencional. Menos resultados, todos válidos. Badge "modo estrito" no Radar.
-- Revalidação em tempo real assegura que edições a imóveis/procuras purgam automaticamente oportunidades obsoletas — sem jobs periódicos.
-- IA só é invocada quando o pré-detector determinístico o justifica — poupa créditos.
-- Helpers dos `HARD_FILTERS` vivem em módulo `.server.ts` importado pelo motor (evita `ReferenceError` do transform `tss-serverfn-split` quando reutilizados por server functions).
+Contactos sempre entre consultores.
 
-## Fora de âmbito
+## 2. Privacy Layer (server-only)
 
-Sem novas features, sem alterações de UI/UX além do `PhoneButton`, badge "modo estrito" no Radar e enum de motivos na Revisão. Sem novas tabelas.
+Novo `src/lib/opportunity-privacy.ts` — obrigatório em qualquer server fn que devolva `buyers`, `active_searches` ou `properties`. Nenhuma linha bruta chega ao cliente.
+
+Exports:
+- `sanitizeBuyerForViewer(buyer, viewerId)`
+- `sanitizeSearchForViewer(search, viewerId)`
+- `sanitizePropertyForViewer(property, viewerId)`
+
+Quando `viewerId !== owner_id`:
+
+| Recurso | Devolve | Nunca devolve |
+|---|---|---|
+| Buyers / active_searches | critérios, score, resumo, comunidade, grupo_whatsapp, data_origem, consultor_nome/_email/_telefone | nome, telefone, email, notas, contact_*, `owner_id`/`user_id`, qualquer PII |
+| Properties | tipologia, preço, área, localização, descrição pública, fotografias, consultor_nome/_email/_telefone | proprietário, telefone/email proprietário, notas privadas, `owner_id`/`user_id` |
+
+Quando é o dono: comportamento atual (registo completo).
+
+`property-match.functions.ts` e `active-searches.functions.ts` que exponham estes objetos passam a atravessar o sanitizador.
+
+## 3. Gestão Interna dos Compradores
+
+Reutiliza `buyer_clients.nome` e `.telefone`. Sem alteração de schema.
+- `clientes.tsx`: badge **"Interno • Apenas visível para si"** junto a Nome e Telefone (lista + formulário).
+- `sanitizeBuyerForViewer` remove sempre estes campos para viewers externos.
+
+## 4. Motor Geo Funcional
+
+Nova tabela `functional_zones`:
+
+```
+id uuid pk
+nome text unique
+aliases text[]
+coverage jsonb              -- { freguesias: text[], municipios: text[] }
+approved boolean default true
+created_by uuid
+created_at, updated_at
+```
+
+Grants: `SELECT` a `authenticated`; escrita apenas admins via `has_role(auth.uid(),'admin')` na policy.
+
+Novo `src/lib/functional-zones.ts` (helpers puros, sem `createServerFn` no ficheiro — respeita `tss-serverfn-split`):
+- `resolveZone(input, ctx?): { freguesias[], municipios[], source: "admin"|"functional"|"unknown", unknown }`
+- Fluxo: administrativo → funcional (`nome` ou `aliases[]` normalizados) → `unknown` sinaliza `flagged_for_review` motivo `zona_desconhecida`.
+
+`matching-engine.ts` — filtro de localização aceita imóvel cuja freguesia ou concelho pertença à `coverage`. Regras estritas 1.2.1 mantêm-se para procura freguesia-administrativa.
+
+`search-splitter.server.ts` — ao extrair `zona`, chama `resolveZone`; se `unknown`, mantém texto e sinaliza para Revisão.
+
+## 5. Revisão Administrativa
+
+`revisao.tsx` — novo separador **"Zonas por Aprovar"**:
+- Agrupada por expressão normalizada com número de ocorrências.
+- **Criar Zona Funcional** (modal: nome, aliases, freguesias, municípios) → insert em `functional_zones` → limpa flag apenas dos registos afetados → recruza apenas esses registos.
+- **Ignorar** — limpa flag sem criar zona.
+
+Endpoints em `review.functions.ts`: `listUnknownZones`, `createFunctionalZoneFromReview`, `recruzarZonaAffected`.
+
+Nunca recruzar a base toda.
+
+## 6. Critérios de Proximidade (estrutura + parser)
+
+Novo campo `proximity jsonb` em `active_searches` e `buyer_clients`:
+
+```json
+[{ "poi": "aeroporto_lisboa", "minutes": 20 }]
+```
+
+- **Parser** em `search-splitter.server.ts` — regex determinística + mapa de POIs conhecidos (aeroporto Lisboa/Porto, centro Lisboa/Porto). Preenche `proximity[]` e não alimenta `zona`.
+- **Motor** — novo `proximityFilter` **nunca** elimina nem confirma; devolve reason **"Critério de proximidade ainda não validado"**.
+- Cálculo real de tempos fica fora de âmbito.
+
+## 7. Melhorias do Motor
+
+- Cache in-request de `resolveZone` (Map propagado no contexto do matching).
+- Normalização única via `normalizeLocation`.
+- Aliases geográficos aplicados aos dois lados.
+- Log interno conciso das decisões descartadas (sem UI).
+- Zero mudanças em scoring, tolerâncias e Hard Filters 1.2.1.
+
+## 8. Segurança
+
+- `supabaseAdmin` só dentro de server fns; resultado sempre sanitizado antes de sair.
+- Nunca expor `owner_id`, `user_id` ou PII de terceiros.
+- `functional_zones` — leitura authenticated, escrita restrita a admin via RLS.
+- RLS existente de `properties`/`buyer_clients`/`active_searches` mantém-se.
+
+---
+
+## Migração SQL (única)
+
+1. `CREATE TABLE public.functional_zones (...)` + trigger `updated_at`.
+2. `GRANT SELECT ON public.functional_zones TO authenticated; GRANT ALL TO service_role`.
+3. Enable RLS + policies: `SELECT USING (true)`; `INSERT/UPDATE/DELETE` com `has_role(auth.uid(),'admin')`.
+4. `ALTER TABLE public.active_searches ADD COLUMN proximity jsonb`.
+5. `ALTER TABLE public.buyer_clients ADD COLUMN proximity jsonb`.
+6. Motivo `zona_desconhecida` (campo `decision_reason` é texto livre — só documentação).
+7. Seed: Grande Lisboa, Margem Sul, Linha de Cascais, Linha de Sintra, Expo/Parque das Nações, Baixa de Lisboa, Zona Ribeirinha, Grande Porto, Costa da Caparica, Oeste.
+
+## Ficheiros
+
+**Novos**: `src/lib/opportunity-privacy.ts`, `src/lib/buyer-opportunities.functions.ts`, `src/lib/functional-zones.ts`, migração SQL.
+
+**Alterados**: `src/lib/property-match.functions.ts`, `src/lib/matching-engine.ts`, `src/lib/location-graph.ts`, `src/lib/search-splitter.server.ts`, `src/lib/active-searches.functions.ts`, `src/lib/review.functions.ts`, `src/routes/_authenticated/radar.tsx`, `src/routes/_authenticated/clientes.tsx`, `src/routes/_authenticated/revisao.tsx`.
+
+## Acceptance Criteria
+
+- Consultor do comprador vê todos os imóveis compatíveis.
+- Consultor da angariação continua a ver todos os compradores compatíveis.
+- Nenhum consultor consegue ver PII de clientes de outro consultor.
+- Zonas funcionais reconhecidas produzem matches corretamente.
+- Zona desconhecida vai automaticamente para Revisão.
+- Aprovar zona funcional recruza apenas registos afetados.
+- Matches existentes permanecem compatíveis com 1.2.1.
+
+## Fora de Âmbito
+
+Motor de Interpretação de WhatsApp, classificação procura vs oferta, OCR, extensão WhatsApp Web, cálculo real de tempos, notificações push/email, novos campos internos em compradores.

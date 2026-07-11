@@ -9,6 +9,11 @@
 // não precisa de mudar.
 
 import { areFreguesiasAdjacent, isKnownConcelho, normalizeLocation } from "./location-graph";
+import {
+  coverageIncludesProperty,
+  resolveZone,
+  type ZoneResolverContext,
+} from "./functional-zones";
 
 export type BuyerLike = {
   finalidade?: string | null;
@@ -24,6 +29,7 @@ export type BuyerLike = {
   quartos_min?: number | null;
   garagem_obrigatoria?: boolean | null;
   elevador_obrigatorio?: boolean | null;
+  proximity?: unknown | null;
 };
 
 export type PropertyLike = {
@@ -82,6 +88,11 @@ export type MatchOptions = {
    * (regra de negócio do Property Match — margem inteligente de 10%).
    */
   priceTolerance?: number;
+  /**
+   * Contexto de zonas funcionais para o motor reconhecer aliases como
+   * "Linha de Cascais" ou "Margem Sul". Pré-carregado uma vez por request.
+   */
+  zoneContext?: ZoneResolverContext | null;
 };
 
 // Pesos soft (somam 100). Só se aplicam a imóveis que passaram nos Hard Filters.
@@ -125,7 +136,7 @@ export type HardFilterResult = HardFilterOk | HardFilterFail;
 export type HardFilter = {
   name: string;
   key: MatchCategoryKey;
-  run: (buyer: BuyerLike, property: PropertyLike) => HardFilterResult;
+  run: (buyer: BuyerLike, property: PropertyLike, ctx?: ZoneResolverContext | null) => HardFilterResult;
 };
 
 function finalidadeFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResult {
@@ -163,7 +174,11 @@ function cat(key: MatchCategoryKey, label: string, ok: boolean, detail: string, 
   return { key, label, ok, detail, score, weight };
 }
 
-function localizacaoFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResult {
+function localizacaoFilter(
+  buyer: BuyerLike,
+  property: PropertyLike,
+  zoneContext?: ZoneResolverContext | null,
+): HardFilterResult {
   const bZone = normalizeLocation(buyer.zona ?? buyer.freguesia ?? buyer.municipio);
   if (!bZone) {
     return { ok: false, category: cat("localizacao", "Localização", false, "Localização não indicada na procura") };
@@ -201,7 +216,43 @@ function localizacaoFilter(buyer: BuyerLike, property: PropertyLike): HardFilter
         category: cat("localizacao", "Localização", true, `${property.freguesia} (freguesia limítrofe)`, Math.round(weight * 0.75), weight),
       };
     }
+    if (zoneContext) {
+      const resolved = resolveZone(bZone, zoneContext);
+      if (resolved.source === "functional" && coverageIncludesProperty(resolved, property)) {
+        const weight = WEIGHTS.localizacao;
+        return {
+          ok: true,
+          category: cat(
+            "localizacao",
+            "Localização",
+            true,
+            `${property.freguesia} (zona funcional: ${resolved.matchedZone?.nome ?? buyer.zona})`,
+            Math.round(weight * 0.8),
+            weight,
+          ),
+        };
+      }
+    }
     return { ok: false, category: cat("localizacao", "Localização", false, `Freguesia diferente (${property.freguesia} ≠ ${buyer.zona})`) };
+  }
+
+  // Zona funcional (buyer sem match administrativo direto).
+  if (zoneContext) {
+    const resolved = resolveZone(bZone, zoneContext);
+    if (resolved.source === "functional" && coverageIncludesProperty(resolved, property)) {
+      const weight = WEIGHTS.localizacao;
+      return {
+        ok: true,
+        category: cat(
+          "localizacao",
+          "Localização",
+          true,
+          `Zona funcional: ${resolved.matchedZone?.nome ?? buyer.zona}`,
+          Math.round(weight * 0.8),
+          weight,
+        ),
+      };
+    }
   }
 
   // Imóvel sem freguesia — não podemos afirmar compatibilidade automática,
@@ -273,7 +324,7 @@ function featuresFilter(buyer: BuyerLike, property: PropertyLike): HardFilterRes
 export const HARD_FILTERS: HardFilter[] = [
   { name: "finalidade", key: "finalidade", run: finalidadeFilter },
   { name: "tipo", key: "tipo", run: tipoFilter },
-  { name: "localizacao", key: "localizacao", run: localizacaoFilter },
+  { name: "localizacao", key: "localizacao", run: (b, p, ctx) => localizacaoFilter(b, p, ctx) },
   { name: "area_min", key: "area", run: areaMinFilter },
   { name: "features", key: "extras", run: featuresFilter },
   // preço é adicionado dinamicamente por causa da tolerância
@@ -366,11 +417,12 @@ export function scoreMatch(
   options: MatchOptions = {},
 ): MatchScore {
   const tolerance = options.priceTolerance ?? 0.1;
+  const zoneCtx = options.zoneContext ?? null;
 
   // Corre a lista configurável de hard filters, em ordem estrita.
   const passed: MatchCategoryResult[] = [];
   for (const f of HARD_FILTERS) {
-    const r = f.run(buyer, property);
+    const r = f.run(buyer, property, zoneCtx);
     if (!r.ok) {
       return fail(r.category.key, r.category.label, r.category.detail, r.needsReview ?? null);
     }
@@ -410,6 +462,11 @@ export function scoreMatch(
   const total = locScore + tip.score + preco.score + area.score + extras.score;
   const score = Math.max(0, Math.min(100, Math.round(total)));
   const reasons = categories.filter((c) => c.ok && c.detail).map((c) => c.detail);
+  // Critério de proximidade — nunca elimina, apenas informa.
+  const proximity = (buyer as any).proximity;
+  if (Array.isArray(proximity) && proximity.length > 0) {
+    reasons.push("Critério de proximidade ainda não validado");
+  }
 
   return { score, compatible: true, needsReview: null, categories, reasons };
 }

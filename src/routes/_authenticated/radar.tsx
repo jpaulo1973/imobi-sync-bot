@@ -10,9 +10,14 @@ import {
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Radar, Trash2, Phone, Sparkles, ArrowRight } from "lucide-react";
+import { Radar, Trash2, Sparkles, ArrowRight, Users } from "lucide-react";
 import { toast } from "sonner";
 import { PhoneButton } from "@/components/PhoneButton";
+import { supabase } from "@/integrations/supabase/client";
+import type { Tables } from "@/integrations/supabase/types";
+import {
+  countBuyerOpportunities,
+} from "@/lib/buyer-opportunities.functions";
 
 export const Route = createFileRoute("/_authenticated/radar")({
   head: () => ({
@@ -72,9 +77,12 @@ function RadarPage() {
   const delFn = useServerFn(deleteActiveSearch);
   const oppsFn = useServerFn(listOpportunities);
   const markFn = useServerFn(markOpportunitiesViewed);
+  const buyerCountsFn = useServerFn(countBuyerOpportunities);
   const [rows, setRows] = useState<Row[]>([]);
   const [opps, setOpps] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [buyers, setBuyers] = useState<Array<Tables<"buyer_clients">>>([]);
+  const [buyerCounts, setBuyerCounts] = useState<Record<string, number>>({});
 
   const load = async () => {
     setLoading(true);
@@ -84,6 +92,19 @@ function RadarPage() {
       setOpps(oppsRes.opportunities as any[]);
       // Ao abrir Radar, as oportunidades passam a "vistas".
       await markFn();
+      // Bloco "Os meus compradores".
+      const { data: myBuyers } = await supabase
+        .from("buyer_clients")
+        .select("*")
+        .eq("ativo", true)
+        .order("created_at", { ascending: false });
+      setBuyers(myBuyers ?? []);
+      try {
+        const bc = await buyerCountsFn();
+        setBuyerCounts(bc.counts ?? {});
+      } catch (e) {
+        console.error(e);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao carregar procuras.");
     } finally {
@@ -157,6 +178,39 @@ function RadarPage() {
                           </Link>
                         </Button>
                       )}
+                    </Card>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {buyers.length > 0 && (
+            <section className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-primary" />
+                <h2 className="text-lg font-semibold">Os meus compradores ({buyers.length})</h2>
+              </div>
+              <div className="grid gap-2">
+                {buyers.slice(0, 20).map((b) => {
+                  const n = buyerCounts[b.id] ?? 0;
+                  return (
+                    <Card key={b.id} className={`p-3 flex items-center gap-3 flex-wrap ${n > 0 ? "border-primary/40 bg-primary/5" : ""}`}>
+                      {n > 0 && <Badge variant="default">{n} imóveis</Badge>}
+                      <div className="text-sm min-w-0 flex-1">
+                        <div className="font-medium truncate">{b.nome}</div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {b.finalidade === "venda" ? "Comprar" : "Arrendar"}
+                          {b.tipologia ? ` · ${b.tipologia}` : ""}
+                          {b.zona ? ` · ${b.zona}` : ""}
+                          {b.budget_max ? ` · até ${euros(Number(b.budget_max))}` : ""}
+                        </div>
+                      </div>
+                      <Button asChild size="sm" variant="outline">
+                        <Link to="/clientes">
+                          Abrir <ArrowRight className="w-3 h-3 ml-1" />
+                        </Link>
+                      </Button>
                     </Card>
                   );
                 })}
