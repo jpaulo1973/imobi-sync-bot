@@ -77,9 +77,12 @@ function RadarPage() {
   const delFn = useServerFn(deleteActiveSearch);
   const oppsFn = useServerFn(listOpportunities);
   const markFn = useServerFn(markOpportunitiesViewed);
+  const buyerCountsFn = useServerFn(countBuyerOpportunities);
   const [rows, setRows] = useState<Row[]>([]);
   const [opps, setOpps] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [buyers, setBuyers] = useState<Array<Tables<"buyer_clients">>>([]);
+  const [buyerCounts, setBuyerCounts] = useState<Record<string, number>>({});
 
   const load = async () => {
     setLoading(true);
@@ -89,6 +92,19 @@ function RadarPage() {
       setOpps(oppsRes.opportunities as any[]);
       // Ao abrir Radar, as oportunidades passam a "vistas".
       await markFn();
+      // Bloco "Os meus compradores".
+      const { data: myBuyers } = await supabase
+        .from("buyer_clients")
+        .select("*")
+        .eq("ativo", true)
+        .order("created_at", { ascending: false });
+      setBuyers(myBuyers ?? []);
+      try {
+        const bc = await buyerCountsFn();
+        setBuyerCounts(bc.counts ?? {});
+      } catch (e) {
+        console.error(e);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao carregar procuras.");
     } finally {
