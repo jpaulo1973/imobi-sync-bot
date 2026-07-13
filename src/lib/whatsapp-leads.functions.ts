@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { callLovableAI } from "./ai-gateway.server";
 import { scoreMatch, type MatchCategoryResult } from "./matching-engine";
+import { normalizePhone } from "./dedup";
 
 const QualifiedLeadSchema = z.object({
   nome: z.string().nullable().optional(),
@@ -137,7 +138,7 @@ export const createBuyersFromLeads = createServerFn({ method: "POST" })
       return {
         user_id: userId,
         nome,
-        telefone: l.telefone ?? null,
+        telefone: normalizePhone(l.telefone) ?? null,
         email: l.email ?? null,
         finalidade,
         tipologia: l.tipologia ?? null,
@@ -266,7 +267,7 @@ RESPOSTA: APENAS JSON válido:
     const { data: properties, error: pErr } = await supabase
       .from("properties")
       .select(
-        "id, referencia, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
+        "id, referencia, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
       )
       .eq("user_id", userId)
       .eq("ativo", true);

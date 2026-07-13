@@ -56,8 +56,12 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     const expires = new Date(Date.now() + data.duration_days * 24 * 60 * 60 * 1000).toISOString();
+    // Correções 1.3: normalizar telefones ANTES da persistência para que
+    // exista um único formato interno (9 dígitos PT / E.164-lite).
+    const contactPhoneNorm = normalizePhone(data.contact_telefone) ?? null;
+    const consultorPhoneNorm = normalizePhone(data.consultor_telefone) ?? null;
     const dedup_key = buildDedupKey({
-      telefone: data.contact_telefone,
+      telefone: contactPhoneNorm,
       nome: data.contact_nome ?? data.criteria.nome ?? null,
       finalidade: data.criteria.finalidade,
       tipologia: data.criteria.tipologia ?? null,
@@ -70,7 +74,7 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
       resumo: data.resumo ?? null,
       texto_original: data.texto_original ?? null,
       contact_nome: data.contact_nome ?? null,
-      contact_telefone: data.contact_telefone ?? null,
+      contact_telefone: contactPhoneNorm,
       contact_email: data.contact_email ?? null,
       contact_grupo: data.contact_grupo ?? null,
       data_publicacao: data.data_publicacao ?? null,
@@ -78,7 +82,7 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
       origem: data.origem,
       import_batch_id: null,
       consultor_nome: data.consultor_nome ?? null,
-      consultor_telefone: data.consultor_telefone ?? null,
+      consultor_telefone: consultorPhoneNorm,
       data_origem: data.data_origem ?? null,
       hora_origem: data.hora_origem ?? null,
       grupo_whatsapp: data.grupo_whatsapp ?? data.contact_grupo ?? null,
@@ -135,7 +139,7 @@ async function recomputeForSearch(supabase: any, userId: string, searchId: strin
   const { data: props } = await supabaseAdmin
     .from("properties")
     .select(
-      "id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
+      "id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
     )
     .eq("ativo", true);
   const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria);
@@ -180,7 +184,7 @@ export async function recomputeForProperty(propertyId: string): Promise<number> 
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: p } = await supabaseAdmin
     .from("properties")
-    .select("id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina, finalidade, ativo")
+    .select("id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade, ativo")
     .eq("id", propertyId)
     .maybeSingle();
   if (!p || !p.ativo) return 0;
@@ -455,6 +459,13 @@ export async function upsertOne(
   userId: string,
   row: UpsertRow,
 ): Promise<UpsertResult> {
+  // Correções 1.3: garantir formato único (normalização defensiva também
+  // aqui — permite a callers que ainda não normalizaram).
+  row = {
+    ...row,
+    contact_telefone: normalizePhone(row.contact_telefone) ?? null,
+    consultor_telefone: normalizePhone(row.consultor_telefone) ?? null,
+  };
   const incomingCriteria = row.criteria as SimilarityCriteria;
   const incomingText = row.texto_original ?? row.resumo ?? null;
 
@@ -668,7 +679,7 @@ export const matchPropertyAgainstActiveSearches = createServerFn({ method: "POST
     const { data: prop, error: pErr } = await supabase
       .from("properties")
       .select(
-        "id, referencia, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
+        "id, referencia, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
       )
       .eq("id", data.propertyId)
       .eq("user_id", userId)
@@ -775,7 +786,7 @@ export const listOpportunities = createServerFn({ method: "GET" })
       // Aumentar com dados de área/preço vindos do imóvel completo
       const { data: fullProp } = await supabase
         .from("properties")
-        .select("area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina")
+        .select("area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina")
         .eq("id", p.id)
         .maybeSingle();
       const propFull = { ...p, ...(fullProp ?? {}) };
@@ -839,7 +850,7 @@ export const recomputeOpportunitiesForSearch = createServerFn({ method: "POST" }
     const { data: props } = await supabase
       .from("properties")
       .select(
-        "id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
+        "id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
       )
       .eq("user_id", userId)
       .eq("ativo", true);

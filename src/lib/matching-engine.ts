@@ -43,6 +43,7 @@ export type PropertyLike = {
   preco?: number | string | null;
   area_util_m2?: number | string | null;
   area_m2?: number | string | null;
+  area_terreno_m2?: number | string | null;
   quartos?: number | null;
   garagem?: boolean | null;
   elevador?: boolean | null;
@@ -269,7 +270,14 @@ function areaMinFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResu
   if (areaMin == null) {
     return { ok: true, category: cat("area", "Área", true, "Sem mínimo pedido") };
   }
-  const pArea = num(property.area_util_m2) ?? num(property.area_m2);
+  // Correções 1.3: para terrenos, quintas e herdades a área relevante é a
+  // do TERRENO — não a área útil. O CRM pode expor ambas; o motor escolhe
+  // consoante o tipo de imóvel.
+  const tipo = (property.tipo_imovel ?? "").toLowerCase();
+  const isTerrainType = tipo === "terreno" || tipo === "quinta" || tipo === "herdade";
+  const pArea = isTerrainType
+    ? num(property.area_terreno_m2) ?? num(property.area_util_m2) ?? num(property.area_m2)
+    : num(property.area_util_m2) ?? num(property.area_m2);
   if (pArea == null) {
     return {
       ok: false,
@@ -372,7 +380,11 @@ function scorePreco(buyer: BuyerLike, property: PropertyLike): MatchCategoryResu
 
 function scoreArea(buyer: BuyerLike, property: PropertyLike): MatchCategoryResult {
   const weight = WEIGHTS.area;
-  const pArea = num(property.area_util_m2) ?? num(property.area_m2);
+  const tipo = (property.tipo_imovel ?? "").toLowerCase();
+  const isTerrainType = tipo === "terreno" || tipo === "quinta" || tipo === "herdade";
+  const pArea = isTerrainType
+    ? num(property.area_terreno_m2) ?? num(property.area_util_m2) ?? num(property.area_m2)
+    : num(property.area_util_m2) ?? num(property.area_m2);
   const areaMin = num(buyer.area_min);
   if (pArea == null || areaMin == null) {
     return cat("area", "Área", true, pArea != null ? `${pArea} m²` : "Sem dados", Math.round(weight * 0.7), weight);

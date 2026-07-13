@@ -166,14 +166,14 @@ function RadarPage() {
                           {p.preco ? ` · ${euros(p.preco)}` : ""}
                         </div>
                         <div className="text-xs text-muted-foreground truncate">
-                          Procura: {s.contact_nome ?? s.contact_telefone ?? "—"}
+                          Comprador: {s.contact_nome ?? s.contact_telefone ?? "—"}
                           {s.criteria?.zona ? ` · ${s.criteria.zona}` : ""}
                           {s.criteria?.budget_max ? ` · até ${euros(s.criteria.budget_max)}` : ""}
                         </div>
                       </div>
                       {p.id && (
                         <Button asChild size="sm" variant="outline">
-                          <Link to="/imoveis">
+                          <Link to="/imoveis" search={{ open: p.id }}>
                             Abrir <ArrowRight className="w-3 h-3 ml-1" />
                           </Link>
                         </Button>
