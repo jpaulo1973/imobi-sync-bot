@@ -139,7 +139,7 @@ async function recomputeForSearch(supabase: any, userId: string, searchId: strin
   const { data: props } = await supabaseAdmin
     .from("properties")
     .select(
-      "id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
+      "id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
     )
     .eq("ativo", true);
   const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria);
@@ -184,7 +184,7 @@ export async function recomputeForProperty(propertyId: string): Promise<number> 
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: p } = await supabaseAdmin
     .from("properties")
-    .select("id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina, finalidade, ativo")
+    .select("id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade, ativo")
     .eq("id", propertyId)
     .maybeSingle();
   if (!p || !p.ativo) return 0;
@@ -679,7 +679,7 @@ export const matchPropertyAgainstActiveSearches = createServerFn({ method: "POST
     const { data: prop, error: pErr } = await supabase
       .from("properties")
       .select(
-        "id, referencia, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
+        "id, referencia, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
       )
       .eq("id", data.propertyId)
       .eq("user_id", userId)
@@ -786,7 +786,7 @@ export const listOpportunities = createServerFn({ method: "GET" })
       // Aumentar com dados de área/preço vindos do imóvel completo
       const { data: fullProp } = await supabase
         .from("properties")
-        .select("area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina")
+        .select("area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina")
         .eq("id", p.id)
         .maybeSingle();
       const propFull = { ...p, ...(fullProp ?? {}) };
@@ -850,7 +850,7 @@ export const recomputeOpportunitiesForSearch = createServerFn({ method: "POST" }
     const { data: props } = await supabase
       .from("properties")
       .select(
-        "id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
+        "id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
       )
       .eq("user_id", userId)
       .eq("ativo", true);

@@ -267,7 +267,7 @@ RESPOSTA: APENAS JSON válido:
     const { data: properties, error: pErr } = await supabase
       .from("properties")
       .select(
-        "id, referencia, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
+        "id, referencia, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
       )
       .eq("user_id", userId)
       .eq("ativo", true);

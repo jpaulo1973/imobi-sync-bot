@@ -107,7 +107,7 @@ export const countBuyerOpportunities = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: properties } = await supabaseAdmin
       .from("properties")
-      .select("id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, quartos, garagem, elevador, jardim, piscina, finalidade")
+      .select("id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade")
       .eq("ativo", true);
     const zoneContext = await loadZoneContext();
     const counts: Record<string, number> = {};
