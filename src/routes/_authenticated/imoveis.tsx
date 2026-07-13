@@ -267,7 +267,10 @@ function ImoveisPage() {
     const p = items.find((x) => x.id === openParam);
     if (!p) return;
     void runMatch(p);
-    navigateImv({ search: (prev) => ({ ...prev, open: undefined }), replace: true });
+    navigateImv({
+      search: (prev: { open?: string }) => ({ ...prev, open: undefined }),
+      replace: true,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openParam, loading, items]);
 
