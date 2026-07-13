@@ -26,7 +26,7 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
-import { PhoneButton } from "@/components/PhoneButton";
+import { ConsultorContactActions } from "@/components/ConsultorContactActions";
 
 type Buyer = Tables<"buyer_clients">;
 
@@ -424,9 +424,17 @@ function BuyerOpportunitiesDrawer({
                 <div className="flex items-center gap-2 pt-1 border-t text-xs">
                   <span className="text-muted-foreground">Angariação:</span>
                   <span className="font-medium">{m.consultor_nome ?? "—"}</span>
-                  {m.consultor_telefone && (
-                    <div className="ml-auto"><PhoneButton telefone={m.consultor_telefone} /></div>
-                  )}
+                  <div className="ml-auto">
+                    <ConsultorContactActions
+                      compact
+                      consultor={{
+                        nome: m.consultor_nome,
+                        telefone: m.consultor_telefone,
+                        email: m.consultor_email,
+                        agency: (m as any).consultor_agency ?? null,
+                      }}
+                    />
+                  </div>
                 </div>
               </Card>
             ))
