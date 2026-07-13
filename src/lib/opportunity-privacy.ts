@@ -30,6 +30,7 @@ export type BuyerDTO = {
   consultor_nome: string | null;
   consultor_email: string | null;
   consultor_telefone: string | null;
+  consultor_agency: string | null;
 };
 
 export type SearchDTO = {
@@ -60,6 +61,7 @@ export type SearchDTO = {
   consultor_nome: string | null;
   consultor_email: string | null;
   consultor_telefone: string | null;
+  consultor_agency: string | null;
 };
 
 export type PropertyDTO = {
@@ -89,6 +91,7 @@ export type PropertyDTO = {
   consultor_nome: string | null;
   consultor_email: string | null;
   consultor_telefone: string | null;
+  consultor_agency: string | null;
 };
 
 /**
@@ -136,6 +139,7 @@ export function sanitizeBuyerForViewer(
     consultor_nome: consultor?.nome ?? null,
     consultor_email: consultor?.email ?? null,
     consultor_telefone: consultor?.telefone ?? null,
+    consultor_agency: consultor?.agency ?? null,
   };
 }
 
@@ -172,6 +176,7 @@ export function sanitizeSearchForViewer(
     consultor_nome: consultor?.nome ?? null,
     consultor_email: consultor?.email ?? null,
     consultor_telefone: consultor?.telefone ?? null,
+    consultor_agency: consultor?.agency ?? null,
   };
 }
 
@@ -207,6 +212,7 @@ export function sanitizePropertyForViewer(
     consultor_nome: consultor?.nome ?? null,
     consultor_email: consultor?.email ?? null,
     consultor_telefone: consultor?.telefone ?? null,
+    consultor_agency: consultor?.agency ?? null,
   };
 }
 
