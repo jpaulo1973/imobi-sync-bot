@@ -414,7 +414,7 @@ export async function upsertOne(
 
   const { data: rawCandidates } = await supabase
     .from("active_searches")
-    .select("id, criteria, contact_nome, contact_email, contact_grupo, contact_telefone, texto_original, resumo, data_publicacao, merged_from_count")
+    .select("id, criteria, contact_nome, contact_email, contact_grupo, contact_telefone, texto_original, resumo, data_publicacao, merged_from_count, consultor_nome, consultor_telefone, flagged_for_review")
     .eq("user_id", userId)
     .ilike("contact_telefone", `%${phone}%`)
     .limit(100);
@@ -425,6 +425,35 @@ export async function upsertOne(
 
   if (candidates.length === 0) {
     return await insertNew(supabase, userId, row, 0, "sem candidato compatível", "created");
+  }
+
+  // Curto-circuito determinístico — duplicado exato.
+  // Correções Pós-1.3 Melhoria 4: quando o registo é verdadeiramente idêntico
+  // (mesmo consultor, mesmo telefone, mesmo nome, mesmo texto, mesmos
+  // critérios essenciais), fundir silenciosamente. Nunca enviar para Revisão.
+  const exact = candidates.find((c: any) => isExactDuplicate(c, row));
+  if (exact) {
+    console.info(
+      `[dedup] auto-merge exact duplicate: existing=${exact.id} user=${userId} phone=${phone}`,
+    );
+    const res = await mergeInto(
+      supabase,
+      userId,
+      exact.id,
+      exact,
+      row,
+      100,
+      "duplicado exato (auto-merge)",
+    );
+    // Limpar qualquer flag antiga de revisão neste registo.
+    if ((exact as any).flagged_for_review) {
+      await supabase
+        .from("active_searches")
+        .update({ flagged_for_review: false })
+        .eq("id", exact.id);
+      res.flagged_for_review = false;
+    }
+    return res;
   }
 
   // 2) Score determinístico contra cada candidato — escolhe o melhor.
