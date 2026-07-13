@@ -342,6 +342,16 @@ export const HARD_FILTERS: HardFilter[] = [
 
 function scoreTipologia(buyer: BuyerLike, property: PropertyLike): MatchCategoryResult {
   const weight = WEIGHTS.tipologia;
+  // Correções 1.3: para imóveis do tipo terreno/quinta/herdade, o número
+  // de quartos NÃO é o critério principal — o que define o imóvel é o
+  // tipo e a área do terreno. Devolvemos peso pleno sem comparar T-x.
+  const pTipo = (property.tipo_imovel ?? "").toLowerCase();
+  if (pTipo === "terreno" || pTipo === "quinta" || pTipo === "herdade") {
+    const label = property.tipo_imovel
+      ? property.tipo_imovel.charAt(0).toUpperCase() + property.tipo_imovel.slice(1)
+      : "—";
+    return cat("tipologia", "Tipo", true, label, weight, weight);
+  }
   const bQ = buyer.quartos_min ?? tipologiaQuartos(buyer.tipologia);
   const pQ = property.quartos ?? tipologiaQuartos(property.tipologia);
   if (bQ == null) {
