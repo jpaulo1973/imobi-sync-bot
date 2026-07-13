@@ -189,6 +189,11 @@ Responde APENAS com JSON válido.`;
         preco: parsed.preco ?? 0,
         area_util_m2: chosenArea,
         area_m2: chosenArea,
+        // Correções 1.3: guardar SEMPRE área de terreno em coluna própria
+        // quando o CRM a expõe. Essencial para quintas, herdades e terrenos
+        // — o Motor Match passa a poder usá-la de forma independente da
+        // área útil.
+        area_terreno_m2: parsed.area_terreno_m2 ?? null,
         garagem: parsed.garagem ?? null,
         elevador: parsed.elevador ?? null,
         jardim: parsed.jardim ?? null,
