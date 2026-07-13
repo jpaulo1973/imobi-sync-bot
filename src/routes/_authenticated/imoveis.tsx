@@ -755,6 +755,12 @@ function ImoveisPage() {
                 {p.area_util_m2 != null && (
                   <span className="inline-flex items-center gap-1"><Maximize className="w-4 h-4" /> {p.area_util_m2} m²</span>
                 )}
+                {(p as unknown as { area_terreno_m2?: number | null }).area_terreno_m2 != null && (
+                  <span className="inline-flex items-center gap-1">
+                    <Maximize className="w-4 h-4" /> Terreno{" "}
+                    {(p as unknown as { area_terreno_m2?: number | null }).area_terreno_m2} m²
+                  </span>
+                )}
                 {p.garagem && <Badge variant="outline">garagem</Badge>}
                 {p.elevador && <Badge variant="outline">elevador</Badge>}
                 {p.jardim && <Badge variant="outline">jardim</Badge>}
