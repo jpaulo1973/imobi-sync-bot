@@ -52,7 +52,7 @@ export function ConsultorContactActions({ consultor, compact = false }: Props) {
         size={compact ? "icon" : "sm"}
         variant="outline"
         disabled={!wa}
-        title={wa ? "Abrir WhatsApp" : "Sem telemóvel do consultor"}
+        title={wa ? "Abrir WhatsApp" : "Consultor sem telemóvel registado"}
         aria-label="Abrir WhatsApp do consultor"
       >
         {wa ? (
@@ -63,7 +63,7 @@ export function ConsultorContactActions({ consultor, compact = false }: Props) {
         ) : (
           <span>
             <MessageCircle className={compact ? "w-4 h-4" : "w-4 h-4 mr-1"} />
-            {!compact && "WhatsApp"}
+            {!compact && "Sem WhatsApp"}
           </span>
         )}
       </Button>
