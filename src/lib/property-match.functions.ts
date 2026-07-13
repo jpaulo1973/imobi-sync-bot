@@ -205,11 +205,30 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
         typeof q.consultor_telefone === "string" && q.consultor_telefone.trim()
           ? q.consultor_telefone.trim()
           : null;
+      // Correções finais 1.3: NUNCA usar o dono do upload como consultor.
+      // Se o registo não trouxer consultor explícito, tentamos usar o
+      // contacto principal (contact_nome/telefone) apenas para procuras
+      // importadas por Excel — nesses ficheiros a coluna "Nome" contém
+      // habitualmente o consultor responsável, não o comprador. Nunca cai
+      // para o uploader (ADMJP…), que não é o consultor da procura.
+      const origemLower = (q.origem ?? "").toString().toLowerCase();
+      const isExcel = origemLower === "excel";
+      const fallbackNome = isExcel
+        ? (typeof q.contact_nome === "string" && q.contact_nome.trim()
+            ? q.contact_nome.trim()
+            : null)
+        : null;
+      const fallbackTelefone = isExcel
+        ? (typeof q.contact_telefone === "string" && q.contact_telefone.trim()
+            ? q.contact_telefone.trim()
+            : null)
+        : null;
+      void uploaderMeta; // intencional: já não é usado como consultor
       const resolved = resolveConsultor(
         consultorDirectory,
-        recNome,
-        recTelefone,
-        uploaderMeta,
+        recNome ?? fallbackNome,
+        recTelefone ?? fallbackTelefone,
+        null,
       );
       opps.push({
         key: `search-${q.id}`,
