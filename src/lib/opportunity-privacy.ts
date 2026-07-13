@@ -245,13 +245,23 @@ export async function loadConsultorMeta(userIds: string[]): Promise<Map<string, 
         const { data } = await supabaseAdmin.auth.admin.getUserById(uid);
         const email = data?.user?.email ?? null;
         const phone = (data?.user?.phone as string | undefined) ?? null;
+        const meta = (data?.user?.user_metadata ?? {}) as Record<string, unknown>;
+        const metaName =
+          (meta.full_name as string | undefined) ??
+          (meta.name as string | undefined) ??
+          null;
         const cur = map.get(uid) ?? {
           nome: null,
           email: null,
           telefone: null,
           agency: null,
         };
-        map.set(uid, { ...cur, email, telefone: phone });
+        // Preferência: profile.full_name > auth metadata > prefixo do email.
+        // Sem isto, contas sem full_name apareciam como "—" e contas onde
+        // full_name === prefixo do email pareciam sempre o mesmo utilizador.
+        const emailPrefix = email ? email.split("@")[0] : null;
+        const nome = cur.nome ?? metaName ?? emailPrefix;
+        map.set(uid, { ...cur, nome, email, telefone: cur.telefone ?? phone });
       } catch {
         // ignore
       }
