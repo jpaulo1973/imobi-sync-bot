@@ -90,6 +90,9 @@ function RadarPage() {
   const [loading, setLoading] = useState(true);
   const [buyers, setBuyers] = useState<Array<Tables<"buyer_clients">>>([]);
   const [buyerCounts, setBuyerCounts] = useState<Record<string, number>>({});
+  // Correções 1.3: abrir uma oportunidade mostra o detalhe num Sheet inline,
+  // sem sair do Radar.
+  const [openOpp, setOpenOpp] = useState<any | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -179,10 +182,8 @@ function RadarPage() {
                         </div>
                       </div>
                       {p.id && (
-                        <Button asChild size="sm" variant="outline">
-                          <Link to="/imoveis" search={{ open: p.id }}>
-                            Abrir <ArrowRight className="w-3 h-3 ml-1" />
-                          </Link>
+                        <Button size="sm" variant="outline" onClick={() => setOpenOpp(o)}>
+                          Abrir <ArrowRight className="w-3 h-3 ml-1" />
                         </Button>
                       )}
                     </Card>
