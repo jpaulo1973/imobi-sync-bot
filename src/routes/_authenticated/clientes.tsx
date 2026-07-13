@@ -27,6 +27,7 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { ConsultorContactActions } from "@/components/ConsultorContactActions";
+import { normalizePhone } from "@/lib/dedup";
 
 type Buyer = Tables<"buyer_clients">;
 
@@ -119,7 +120,7 @@ function ClientesPage() {
     const { error } = await supabase.from("buyer_clients").insert({
       user_id: u.user.id,
       nome: form.nome,
-      telefone: form.telefone || null,
+      telefone: normalizePhone(form.telefone) ?? null,
       email: form.email || null,
       finalidade: form.finalidade,
       tipologia: form.tipologia || null,
