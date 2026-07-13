@@ -380,7 +380,11 @@ function scorePreco(buyer: BuyerLike, property: PropertyLike): MatchCategoryResu
 
 function scoreArea(buyer: BuyerLike, property: PropertyLike): MatchCategoryResult {
   const weight = WEIGHTS.area;
-  const pArea = num(property.area_util_m2) ?? num(property.area_m2);
+  const tipo = (property.tipo_imovel ?? "").toLowerCase();
+  const isTerrainType = tipo === "terreno" || tipo === "quinta" || tipo === "herdade";
+  const pArea = isTerrainType
+    ? num(property.area_terreno_m2) ?? num(property.area_util_m2) ?? num(property.area_m2)
+    : num(property.area_util_m2) ?? num(property.area_m2);
   const areaMin = num(buyer.area_min);
   if (pArea == null || areaMin == null) {
     return cat("area", "Área", true, pArea != null ? `${pArea} m²` : "Sem dados", Math.round(weight * 0.7), weight);
