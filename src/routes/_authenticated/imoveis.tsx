@@ -257,6 +257,20 @@ function ImoveisPage() {
 
   useEffect(() => { load(); }, []);
 
+  // Correções 1.3: quando chegamos com ?open=<propertyId> (p.ex. via
+  // "Abrir" numa oportunidade do Radar), abrimos automaticamente o painel
+  // de matches desse imóvel, uma única vez após o carregamento.
+  const openParam = Route.useSearch({ select: (s) => s.open });
+  const navigateImv = Route.useNavigate();
+  useEffect(() => {
+    if (!openParam || loading) return;
+    const p = items.find((x) => x.id === openParam);
+    if (!p) return;
+    void runMatch(p);
+    navigateImv({ search: (prev) => ({ ...prev, open: undefined }), replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openParam, loading, items]);
+
   // Realtime: sempre que buyer_clients mudar, refresca contadores (e o match aberto).
   useEffect(() => {
     let debounce: ReturnType<typeof setTimeout> | null = null;
