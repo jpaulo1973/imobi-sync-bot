@@ -118,6 +118,7 @@ type FormState = {
   freguesia: string;
   zona: string;
   area_util_m2: string;
+  area_terreno_m2: string;
   garagem: boolean;
   elevador: boolean;
   jardim: boolean;
@@ -136,6 +137,7 @@ const empty: FormState = {
   freguesia: "",
   zona: "",
   area_util_m2: "",
+  area_terreno_m2: "",
   garagem: false,
   elevador: false,
   jardim: false,
@@ -154,6 +156,10 @@ const fromProperty = (p: Property): FormState => ({
   freguesia: p.freguesia ?? "",
   zona: p.zona ?? "",
   area_util_m2: p.area_util_m2 != null ? String(p.area_util_m2) : "",
+  area_terreno_m2:
+    (p as unknown as { area_terreno_m2?: number | null }).area_terreno_m2 != null
+      ? String((p as unknown as { area_terreno_m2?: number | null }).area_terreno_m2)
+      : "",
   garagem: p.garagem ?? false,
   elevador: p.elevador ?? false,
   jardim: p.jardim ?? false,
@@ -399,6 +405,7 @@ function ImoveisPage() {
       zona: form.zona || form.freguesia || form.concelho || "Por preencher",
       area_util_m2: form.area_util_m2 ? Number(form.area_util_m2) : null,
       area_m2: form.area_util_m2 ? Number(form.area_util_m2) : null,
+      area_terreno_m2: form.area_terreno_m2 ? Number(form.area_terreno_m2) : null,
       garagem: form.garagem,
       elevador: form.elevador,
       jardim: form.jardim,
@@ -607,6 +614,26 @@ function ImoveisPage() {
                 </div>
               </div>
 
+              {(form.tipo_imovel === "terreno" ||
+                form.tipo_imovel === "moradia" ||
+                form.tipo_imovel === "quinta" ||
+                form.tipo_imovel === "herdade") && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    {label("Área do terreno (m²)", "area_terreno_m2")}
+                    <Input
+                      type="number"
+                      value={form.area_terreno_m2}
+                      onChange={(e) =>
+                        setForm({ ...form, area_terreno_m2: e.target.value })
+                      }
+                      placeholder="ex.: 14000"
+                    />
+                  </div>
+                  <div />
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   {label("Distrito", "distrito")}
@@ -727,6 +754,12 @@ function ImoveisPage() {
               <div className="flex gap-4 text-sm text-muted-foreground flex-wrap">
                 {p.area_util_m2 != null && (
                   <span className="inline-flex items-center gap-1"><Maximize className="w-4 h-4" /> {p.area_util_m2} m²</span>
+                )}
+                {(p as unknown as { area_terreno_m2?: number | null }).area_terreno_m2 != null && (
+                  <span className="inline-flex items-center gap-1">
+                    <Maximize className="w-4 h-4" /> Terreno{" "}
+                    {(p as unknown as { area_terreno_m2?: number | null }).area_terreno_m2} m²
+                  </span>
                 )}
                 {p.garagem && <Badge variant="outline">garagem</Badge>}
                 {p.elevador && <Badge variant="outline">elevador</Badge>}
