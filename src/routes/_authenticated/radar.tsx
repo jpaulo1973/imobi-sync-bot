@@ -289,6 +289,67 @@ function RadarPage() {
       )}
         </>
       )}
+
+      <Sheet open={!!openOpp} onOpenChange={(v) => !v && setOpenOpp(null)}>
+        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+          {openOpp && (() => {
+            const p = openOpp.properties ?? {};
+            const s = openOpp.active_searches ?? {};
+            return (
+              <>
+                <SheetHeader>
+                  <SheetTitle className="flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-primary" /> Detalhe da oportunidade
+                  </SheetTitle>
+                  <SheetDescription>
+                    Compatibilidade <strong>{openOpp.score}%</strong> entre o imóvel e a procura.
+                  </SheetDescription>
+                </SheetHeader>
+                <div className="mt-4 space-y-4 text-sm">
+                  <Card className="p-3 space-y-1">
+                    <div className="text-xs font-semibold uppercase text-muted-foreground">Imóvel</div>
+                    <div className="font-medium">
+                      {p.tipologia ? `${p.tipologia} · ` : ""}
+                      {p.zona ?? p.freguesia ?? p.concelho ?? "—"}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {p.tipo_imovel ?? "—"}
+                      {p.preco ? ` · ${euros(p.preco)}` : ""}
+                      {p.referencia ? ` · Ref: ${p.referencia}` : ""}
+                    </div>
+                  </Card>
+                  <Card className="p-3 space-y-1">
+                    <div className="text-xs font-semibold uppercase text-muted-foreground">Comprador</div>
+                    <div className="font-medium">
+                      {s.contact_nome ?? s.contact_telefone ?? "—"}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {s.criteria?.tipologia ? `${s.criteria.tipologia} · ` : ""}
+                      {s.criteria?.zona ?? "—"}
+                      {s.criteria?.budget_max ? ` · até ${euros(s.criteria.budget_max)}` : ""}
+                    </div>
+                    {s.resumo && (
+                      <p className="text-xs italic text-muted-foreground mt-1">"{s.resumo}"</p>
+                    )}
+                  </Card>
+                  {Array.isArray(openOpp.reasons) && openOpp.reasons.length > 0 && (
+                    <Card className="p-3 space-y-1">
+                      <div className="text-xs font-semibold uppercase text-muted-foreground">
+                        Razões do match
+                      </div>
+                      <ul className="text-xs list-disc pl-4 space-y-0.5">
+                        {openOpp.reasons.map((r: string, i: number) => (
+                          <li key={i}>{r}</li>
+                        ))}
+                      </ul>
+                    </Card>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
