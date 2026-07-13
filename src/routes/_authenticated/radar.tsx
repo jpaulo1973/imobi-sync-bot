@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -18,7 +18,6 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { Radar, Trash2, Sparkles, ArrowRight, Users } from "lucide-react";
-import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { PhoneButton } from "@/components/PhoneButton";
 import { supabase } from "@/integrations/supabase/client";
