@@ -56,8 +56,12 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     const expires = new Date(Date.now() + data.duration_days * 24 * 60 * 60 * 1000).toISOString();
+    // Correções 1.3: normalizar telefones ANTES da persistência para que
+    // exista um único formato interno (9 dígitos PT / E.164-lite).
+    const contactPhoneNorm = normalizePhone(data.contact_telefone) ?? null;
+    const consultorPhoneNorm = normalizePhone(data.consultor_telefone) ?? null;
     const dedup_key = buildDedupKey({
-      telefone: data.contact_telefone,
+      telefone: contactPhoneNorm,
       nome: data.contact_nome ?? data.criteria.nome ?? null,
       finalidade: data.criteria.finalidade,
       tipologia: data.criteria.tipologia ?? null,
@@ -70,7 +74,7 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
       resumo: data.resumo ?? null,
       texto_original: data.texto_original ?? null,
       contact_nome: data.contact_nome ?? null,
-      contact_telefone: data.contact_telefone ?? null,
+      contact_telefone: contactPhoneNorm,
       contact_email: data.contact_email ?? null,
       contact_grupo: data.contact_grupo ?? null,
       data_publicacao: data.data_publicacao ?? null,
@@ -78,7 +82,7 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
       origem: data.origem,
       import_batch_id: null,
       consultor_nome: data.consultor_nome ?? null,
-      consultor_telefone: data.consultor_telefone ?? null,
+      consultor_telefone: consultorPhoneNorm,
       data_origem: data.data_origem ?? null,
       hora_origem: data.hora_origem ?? null,
       grupo_whatsapp: data.grupo_whatsapp ?? data.contact_grupo ?? null,
