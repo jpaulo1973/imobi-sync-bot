@@ -438,6 +438,7 @@ export type Database = {
       }
       properties: {
         Row: {
+          area_bruta_m2: number | null
           area_m2: number | null
           area_terreno_m2: number | null
           area_util_m2: number | null
@@ -466,6 +467,7 @@ export type Database = {
           zona: string
         }
         Insert: {
+          area_bruta_m2?: number | null
           area_m2?: number | null
           area_terreno_m2?: number | null
           area_util_m2?: number | null
@@ -494,6 +496,7 @@ export type Database = {
           zona: string
         }
         Update: {
+          area_bruta_m2?: number | null
           area_m2?: number | null
           area_terreno_m2?: number | null
           area_util_m2?: number | null
