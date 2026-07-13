@@ -150,6 +150,18 @@ export function sanitizeSearchForViewer(
 ): SearchDTO {
   const isOwner = search?.user_id === viewerId;
   const c = (search.criteria ?? {}) as Record<string, any>;
+  // Consultor correto: prioridade ao valor gravado no próprio registo (por
+  // linha do Excel / mensagem WhatsApp). O upload é feito por UM utilizador,
+  // mas cada procura pode pertencer a um consultor distinto. Só recorremos
+  // à meta do dono do upload quando o registo não traz consultor identificado.
+  const perRecordNome =
+    typeof search.consultor_nome === "string" && search.consultor_nome.trim()
+      ? search.consultor_nome.trim()
+      : null;
+  const perRecordTelefone =
+    typeof search.consultor_telefone === "string" && search.consultor_telefone.trim()
+      ? search.consultor_telefone.trim()
+      : null;
   return {
     id: search.id,
     isOwner,
@@ -170,12 +182,9 @@ export function sanitizeSearchForViewer(
     grupo_whatsapp: search.grupo_whatsapp ?? search.contact_grupo ?? null,
     data_origem: search.data_origem ?? null,
     created_at: search.created_at ?? null,
-    // Release 1.3 — fonte única do consultor é loadConsultorMeta; o campo
-    // legado search.consultor_nome ficava "colado" a valores importados
-    // antigos e apresentava sempre o mesmo utilizador. Já não é usado.
-    consultor_nome: consultor?.nome ?? null,
+    consultor_nome: perRecordNome ?? consultor?.nome ?? null,
     consultor_email: consultor?.email ?? null,
-    consultor_telefone: consultor?.telefone ?? null,
+    consultor_telefone: perRecordTelefone ?? consultor?.telefone ?? null,
     consultor_agency: consultor?.agency ?? null,
   };
 }

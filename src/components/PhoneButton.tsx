@@ -12,9 +12,13 @@ function isMobile() {
 // Normaliza um número para o formato wa.me (E.164 sem '+').
 // Garante prefixo 351 para números portugueses de 9 dígitos.
 export function toWhatsAppNumber(telefone: string): string {
-  let s = String(telefone).replace(/\D+/g, "");
+  let s = String(telefone ?? "").replace(/\D+/g, "");
+  if (!s) return "";
   if (s.startsWith("00")) s = s.slice(2);
   if (!s.startsWith("351") && s.length === 9) s = "351" + s;
+  // Só aceitamos números com pelo menos 9 dígitos úteis. Caso contrário
+  // devolvemos "" para o UI desativar o botão de WhatsApp.
+  if (s.replace(/^351/, "").length < 9) return "";
   return s;
 }
 
@@ -26,7 +30,7 @@ type Props = {
 };
 
 export function PhoneButton({ telefone, variant = "outline", size = "sm", compact = false }: Props) {
-  const clean = telefone.replace(/\s+/g, "");
+  const clean = String(telefone ?? "").replace(/\s+/g, "");
   const wa = toWhatsAppNumber(telefone);
   const mobile = useMemo(() => isMobile(), []);
 
@@ -58,7 +62,7 @@ export function PhoneButton({ telefone, variant = "outline", size = "sm", compac
               </Button>
             )}
           </div>
-          {wa && (
+          {wa ? (
             <Button asChild size="sm" variant="outline" className="w-full">
               <a
                 href={`https://wa.me/${wa}`}
@@ -67,6 +71,10 @@ export function PhoneButton({ telefone, variant = "outline", size = "sm", compac
               >
                 <MessageCircle className="w-3.5 h-3.5 mr-1" /> WhatsApp
               </a>
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline" className="w-full" disabled title="Sem número válido para WhatsApp">
+              <MessageCircle className="w-3.5 h-3.5 mr-1" /> WhatsApp indisponível
             </Button>
           )}
         </div>

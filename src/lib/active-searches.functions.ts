@@ -301,6 +301,59 @@ function mergeCriteria(
   return merged;
 }
 
+// ---------------------------------------------------------------------------
+// Curto-circuito determinístico para duplicados verdadeiramente idênticos.
+// Devolve true apenas quando existe correspondência estrita em: telefone
+// normalizado, consultor (nome+telefone), nome do comprador, texto original
+// e assinatura canónica dos critérios essenciais.
+// ---------------------------------------------------------------------------
+function normText(v: unknown): string {
+  return typeof v === "string" ? v.trim().toLowerCase().replace(/\s+/g, " ") : "";
+}
+function normArr(v: unknown): string {
+  if (!Array.isArray(v)) return "";
+  return [...v]
+    .map((x) => normText(x))
+    .filter(Boolean)
+    .sort()
+    .join(",");
+}
+function criteriaSignature(c: Record<string, unknown> | null | undefined): string {
+  const x = (c ?? {}) as Record<string, unknown>;
+  return JSON.stringify({
+    finalidade: normText(x.finalidade) || "indefinido",
+    tipologia: normText(x.tipologia),
+    tipo_imovel: normArr(x.tipo_imovel),
+    zona: normText(x.zona) || normText(x.municipio) || normText(x.freguesia),
+    budget_min: x.budget_min ?? null,
+    budget_max: x.budget_max ?? null,
+    area_min: x.area_min ?? null,
+    quartos_min: x.quartos_min ?? null,
+    caracteristicas: normArr(x.caracteristicas),
+  });
+}
+function isExactDuplicate(candidate: any, incoming: UpsertRow): boolean {
+  // Consultor — se ambos os lados o têm, tem de ser o mesmo. Se um lado
+  // não o tem, não bloqueia (evita perder o auto-merge por falta de dados).
+  const cCons = normText(candidate?.consultor_nome);
+  const iCons = normText(incoming.consultor_nome);
+  if (cCons && iCons && cCons !== iCons) return false;
+  const cConsTel = normalizePhone(candidate?.consultor_telefone);
+  const iConsTel = normalizePhone(incoming.consultor_telefone);
+  if (cConsTel && iConsTel && cConsTel !== iConsTel) return false;
+  // Nome do comprador — se ambos preenchidos, iguais.
+  const cNome = normText(candidate?.contact_nome);
+  const iNome = normText(incoming.contact_nome);
+  if (cNome && iNome && cNome !== iNome) return false;
+  // Texto original — se ambos preenchidos, iguais.
+  const cText = normText(candidate?.texto_original ?? candidate?.resumo);
+  const iText = normText(incoming.texto_original ?? incoming.resumo);
+  if (cText && iText && cText !== iText) return false;
+  // Critérios essenciais têm de bater certo.
+  if (criteriaSignature(candidate?.criteria) !== criteriaSignature(incoming.criteria)) return false;
+  return true;
+}
+
 async function mergeInto(
   supabase: any,
   userId: string,
@@ -414,7 +467,7 @@ export async function upsertOne(
 
   const { data: rawCandidates } = await supabase
     .from("active_searches")
-    .select("id, criteria, contact_nome, contact_email, contact_grupo, contact_telefone, texto_original, resumo, data_publicacao, merged_from_count")
+    .select("id, criteria, contact_nome, contact_email, contact_grupo, contact_telefone, texto_original, resumo, data_publicacao, merged_from_count, consultor_nome, consultor_telefone, flagged_for_review")
     .eq("user_id", userId)
     .ilike("contact_telefone", `%${phone}%`)
     .limit(100);
@@ -425,6 +478,35 @@ export async function upsertOne(
 
   if (candidates.length === 0) {
     return await insertNew(supabase, userId, row, 0, "sem candidato compatível", "created");
+  }
+
+  // Curto-circuito determinístico — duplicado exato.
+  // Correções Pós-1.3 Melhoria 4: quando o registo é verdadeiramente idêntico
+  // (mesmo consultor, mesmo telefone, mesmo nome, mesmo texto, mesmos
+  // critérios essenciais), fundir silenciosamente. Nunca enviar para Revisão.
+  const exact = candidates.find((c: any) => isExactDuplicate(c, row));
+  if (exact) {
+    console.info(
+      `[dedup] auto-merge exact duplicate: existing=${exact.id} user=${userId} phone=${phone}`,
+    );
+    const res = await mergeInto(
+      supabase,
+      userId,
+      exact.id,
+      exact,
+      row,
+      100,
+      "duplicado exato (auto-merge)",
+    );
+    // Limpar qualquer flag antiga de revisão neste registo.
+    if ((exact as any).flagged_for_review) {
+      await supabase
+        .from("active_searches")
+        .update({ flagged_for_review: false })
+        .eq("id", exact.id);
+      res.flagged_for_review = false;
+    }
+    return res;
   }
 
   // 2) Score determinístico contra cada candidato — escolhe o melhor.
