@@ -805,7 +805,10 @@ function ImoveisPage() {
                 if (m.hora_origem) contextBits.push(String(m.hora_origem));
                 if (m.grupo_whatsapp) contextBits.push(`Grupo: ${m.grupo_whatsapp}`);
                 if (m.comunidade) contextBits.push(`Comunidade: ${m.comunidade}`);
-                const isExternal = m.source !== "cliente";
+                // Release 1.3 — considerar externa apenas quando a procura
+                // não é do próprio consultor. Excel/WhatsApp importados
+                // por ele próprio devem mostrar o nome do comprador.
+                const isExternal = !m.isOwner;
                 const stateBadgeCls =
                   m.state === "contactado"
                     ? "bg-emerald-100 text-emerald-800 border-emerald-200"
