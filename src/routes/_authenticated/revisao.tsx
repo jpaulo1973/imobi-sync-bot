@@ -10,6 +10,8 @@ import {
   listUnknownZones,
   createFunctionalZoneFromReview,
   ignoreUnknownZone,
+  listIncompleteConsultores,
+  type IncompleteConsultor,
 } from "@/lib/review.functions";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,7 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Save, Split, Trash2, Plus, X, RefreshCw, MapPin } from "lucide-react";
+import { AlertTriangle, Save, Split, Trash2, Plus, X, RefreshCw, MapPin, UserX } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
@@ -139,7 +141,65 @@ function RevisaoPage() {
       )}
 
       <UnknownZonesPanel />
+      <IncompleteConsultoresPanel />
     </div>
+  );
+}
+
+function IncompleteConsultoresPanel() {
+  const listFn = useServerFn(listIncompleteConsultores);
+  const [items, setItems] = useState<IncompleteConsultor[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    listFn()
+      .then((r) => setItems(r.consultores))
+      .catch((e) => toast.error(e instanceof Error ? e.message : "Erro"))
+      .finally(() => setLoading(false));
+  }, [listFn]);
+
+  const labelFor = (m: IncompleteConsultor["missing"][number]) =>
+    m === "nome" ? "Sem nome" : m === "telefone" ? "Sem telefone" : m === "email" ? "Sem email" : "Sem agência";
+
+  return (
+    <section className="space-y-3 pt-6 border-t">
+      <div className="flex items-center gap-2">
+        <UserX className="w-4 h-4 text-primary" />
+        <h2 className="text-lg font-semibold">Consultores por Completar</h2>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Consultores identificados em procuras ativas mas com dados essenciais em falta
+        (nome, telemóvel, email ou agência). Completar o perfil destes consultores antes
+        de disponibilizar oportunidades entre consultores.
+      </p>
+      {loading ? (
+        <p className="text-sm text-muted-foreground">A carregar…</p>
+      ) : items.length === 0 ? (
+        <Card className="p-4 text-sm text-muted-foreground text-center">
+          Todos os consultores em uso têm contactos completos.
+        </Card>
+      ) : (
+        items.map((c) => (
+          <Card key={c.key} className="p-3 flex flex-wrap items-center gap-3">
+            <Badge variant="outline">{c.procuras_afetadas}×</Badge>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium truncate">{c.nome ?? "— sem nome —"}</p>
+              <p className="text-xs text-muted-foreground truncate">
+                {c.telefone ?? "sem telefone"}
+                {c.email ? ` · ${c.email}` : ""}
+                {c.agency ? ` · ${c.agency}` : ""}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {c.missing.map((m) => (
+                <Badge key={m} variant="destructive" className="text-xs">
+                  {labelFor(m)}
+                </Badge>
+              ))}
+            </div>
+          </Card>
+        ))
+      )}
+    </section>
   );
 }
 
