@@ -189,6 +189,17 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
         hiddenCount++;
         continue;
       }
+      // Consultor por-registo tem prioridade sobre a meta do dono do upload.
+      // Excel/WhatsApp guardam consultor_nome/telefone em cada linha; o
+      // uploader não é necessariamente o consultor responsável pela procura.
+      const recNome =
+        typeof q.consultor_nome === "string" && q.consultor_nome.trim()
+          ? q.consultor_nome.trim()
+          : null;
+      const recTelefone =
+        typeof q.consultor_telefone === "string" && q.consultor_telefone.trim()
+          ? q.consultor_telefone.trim()
+          : null;
       opps.push({
         key: `search-${q.id}`,
         source: origem,
@@ -204,10 +215,8 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
         zona: c?.zona ?? c?.municipio ?? c?.freguesia ?? null,
         budget_min: c?.budget_min ?? null,
         budget_max: c?.budget_max ?? null,
-        // Release 1.3 — fonte única é loadConsultorMeta; o campo legado
-        // q.consultor_nome ficava "colado" ao mesmo utilizador antigo.
-        consultor_nome: consultor?.nome ?? null,
-        consultor_telefone: consultor?.telefone ?? null,
+        consultor_nome: recNome ?? consultor?.nome ?? null,
+        consultor_telefone: recTelefone ?? consultor?.telefone ?? null,
         consultor_email: consultor?.email ?? null,
         consultor_agency: consultor?.agency ?? null,
         data_origem: q.data_origem ?? null,
