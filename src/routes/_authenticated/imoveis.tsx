@@ -405,6 +405,7 @@ function ImoveisPage() {
       zona: form.zona || form.freguesia || form.concelho || "Por preencher",
       area_util_m2: form.area_util_m2 ? Number(form.area_util_m2) : null,
       area_m2: form.area_util_m2 ? Number(form.area_util_m2) : null,
+      area_terreno_m2: form.area_terreno_m2 ? Number(form.area_terreno_m2) : null,
       garagem: form.garagem,
       elevador: form.elevador,
       jardim: form.jardim,
