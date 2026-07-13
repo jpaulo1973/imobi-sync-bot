@@ -301,6 +301,59 @@ function mergeCriteria(
   return merged;
 }
 
+// ---------------------------------------------------------------------------
+// Curto-circuito determinístico para duplicados verdadeiramente idênticos.
+// Devolve true apenas quando existe correspondência estrita em: telefone
+// normalizado, consultor (nome+telefone), nome do comprador, texto original
+// e assinatura canónica dos critérios essenciais.
+// ---------------------------------------------------------------------------
+function normText(v: unknown): string {
+  return typeof v === "string" ? v.trim().toLowerCase().replace(/\s+/g, " ") : "";
+}
+function normArr(v: unknown): string {
+  if (!Array.isArray(v)) return "";
+  return [...v]
+    .map((x) => normText(x))
+    .filter(Boolean)
+    .sort()
+    .join(",");
+}
+function criteriaSignature(c: Record<string, unknown> | null | undefined): string {
+  const x = (c ?? {}) as Record<string, unknown>;
+  return JSON.stringify({
+    finalidade: normText(x.finalidade) || "indefinido",
+    tipologia: normText(x.tipologia),
+    tipo_imovel: normArr(x.tipo_imovel),
+    zona: normText(x.zona) || normText(x.municipio) || normText(x.freguesia),
+    budget_min: x.budget_min ?? null,
+    budget_max: x.budget_max ?? null,
+    area_min: x.area_min ?? null,
+    quartos_min: x.quartos_min ?? null,
+    caracteristicas: normArr(x.caracteristicas),
+  });
+}
+function isExactDuplicate(candidate: any, incoming: UpsertRow): boolean {
+  // Consultor — se ambos os lados o têm, tem de ser o mesmo. Se um lado
+  // não o tem, não bloqueia (evita perder o auto-merge por falta de dados).
+  const cCons = normText(candidate?.consultor_nome);
+  const iCons = normText(incoming.consultor_nome);
+  if (cCons && iCons && cCons !== iCons) return false;
+  const cConsTel = normalizePhone(candidate?.consultor_telefone);
+  const iConsTel = normalizePhone(incoming.consultor_telefone);
+  if (cConsTel && iConsTel && cConsTel !== iConsTel) return false;
+  // Nome do comprador — se ambos preenchidos, iguais.
+  const cNome = normText(candidate?.contact_nome);
+  const iNome = normText(incoming.contact_nome);
+  if (cNome && iNome && cNome !== iNome) return false;
+  // Texto original — se ambos preenchidos, iguais.
+  const cText = normText(candidate?.texto_original ?? candidate?.resumo);
+  const iText = normText(incoming.texto_original ?? incoming.resumo);
+  if (cText && iText && cText !== iText) return false;
+  // Critérios essenciais têm de bater certo.
+  if (criteriaSignature(candidate?.criteria) !== criteriaSignature(incoming.criteria)) return false;
+  return true;
+}
+
 async function mergeInto(
   supabase: any,
   userId: string,
