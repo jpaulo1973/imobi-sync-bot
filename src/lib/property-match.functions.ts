@@ -287,7 +287,7 @@ export const countPropertyOpportunities = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: searches } = await supabaseAdmin
       .from("active_searches")
-      .select("id, criteria, origem, expires_at")
+      .select("id, criteria, origem, expires_at, resumo, texto_original")
       .gt("expires_at", new Date().toISOString());
 
     const zoneContext = await loadZoneContext();
