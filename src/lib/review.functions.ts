@@ -126,6 +126,11 @@ export const updateReviewSearch = createServerFn({ method: "POST" })
     if (data.resolve) {
       patch.flagged_for_review = false;
       patch.decision_reason = "Revisto manualmente pelo administrador";
+      // Correções 1.3: reintegrar coloca a procura imediatamente em produção.
+      // Renovamos o TTL (30 dias) para que o Motor Match volte a considerá-la
+      // e limpamos last_match_at para forçar reavaliação em novas contagens.
+      patch.expires_at = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      patch.last_match_at = null;
     }
     const { error } = await supabase.from("active_searches").update(patch as any).eq("id", data.id);
     if (error) throw new Error(error.message);
