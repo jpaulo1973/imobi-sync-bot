@@ -1,12 +1,14 @@
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Building2, Home, Sparkles, LogOut, Users, Shield, Radar, FileSpreadsheet, UserCircle, AlertTriangle } from "lucide-react";
+import { Building2, Home, Sparkles, LogOut, Users, Shield, Radar, FileSpreadsheet, UserCircle, AlertTriangle, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useServerFn } from "@tanstack/react-start";
 import { countUnseenOpportunities } from "@/lib/active-searches.functions";
 import { getMyProfile } from "@/lib/profile.functions";
+import { MaintenanceGate } from "@/components/MaintenanceGate";
+import type { MaintenanceStatus } from "@/lib/maintenance.functions";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: async () => {
@@ -23,6 +25,7 @@ function Layout() {
   const [unseen, setUnseen] = useState(0);
   const countFn = useServerFn(countUnseenOpportunities);
   const profileFn = useServerFn(getMyProfile);
+  const [maintenance, setMaintenance] = useState<MaintenanceStatus | null>(null);
   useEffect(() => {
     const load = () =>
       profileFn()
@@ -117,6 +120,20 @@ function Layout() {
                 <Shield className="w-4 h-4" /> Utilizadores
               </Link>
             )}
+            {isAdmin && (
+              <Link
+                to="/manutencao"
+                className="px-3 py-2 rounded-md text-sm font-medium hover:bg-secondary inline-flex items-center gap-2 [&.active]:bg-secondary [&.active]:text-primary"
+                activeProps={{ className: "active" }}
+              >
+                <Wrench className="w-4 h-4" /> Manutenção
+                {maintenance?.enabled && (
+                  <Badge className="ml-1 bg-amber-100 text-amber-800 border-amber-200" variant="outline">
+                    Activa
+                  </Badge>
+                )}
+              </Link>
+            )}
             <Link
               to="/perfil"
               className="px-3 py-2 rounded-md text-sm font-medium hover:bg-secondary inline-flex items-center gap-2 [&.active]:bg-secondary [&.active]:text-primary"
@@ -147,8 +164,15 @@ function Layout() {
           </nav>
         </div>
       </header>
+      {isAdmin && maintenance?.enabled && (
+        <div className="bg-amber-100 text-amber-900 border-b border-amber-200 text-sm px-4 py-2 text-center">
+          <strong>Modo de Manutenção activo</strong> — utilizadores não-admin estão bloqueados.
+        </div>
+      )}
       <main className="flex-1 container mx-auto px-4 py-8">
-        <Outlet />
+        <MaintenanceGate isAdmin={isAdmin} onStatusChange={setMaintenance}>
+          <Outlet />
+        </MaintenanceGate>
       </main>
     </div>
   );
