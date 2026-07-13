@@ -6,7 +6,7 @@ import { buildDedupKey } from "./dedup";
 import { scoreMatch, type BuyerLike } from "./matching-engine";
 import { loadZoneContext, resolveZone } from "./functional-zones";
 import { normalizeLocation } from "./location-graph";
-import { loadConsultorDirectory, loadConsultorMeta, resolveConsultor } from "./opportunity-privacy";
+import { loadConsultorDirectory, resolveConsultor } from "./opportunity-privacy";
 import { normalizePhone } from "./dedup";
 
 async function assertAdmin(supabase: any, userId: string) {
