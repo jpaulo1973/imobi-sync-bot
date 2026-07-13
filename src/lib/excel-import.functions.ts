@@ -117,11 +117,68 @@ function parseCaracteristicas(v: unknown): string[] | null {
 }
 
 function combineDate(dateVal: unknown, timeVal: unknown): string | null {
-  const d = s(dateVal);
+  const d = normalizeExcelDate(dateVal);
   if (!d) return null;
-  const t = s(timeVal) ?? "00:00";
-  const iso = new Date(`${d}T${t.length === 5 ? t : t + ":00"}`);
-  return isNaN(iso.getTime()) ? d : iso.toISOString();
+  const t = normalizeExcelTime(timeVal) ?? "00:00";
+  const iso = new Date(`${d}T${t.length === 5 ? t : t + ":00"}:00Z`);
+  return isNaN(iso.getTime()) ? `${d}T00:00:00Z` : iso.toISOString();
+}
+
+// Converte Date real, número de série do Excel ou string em "YYYY-MM-DD".
+// Devolve null se não for possível obter uma data válida — nunca devolve o
+// número de série (ex.: "46215") nem strings malformadas (ex.: "2026-07-012").
+export function normalizeExcelDate(v: unknown): string | null {
+  if (v == null || v === "") return null;
+  if (v instanceof Date) {
+    if (isNaN(v.getTime())) return null;
+    return v.toISOString().slice(0, 10);
+  }
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const parsed = XLSX.SSF.parse_date_code(v);
+    if (!parsed) return null;
+    const { y, m, d } = parsed;
+    if (!y || !m || !d) return null;
+    return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+  const raw = String(v).trim();
+  if (!raw) return null;
+  // Serial numérico como string
+  if (/^\d+(\.\d+)?$/.test(raw)) return normalizeExcelDate(Number(raw));
+  // ISO YYYY-MM-DD
+  const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/);
+  if (iso) {
+    const y = Number(iso[1]);
+    const m = Number(iso[2]);
+    const d = Number(iso[3]);
+    if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+    return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+  // DD/MM/YYYY ou DD-MM-YYYY
+  const dmy = raw.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
+  if (dmy) {
+    const d = Number(dmy[1]);
+    let m = Number(dmy[2]);
+    let y = Number(dmy[3]);
+    if (y < 100) y += 2000;
+    if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+    return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+  return null;
+}
+
+function normalizeExcelTime(v: unknown): string | null {
+  if (v == null || v === "") return null;
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const frac = v - Math.floor(v);
+    const totalSec = Math.round(frac * 86400);
+    const hh = String(Math.floor(totalSec / 3600) % 24).padStart(2, "0");
+    const mm = String(Math.floor((totalSec % 3600) / 60)).padStart(2, "0");
+    return `${hh}:${mm}`;
+  }
+  const t = String(v).trim();
+  const m = t.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  return `${m[1].padStart(2, "0")}:${m[2]}`;
 }
 
 function pickBudget(v: unknown): { min: number | null; max: number | null } {
