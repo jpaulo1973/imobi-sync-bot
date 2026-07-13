@@ -49,6 +49,9 @@ export type Opportunity = {
   buyer_source: "cliente" | "search";
   buyer_ref: string;
   state: "novo" | "contactado" | "nao_interessado";
+  // Release 1.3 — o consumidor precisa de distinguir procuras próprias
+  // (mostra o comprador) de externas (mostra o consultor responsável).
+  isOwner: boolean;
 };
 
 function criteriaToBuyer(c: any): BuyerLike {
@@ -169,6 +172,7 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
         buyer_source: "cliente",
         buyer_ref: b.id,
         state,
+        isOwner: true,
       });
     }
 
@@ -215,6 +219,7 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
         buyer_source: "search",
         buyer_ref: q.id,
         state,
+        isOwner,
       });
     }
 
