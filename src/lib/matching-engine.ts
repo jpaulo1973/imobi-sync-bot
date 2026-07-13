@@ -159,7 +159,19 @@ function finalidadeFilter(buyer: BuyerLike, property: PropertyLike): HardFilterR
 function tipoFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResult {
   const buyerTipos = (buyer.tipo_imovel ?? []).map(normalizeLocation).filter(Boolean);
   const pTipo = normalizeLocation(property.tipo_imovel);
+  const pTipoRaw = (property.tipo_imovel ?? "").toLowerCase();
+  const isTerrainType =
+    pTipoRaw === "terreno" || pTipoRaw === "quinta" || pTipoRaw === "herdade";
   if (buyerTipos.length === 0) {
+    // Correções 1.3: para imóveis Quinta/Terreno/Herdade, procuras sem tipo
+    // declarado NÃO devem ser eliminadas neste filtro — a intenção do
+    // consultor fica caracterizada pelos restantes filtros (localização,
+    // área mínima, orçamento). A tipologia deixa de mandar; o tipo também
+    // não deve mandar quando o imóvel é rústico e o comprador não o
+    // desqualificou explicitamente.
+    if (isTerrainType) {
+      return { ok: true, category: cat("tipo", "Tipo", true, property.tipo_imovel ?? "—") };
+    }
     return { ok: false, category: cat("tipo", "Tipo", false, "Tipo de imóvel não indicado na procura") };
   }
   if (!pTipo) {
