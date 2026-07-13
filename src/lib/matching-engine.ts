@@ -30,6 +30,12 @@ export type BuyerLike = {
   garagem_obrigatoria?: boolean | null;
   elevador_obrigatorio?: boolean | null;
   proximity?: unknown | null;
+  // Sinais textuais que ajudam a caracterizar a intenção da procura
+  // (ex.: "investidor", "empreendimento com >80 frações", "retail park").
+  // Populados a partir do resumo/caracteristicas/texto original.
+  caracteristicas?: string[] | null;
+  resumo?: string | null;
+  texto_original?: string | null;
 };
 
 export type PropertyLike = {
@@ -340,10 +346,55 @@ function featuresFilter(buyer: BuyerLike, property: PropertyLike): HardFilterRes
   return { ok: true, category: cat("extras", "Características", true, "Requisitos obrigatórios cumpridos") };
 }
 
+// Deteta procuras de investidor/promotor que visam projetos ou
+// empreendimentos completos, não unidades residenciais avulsas. Estas
+// procuras não devem ser cruzadas com apartamentos ou moradias
+// individuais — só com Terreno, Prédio ou Espaço comercial.
+export function isInvestorBulkSearch(buyer: BuyerLike): boolean {
+  const parts: string[] = [];
+  if (Array.isArray(buyer.caracteristicas)) parts.push(...buyer.caracteristicas.map(String));
+  if (typeof buyer.resumo === "string") parts.push(buyer.resumo);
+  if (typeof buyer.texto_original === "string") parts.push(buyer.texto_original);
+  if (parts.length === 0) return false;
+  const t = parts.join(" | ").toLowerCase();
+  const signals: RegExp[] = [
+    /\bfra[cç][aãoõ]es\b/,
+    /empreendiment/,
+    /projet[oa]s?\s+aprovad/,
+    /retail\s*park/,
+    /pr[eé]dio\s+(inteiro|completo|para\s+investiment)/,
+    /investidor/,
+    /pack\s+de\s+im[oó]veis/,
+    /portef[oó]lio\s+de\s+im[oó]veis/,
+  ];
+  return signals.some((re) => re.test(t));
+}
+
+function investorBulkFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResult {
+  if (!isInvestorBulkSearch(buyer)) {
+    return { ok: true, category: cat("tipo", "Tipo", true, "Sem sinal de investidor/bulk") };
+  }
+  const pTipo = (property.tipo_imovel ?? "").toLowerCase();
+  const bulkAllowed = new Set(["terreno", "predio", "prédio", "espaco comercial", "espaço comercial"]);
+  if (bulkAllowed.has(pTipo)) {
+    return { ok: true, category: cat("tipo", "Tipo", true, `Compatível com procura de investidor (${property.tipo_imovel})`) };
+  }
+  return {
+    ok: false,
+    category: cat(
+      "tipo",
+      "Tipo",
+      false,
+      `Procura de investidor/empreendimento — não elegível para ${property.tipo_imovel ?? "unidade avulsa"}`,
+    ),
+  };
+}
+
 // ORDEM ESTRITA. Falha em qualquer um → oportunidade não é gerada.
 export const HARD_FILTERS: HardFilter[] = [
   { name: "finalidade", key: "finalidade", run: finalidadeFilter },
   { name: "tipo", key: "tipo", run: tipoFilter },
+  { name: "investor_bulk", key: "tipo", run: investorBulkFilter },
   { name: "localizacao", key: "localizacao", run: (b, p, ctx) => localizacaoFilter(b, p, ctx) },
   { name: "area_min", key: "area", run: areaMinFilter },
   { name: "features", key: "extras", run: featuresFilter },

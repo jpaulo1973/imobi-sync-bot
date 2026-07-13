@@ -72,6 +72,7 @@ function criteriaToBuyer(c: any): BuyerLike {
     garagem_obrigatoria: gar,
     elevador_obrigatorio: ele,
     proximity: c?.proximity ?? null,
+    caracteristicas: Array.isArray(c?.caracteristicas) ? c.caracteristicas : null,
   };
 }
 
@@ -181,6 +182,8 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
 
     for (const q of searches ?? []) {
       const buyer = criteriaToBuyer(q.criteria);
+      buyer.resumo = q.resumo ?? null;
+      buyer.texto_original = (q as any).texto_original ?? null;
       const s = scoreMatch(buyer, property as any, { zoneContext });
       if (!s.compatible) continue;
       const c = (q.criteria ?? {}) as any;
@@ -284,7 +287,7 @@ export const countPropertyOpportunities = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: searches } = await supabaseAdmin
       .from("active_searches")
-      .select("id, criteria, origem, expires_at")
+      .select("id, criteria, origem, expires_at, resumo, texto_original")
       .gt("expires_at", new Date().toISOString());
 
     const zoneContext = await loadZoneContext();
@@ -310,7 +313,15 @@ export const countPropertyOpportunities = createServerFn({ method: "POST" })
       }
       for (const q of searches ?? []) {
         if (
-          scoreMatch(criteriaToBuyer(q.criteria), p as any, { zoneContext }).compatible &&
+          scoreMatch(
+            {
+              ...criteriaToBuyer(q.criteria),
+              resumo: (q as any).resumo ?? null,
+              texto_original: (q as any).texto_original ?? null,
+            },
+            p as any,
+            { zoneContext },
+          ).compatible &&
           !dismissed.has(`${p.id}|search-${q.id}`)
         )
           n++;
