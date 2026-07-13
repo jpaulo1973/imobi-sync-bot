@@ -439,6 +439,7 @@ export type Database = {
       properties: {
         Row: {
           area_m2: number | null
+          area_terreno_m2: number | null
           area_util_m2: number | null
           ativo: boolean
           caracteristicas: string | null
@@ -466,6 +467,7 @@ export type Database = {
         }
         Insert: {
           area_m2?: number | null
+          area_terreno_m2?: number | null
           area_util_m2?: number | null
           ativo?: boolean
           caracteristicas?: string | null
@@ -493,6 +495,7 @@ export type Database = {
         }
         Update: {
           area_m2?: number | null
+          area_terreno_m2?: number | null
           area_util_m2?: number | null
           ativo?: boolean
           caracteristicas?: string | null
@@ -553,6 +556,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      normalize_phone_pt: { Args: { raw: string }; Returns: string }
     }
     Enums: {
       app_role: "admin" | "user"
