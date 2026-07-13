@@ -49,6 +49,8 @@ import {
   countPropertyOpportunities,
   type Opportunity,
 } from "@/lib/property-match.functions";
+import { updateMatchState } from "@/lib/match-states.functions";
+import { ConsultorContactActions } from "@/components/ConsultorContactActions";
 import type { MatchCategoryResult } from "@/lib/matching-engine";
 
 type Property = Tables<"properties">;
@@ -193,6 +195,9 @@ function ImoveisPage() {
   const [matches, setMatches] = useState<MatchResult[]>([]);
   const [totalBuyers, setTotalBuyers] = useState(0);
   const [totalGlobal, setTotalGlobal] = useState(0);
+  const [hiddenCount, setHiddenCount] = useState(0);
+  const [showDismissed, setShowDismissed] = useState(false);
+  const updateStateFn = useServerFn(updateMatchState);
 
   const load = async () => {
     setLoading(true);
@@ -259,11 +264,12 @@ function ImoveisPage() {
           .then((r) => setMatchCounts(r.counts ?? {}))
           .catch(() => {});
         if (matchOpen && matchProperty) {
-          oppsFn({ data: { propertyId: matchProperty.id } })
+          oppsFn({ data: { propertyId: matchProperty.id, includeDismissed: showDismissed } })
             .then((res) => {
               setMatches(res.opportunities);
               setTotalBuyers(res.totalBuyers);
               setTotalGlobal(res.totalGlobal);
+              setHiddenCount(res.hiddenCount ?? 0);
             })
             .catch(() => {});
         }
@@ -281,7 +287,7 @@ function ImoveisPage() {
       if (debounce) clearTimeout(debounce);
       supabase.removeChannel(channel);
     };
-  }, [countsFn, oppsFn, matchOpen, matchProperty]);
+  }, [countsFn, oppsFn, matchOpen, matchProperty, showDismissed]);
 
   const openNew = () => {
     setEditingId(null);
@@ -303,10 +309,11 @@ function ImoveisPage() {
     setMatchLoading(true);
     setMatches([]);
     try {
-      const res = await oppsFn({ data: { propertyId: p.id } });
+      const res = await oppsFn({ data: { propertyId: p.id, includeDismissed: showDismissed } });
       setMatches(res.opportunities);
       setTotalBuyers(res.totalBuyers);
       setTotalGlobal(res.totalGlobal);
+      setHiddenCount(res.hiddenCount ?? 0);
       setMatchCounts((prev) => ({ ...prev, [p.id]: res.opportunities.length }));
       // fundo: recomputa persistidas (Radar) sem bloquear a UI
       void recomputeFn({ data: { propertyId: p.id } }).catch(() => {});
@@ -314,6 +321,38 @@ function ImoveisPage() {
       toast.error(e instanceof Error ? e.message : "Erro ao calcular oportunidades");
     } finally {
       setMatchLoading(false);
+    }
+  };
+
+  const changeState = async (
+    m: MatchResult,
+    next: "novo" | "contactado" | "nao_interessado",
+  ) => {
+    if (!matchProperty) return;
+    // Optimistic UI
+    setMatches((prev) => prev.map((x) => (x.key === m.key ? { ...x, state: next } : x)));
+    try {
+      await updateStateFn({
+        data: {
+          propertyId: matchProperty.id,
+          buyerSource: m.buyer_source,
+          buyerRef: m.buyer_ref,
+          state: next,
+        },
+      });
+      if (next === "nao_interessado" && !showDismissed) {
+        setMatches((prev) => prev.filter((x) => x.key !== m.key));
+        setHiddenCount((n) => n + 1);
+        setMatchCounts((prev) => ({
+          ...prev,
+          [matchProperty.id]: Math.max(0, (prev[matchProperty.id] ?? 1) - 1),
+        }));
+      }
+      toast.success("Estado actualizado.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao guardar estado.");
+      // reverte em caso de falha
+      setMatches((prev) => prev.map((x) => (x.key === m.key ? { ...x, state: m.state } : x)));
     }
   };
 
@@ -720,14 +759,41 @@ function ImoveisPage() {
           ) : matches.length === 0 ? (
             <p className="text-sm text-muted-foreground py-6 text-center">
               Nenhuma oportunidade compatível ({totalBuyers} cliente(s) · {totalGlobal} procura(s) na Base Global).
+              {hiddenCount > 0 && (
+                <>
+                  {" "}· {hiddenCount} dispensado(s).
+                </>
+              )}
             </p>
           ) : (
             <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">
-                {matches.length} oportunidade(s) · {totalBuyers} cliente(s) + {totalGlobal} procura(s) na Base Global · ordenadas por compatibilidade
-              </p>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <p className="text-xs text-muted-foreground">
+                  {matches.length} oportunidade(s) · {totalBuyers} cliente(s) + {totalGlobal} procura(s) na Base Global
+                  {hiddenCount > 0 && ` · ${hiddenCount} dispensado(s)`}
+                </p>
+                {(hiddenCount > 0 || showDismissed) && (
+                  <label className="text-xs inline-flex items-center gap-2 cursor-pointer">
+                    <Checkbox
+                      checked={showDismissed}
+                      onCheckedChange={(v) => {
+                        const next = v === true;
+                        setShowDismissed(next);
+                        if (matchProperty) {
+                          oppsFn({ data: { propertyId: matchProperty.id, includeDismissed: next } })
+                            .then((res) => {
+                              setMatches(res.opportunities);
+                              setHiddenCount(res.hiddenCount ?? 0);
+                            })
+                            .catch(() => {});
+                        }
+                      }}
+                    />
+                    Mostrar dispensados
+                  </label>
+                )}
+              </div>
               {matches.map((m, i) => {
-                const tel = m.telefone?.replace(/\D/g, "");
                 const sourceLabel =
                   m.source === "cliente" ? "Cliente"
                   : m.source === "excel" ? "Excel"
@@ -735,21 +801,43 @@ function ImoveisPage() {
                   : m.source === "texto" ? "Texto"
                   : "Captura";
                 const contextBits: string[] = [];
-                if (m.consultor_nome) contextBits.push(`Consultor: ${m.consultor_nome}`);
-                if (m.consultor_telefone) contextBits.push(m.consultor_telefone);
                 if (m.data_origem) contextBits.push(String(m.data_origem));
                 if (m.hora_origem) contextBits.push(String(m.hora_origem));
                 if (m.grupo_whatsapp) contextBits.push(`Grupo: ${m.grupo_whatsapp}`);
                 if (m.comunidade) contextBits.push(`Comunidade: ${m.comunidade}`);
+                const isExternal = m.source !== "cliente";
+                const stateBadgeCls =
+                  m.state === "contactado"
+                    ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+                    : m.state === "nao_interessado"
+                      ? "bg-slate-100 text-slate-600 border-slate-200"
+                      : "bg-blue-100 text-blue-800 border-blue-200";
                 return (
-                  <div key={m.key} className="p-3 rounded-lg border bg-secondary/40">
+                  <div
+                    key={m.key}
+                    className={
+                      "p-3 rounded-lg border bg-secondary/40 " +
+                      (m.state === "nao_interessado" ? "opacity-60" : "")
+                    }
+                  >
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <div className="font-semibold flex items-center gap-2 flex-wrap">
                           <span className="text-primary">#{i + 1}</span>
-                          {m.nome ?? "—"}
+                          {isExternal
+                            ? m.consultor_nome
+                              ? `Consultor: ${m.consultor_nome}`
+                              : "Consultor externo"
+                            : m.nome ?? "—"}
                           <Badge variant="outline" className="text-[10px]">{sourceLabel}</Badge>
                           <Badge className="bg-accent text-accent-foreground">{m.score}% compatível</Badge>
+                          <Badge variant="outline" className={`text-[10px] ${stateBadgeCls}`}>
+                            {m.state === "contactado"
+                              ? "Contactado"
+                              : m.state === "nao_interessado"
+                                ? "Não interessado"
+                                : "Novo"}
+                          </Badge>
                         </div>
                         {contextBits.length > 0 && (
                           <p className="text-[11px] text-muted-foreground mt-1">
@@ -783,15 +871,45 @@ function ImoveisPage() {
                         <p className="text-[11px] text-muted-foreground mt-1.5">
                           {m.categories.map((c) => c.detail).filter(Boolean).join(" · ")}
                         </p>
+                        <div className="mt-2 flex items-center gap-2 flex-wrap">
+                          <span className="text-[11px] text-muted-foreground">Estado:</span>
+                          <Select
+                            value={m.state}
+                            onValueChange={(v) => changeState(m, v as any)}
+                          >
+                            <SelectTrigger className="h-7 text-xs w-[160px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="novo">Novo</SelectItem>
+                              <SelectItem value="contactado">Contactado</SelectItem>
+                              <SelectItem value="nao_interessado">Não interessado</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
-                      <div className="flex gap-1">
-                        {m.telefone && (
-                          <PhoneButton telefone={m.telefone} variant="ghost" size="icon" compact />
-                        )}
-                        {m.email && (
-                          <a href={`mailto:${m.email}`}>
-                            <Button variant="ghost" size="icon" title="Email"><Mail className="w-4 h-4" /></Button>
-                          </a>
+                      <div className="flex gap-1 shrink-0">
+                        {isExternal ? (
+                          <ConsultorContactActions
+                            compact
+                            consultor={{
+                              nome: m.consultor_nome,
+                              telefone: m.consultor_telefone,
+                              email: m.consultor_email,
+                              agency: m.consultor_agency,
+                            }}
+                          />
+                        ) : (
+                          <>
+                            {m.telefone && (
+                              <PhoneButton telefone={m.telefone} variant="ghost" size="icon" compact />
+                            )}
+                            {m.email && (
+                              <a href={`mailto:${m.email}`}>
+                                <Button variant="ghost" size="icon" title="Email"><Mail className="w-4 h-4" /></Button>
+                              </a>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>

@@ -110,6 +110,27 @@ export type Database = {
         }
         Relationships: []
       }
+      app_settings: {
+        Row: {
+          key: string
+          updated_at: string
+          updated_by: string | null
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
+        }
+        Relationships: []
+      }
       buyer_clients: {
         Row: {
           andar_min: number | null
@@ -262,6 +283,47 @@ export type Database = {
           },
           {
             foreignKeyName: "match_opportunities_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      match_states: {
+        Row: {
+          buyer_ref: string
+          buyer_source: string
+          created_at: string
+          id: string
+          property_id: string
+          state: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          buyer_ref: string
+          buyer_source: string
+          created_at?: string
+          id?: string
+          property_id: string
+          state: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          buyer_ref?: string
+          buyer_source?: string
+          created_at?: string
+          id?: string
+          property_id?: string
+          state?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "match_states_property_id_fkey"
             columns: ["property_id"]
             isOneToOne: false
             referencedRelation: "properties"

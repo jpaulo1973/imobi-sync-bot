@@ -18,6 +18,7 @@ import { Route as AuthenticatedUtilizadoresRouteImport } from './routes/_authent
 import { Route as AuthenticatedRevisaoRouteImport } from './routes/_authenticated/revisao'
 import { Route as AuthenticatedRadarRouteImport } from './routes/_authenticated/radar'
 import { Route as AuthenticatedPerfilRouteImport } from './routes/_authenticated/perfil'
+import { Route as AuthenticatedManutencaoRouteImport } from './routes/_authenticated/manutencao'
 import { Route as AuthenticatedImportarRouteImport } from './routes/_authenticated/importar'
 import { Route as AuthenticatedImoveisRouteImport } from './routes/_authenticated/imoveis'
 import { Route as AuthenticatedCruzarRouteImport } from './routes/_authenticated/cruzar'
@@ -70,6 +71,11 @@ const AuthenticatedRadarRoute = AuthenticatedRadarRouteImport.update({
 const AuthenticatedPerfilRoute = AuthenticatedPerfilRouteImport.update({
   id: '/perfil',
   path: '/perfil',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedManutencaoRoute = AuthenticatedManutencaoRouteImport.update({
+  id: '/manutencao',
+  path: '/manutencao',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedImportarRoute = AuthenticatedImportarRouteImport.update({
@@ -127,6 +133,7 @@ export interface FileRoutesByFullPath {
   '/cruzar': typeof AuthenticatedCruzarRoute
   '/imoveis': typeof AuthenticatedImoveisRoute
   '/importar': typeof AuthenticatedImportarRoute
+  '/manutencao': typeof AuthenticatedManutencaoRoute
   '/perfil': typeof AuthenticatedPerfilRoute
   '/radar': typeof AuthenticatedRadarRoute
   '/revisao': typeof AuthenticatedRevisaoRoute
@@ -145,6 +152,7 @@ export interface FileRoutesByTo {
   '/cruzar': typeof AuthenticatedCruzarRoute
   '/imoveis': typeof AuthenticatedImoveisRoute
   '/importar': typeof AuthenticatedImportarRoute
+  '/manutencao': typeof AuthenticatedManutencaoRoute
   '/perfil': typeof AuthenticatedPerfilRoute
   '/radar': typeof AuthenticatedRadarRoute
   '/revisao': typeof AuthenticatedRevisaoRoute
@@ -165,6 +173,7 @@ export interface FileRoutesById {
   '/_authenticated/cruzar': typeof AuthenticatedCruzarRoute
   '/_authenticated/imoveis': typeof AuthenticatedImoveisRoute
   '/_authenticated/importar': typeof AuthenticatedImportarRoute
+  '/_authenticated/manutencao': typeof AuthenticatedManutencaoRoute
   '/_authenticated/perfil': typeof AuthenticatedPerfilRoute
   '/_authenticated/radar': typeof AuthenticatedRadarRoute
   '/_authenticated/revisao': typeof AuthenticatedRevisaoRoute
@@ -185,6 +194,7 @@ export interface FileRouteTypes {
     | '/cruzar'
     | '/imoveis'
     | '/importar'
+    | '/manutencao'
     | '/perfil'
     | '/radar'
     | '/revisao'
@@ -203,6 +213,7 @@ export interface FileRouteTypes {
     | '/cruzar'
     | '/imoveis'
     | '/importar'
+    | '/manutencao'
     | '/perfil'
     | '/radar'
     | '/revisao'
@@ -222,6 +233,7 @@ export interface FileRouteTypes {
     | '/_authenticated/cruzar'
     | '/_authenticated/imoveis'
     | '/_authenticated/importar'
+    | '/_authenticated/manutencao'
     | '/_authenticated/perfil'
     | '/_authenticated/radar'
     | '/_authenticated/revisao'
@@ -307,6 +319,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPerfilRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/manutencao': {
+      id: '/_authenticated/manutencao'
+      path: '/manutencao'
+      fullPath: '/manutencao'
+      preLoaderRoute: typeof AuthenticatedManutencaoRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/importar': {
       id: '/_authenticated/importar'
       path: '/importar'
@@ -371,6 +390,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedCruzarRoute: typeof AuthenticatedCruzarRoute
   AuthenticatedImoveisRoute: typeof AuthenticatedImoveisRoute
   AuthenticatedImportarRoute: typeof AuthenticatedImportarRoute
+  AuthenticatedManutencaoRoute: typeof AuthenticatedManutencaoRoute
   AuthenticatedPerfilRoute: typeof AuthenticatedPerfilRoute
   AuthenticatedRadarRoute: typeof AuthenticatedRadarRoute
   AuthenticatedRevisaoRoute: typeof AuthenticatedRevisaoRoute
@@ -382,6 +402,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedCruzarRoute: AuthenticatedCruzarRoute,
   AuthenticatedImoveisRoute: AuthenticatedImoveisRoute,
   AuthenticatedImportarRoute: AuthenticatedImportarRoute,
+  AuthenticatedManutencaoRoute: AuthenticatedManutencaoRoute,
   AuthenticatedPerfilRoute: AuthenticatedPerfilRoute,
   AuthenticatedRadarRoute: AuthenticatedRadarRoute,
   AuthenticatedRevisaoRoute: AuthenticatedRevisaoRoute,

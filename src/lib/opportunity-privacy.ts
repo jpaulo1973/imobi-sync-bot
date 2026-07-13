@@ -30,6 +30,7 @@ export type BuyerDTO = {
   consultor_nome: string | null;
   consultor_email: string | null;
   consultor_telefone: string | null;
+  consultor_agency: string | null;
 };
 
 export type SearchDTO = {
@@ -60,6 +61,7 @@ export type SearchDTO = {
   consultor_nome: string | null;
   consultor_email: string | null;
   consultor_telefone: string | null;
+  consultor_agency: string | null;
 };
 
 export type PropertyDTO = {
@@ -89,6 +91,7 @@ export type PropertyDTO = {
   consultor_nome: string | null;
   consultor_email: string | null;
   consultor_telefone: string | null;
+  consultor_agency: string | null;
 };
 
 /**
@@ -99,6 +102,7 @@ export type ConsultorMeta = {
   nome: string | null;
   email: string | null;
   telefone: string | null;
+  agency: string | null;
 };
 
 function num(v: unknown): number | null {
@@ -135,6 +139,7 @@ export function sanitizeBuyerForViewer(
     consultor_nome: consultor?.nome ?? null,
     consultor_email: consultor?.email ?? null,
     consultor_telefone: consultor?.telefone ?? null,
+    consultor_agency: consultor?.agency ?? null,
   };
 }
 
@@ -165,9 +170,13 @@ export function sanitizeSearchForViewer(
     grupo_whatsapp: search.grupo_whatsapp ?? search.contact_grupo ?? null,
     data_origem: search.data_origem ?? null,
     created_at: search.created_at ?? null,
-    consultor_nome: consultor?.nome ?? search.consultor_nome ?? null,
+    // Release 1.3 — fonte única do consultor é loadConsultorMeta; o campo
+    // legado search.consultor_nome ficava "colado" a valores importados
+    // antigos e apresentava sempre o mesmo utilizador. Já não é usado.
+    consultor_nome: consultor?.nome ?? null,
     consultor_email: consultor?.email ?? null,
-    consultor_telefone: consultor?.telefone ?? search.consultor_telefone ?? null,
+    consultor_telefone: consultor?.telefone ?? null,
+    consultor_agency: consultor?.agency ?? null,
   };
 }
 
@@ -203,6 +212,7 @@ export function sanitizePropertyForViewer(
     consultor_nome: consultor?.nome ?? null,
     consultor_email: consultor?.email ?? null,
     consultor_telefone: consultor?.telefone ?? null,
+    consultor_agency: consultor?.agency ?? null,
   };
 }
 
@@ -218,10 +228,15 @@ export async function loadConsultorMeta(userIds: string[]): Promise<Map<string, 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: profs } = await supabaseAdmin
       .from("profiles")
-      .select("id, full_name")
+      .select("id, full_name, agency")
       .in("id", unique);
     for (const p of profs ?? []) {
-      map.set(p.id, { nome: p.full_name ?? null, email: null, telefone: null });
+      map.set(p.id, {
+        nome: p.full_name ?? null,
+        email: null,
+        telefone: null,
+        agency: (p as any).agency ?? null,
+      });
     }
     // Emails vêm de auth.users via admin. Uma chamada por user — barato
     // para os poucos consultores que aparecem no set.
@@ -230,7 +245,12 @@ export async function loadConsultorMeta(userIds: string[]): Promise<Map<string, 
         const { data } = await supabaseAdmin.auth.admin.getUserById(uid);
         const email = data?.user?.email ?? null;
         const phone = (data?.user?.phone as string | undefined) ?? null;
-        const cur = map.get(uid) ?? { nome: null, email: null, telefone: null };
+        const cur = map.get(uid) ?? {
+          nome: null,
+          email: null,
+          telefone: null,
+          agency: null,
+        };
         map.set(uid, { ...cur, email, telefone: phone });
       } catch {
         // ignore

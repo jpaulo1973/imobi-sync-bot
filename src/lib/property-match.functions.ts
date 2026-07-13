@@ -37,12 +37,18 @@ export type Opportunity = {
   budget_max: number | null;
   consultor_nome: string | null;
   consultor_telefone: string | null;
+  consultor_email: string | null;
+  consultor_agency: string | null;
   data_origem: string | null;
   hora_origem: string | null;
   grupo_whatsapp: string | null;
   comunidade: string | null;
   resumo: string | null;
   created_at: string | null;
+  // Release 1.3 — identificação do par para gestão de estado.
+  buyer_source: "cliente" | "search";
+  buyer_ref: string;
+  state: "novo" | "contactado" | "nao_interessado";
 };
 
 function criteriaToBuyer(c: any): BuyerLike {
@@ -69,7 +75,12 @@ function criteriaToBuyer(c: any): BuyerLike {
 export const runPropertyOpportunities = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
-    z.object({ propertyId: z.string().uuid() }).parse(data),
+    z
+      .object({
+        propertyId: z.string().uuid(),
+        includeDismissed: z.boolean().optional().default(false),
+      })
+      .parse(data),
   )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
@@ -109,11 +120,28 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
     );
     const consultorMap = await loadConsultorMeta(otherUserIds);
 
+    // Estados por par para este imóvel.
+    const { data: stateRows } = await supabase
+      .from("match_states")
+      .select("buyer_source, buyer_ref, state")
+      .eq("user_id", userId)
+      .eq("property_id", data.propertyId);
+    const stateMap = new Map<string, "novo" | "contactado" | "nao_interessado">();
+    for (const s of stateRows ?? []) {
+      stateMap.set(`${(s as any).buyer_source}-${(s as any).buyer_ref}`, (s as any).state);
+    }
+
     const opps: Opportunity[] = [];
+    let hiddenCount = 0;
 
     for (const b of buyers ?? []) {
       const s = scoreMatch(b as BuyerLike, property as any, { zoneContext });
       if (!s.compatible) continue;
+      const state = stateMap.get(`cliente-${b.id}`) ?? "novo";
+      if (state === "nao_interessado" && !data.includeDismissed) {
+        hiddenCount++;
+        continue;
+      }
       opps.push({
         key: `cliente-${b.id}`,
         source: "cliente",
@@ -130,12 +158,17 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
         budget_max: b.budget_max != null ? Number(b.budget_max) : null,
         consultor_nome: null,
         consultor_telefone: null,
+        consultor_email: null,
+        consultor_agency: null,
         data_origem: null,
         hora_origem: null,
         grupo_whatsapp: null,
         comunidade: null,
         resumo: b.notas ?? null,
         created_at: b.created_at ?? null,
+        buyer_source: "cliente",
+        buyer_ref: b.id,
+        state,
       });
     }
 
@@ -147,6 +180,11 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
       const origem = (q.origem as OpportunitySource) ?? "excel";
       const isOwner = q.user_id === userId;
       const consultor = !isOwner ? consultorMap.get(q.user_id) ?? null : null;
+      const state = stateMap.get(`search-${q.id}`) ?? "novo";
+      if (state === "nao_interessado" && !data.includeDismissed) {
+        hiddenCount++;
+        continue;
+      }
       opps.push({
         key: `search-${q.id}`,
         source: origem,
@@ -162,14 +200,21 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
         zona: c?.zona ?? c?.municipio ?? c?.freguesia ?? null,
         budget_min: c?.budget_min ?? null,
         budget_max: c?.budget_max ?? null,
-        consultor_nome: consultor?.nome ?? q.consultor_nome ?? null,
-        consultor_telefone: consultor?.telefone ?? q.consultor_telefone ?? null,
+        // Release 1.3 — fonte única é loadConsultorMeta; o campo legado
+        // q.consultor_nome ficava "colado" ao mesmo utilizador antigo.
+        consultor_nome: consultor?.nome ?? null,
+        consultor_telefone: consultor?.telefone ?? null,
+        consultor_email: consultor?.email ?? null,
+        consultor_agency: consultor?.agency ?? null,
         data_origem: q.data_origem ?? null,
         hora_origem: q.hora_origem ?? null,
         grupo_whatsapp: q.grupo_whatsapp ?? q.contact_grupo ?? null,
         comunidade: q.comunidade ?? null,
         resumo: q.resumo ?? null,
         created_at: q.created_at ?? null,
+        buyer_source: "search",
+        buyer_ref: q.id,
+        state,
       });
     }
 
@@ -179,6 +224,7 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
       opportunities: opps.slice(0, 100),
       totalBuyers: (buyers ?? []).length,
       totalGlobal: (searches ?? []).length,
+      hiddenCount,
     };
   });
 
@@ -198,14 +244,32 @@ export const countPropertyOpportunities = createServerFn({ method: "POST" })
       .gt("expires_at", new Date().toISOString());
 
     const zoneContext = await loadZoneContext();
+    // Estados marcados como 'nao_interessado' — filtrados da contagem.
+    const { data: stateRows } = await supabase
+      .from("match_states")
+      .select("property_id, buyer_source, buyer_ref, state")
+      .eq("user_id", userId)
+      .eq("state", "nao_interessado");
+    const dismissed = new Set<string>();
+    for (const s of stateRows ?? []) {
+      dismissed.add(`${(s as any).property_id}|${(s as any).buyer_source}-${(s as any).buyer_ref}`);
+    }
     const counts: Record<string, number> = {};
     for (const p of properties ?? []) {
       let n = 0;
       for (const b of buyers ?? []) {
-        if (scoreMatch(b as BuyerLike, p as any, { zoneContext }).compatible) n++;
+        if (
+          scoreMatch(b as BuyerLike, p as any, { zoneContext }).compatible &&
+          !dismissed.has(`${p.id}|cliente-${b.id}`)
+        )
+          n++;
       }
       for (const q of searches ?? []) {
-        if (scoreMatch(criteriaToBuyer(q.criteria), p as any, { zoneContext }).compatible) n++;
+        if (
+          scoreMatch(criteriaToBuyer(q.criteria), p as any, { zoneContext }).compatible &&
+          !dismissed.has(`${p.id}|search-${q.id}`)
+        )
+          n++;
       }
       counts[p.id] = n;
     }
