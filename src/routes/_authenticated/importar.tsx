@@ -198,12 +198,10 @@ function SummaryStat({
   );
 }
 
-function ResultBadge({
-  resultado,
-}: {
-  resultado: ExcelImportResult["linhas"][number]["resultado"];
-}) {
-  const styles: Record<typeof resultado, string> = {
+type LineResult = ExcelImportResult["linhas"][number]["resultado"];
+
+function ResultBadge({ resultado }: { resultado: LineResult }) {
+  const styles: Record<LineResult, string> = {
     Nova: "bg-emerald-100 text-emerald-800",
     Atualizada: "bg-blue-100 text-blue-800",
     "Duplicado exato": "bg-slate-100 text-slate-800",
