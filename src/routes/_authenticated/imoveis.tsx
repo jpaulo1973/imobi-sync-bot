@@ -429,6 +429,10 @@ function ImoveisPage() {
       await runMatch(savedRow);
       // Release 1.2: recalcular oportunidades vs Base Global em segundo plano.
       await recomputeForProp(savedRow.id);
+      // Correções 1.3: refrescar contagens no card imediatamente após save.
+      countsFn()
+        .then((r) => setMatchCounts(r.counts ?? {}))
+        .catch(() => {});
     }
   };
 
