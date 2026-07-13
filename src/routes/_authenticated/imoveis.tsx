@@ -118,6 +118,7 @@ type FormState = {
   freguesia: string;
   zona: string;
   area_util_m2: string;
+  area_bruta_m2: string;
   area_terreno_m2: string;
   garagem: boolean;
   elevador: boolean;
@@ -137,6 +138,7 @@ const empty: FormState = {
   freguesia: "",
   zona: "",
   area_util_m2: "",
+  area_bruta_m2: "",
   area_terreno_m2: "",
   garagem: false,
   elevador: false,
@@ -156,9 +158,10 @@ const fromProperty = (p: Property): FormState => ({
   freguesia: p.freguesia ?? "",
   zona: p.zona ?? "",
   area_util_m2: p.area_util_m2 != null ? String(p.area_util_m2) : "",
+  area_bruta_m2: p.area_bruta_m2 != null ? String(p.area_bruta_m2) : "",
   area_terreno_m2:
-    (p as unknown as { area_terreno_m2?: number | null }).area_terreno_m2 != null
-      ? String((p as unknown as { area_terreno_m2?: number | null }).area_terreno_m2)
+    p.area_terreno_m2 != null
+      ? String(p.area_terreno_m2)
       : "",
   garagem: p.garagem ?? false,
   elevador: p.elevador ?? false,
@@ -405,6 +408,7 @@ function ImoveisPage() {
       zona: form.zona || form.freguesia || form.concelho || "Por preencher",
       area_util_m2: form.area_util_m2 ? Number(form.area_util_m2) : null,
       area_m2: form.area_util_m2 ? Number(form.area_util_m2) : null,
+      area_bruta_m2: form.area_bruta_m2 ? Number(form.area_bruta_m2) : null,
       area_terreno_m2: form.area_terreno_m2 ? Number(form.area_terreno_m2) : null,
       garagem: form.garagem,
       elevador: form.elevador,
@@ -614,11 +618,20 @@ function ImoveisPage() {
                 </div>
               </div>
 
-              {(form.tipo_imovel === "terreno" ||
-                form.tipo_imovel === "moradia" ||
-                form.tipo_imovel === "quinta" ||
-                form.tipo_imovel === "herdade") && (
-                <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  {label("Área bruta (m²)", "area_bruta_m2")}
+                  <Input
+                    type="number"
+                    value={form.area_bruta_m2}
+                    onChange={(e) => setForm({ ...form, area_bruta_m2: e.target.value })}
+                    placeholder="ex.: 228"
+                  />
+                </div>
+                {(form.tipo_imovel === "terreno" ||
+                  form.tipo_imovel === "moradia" ||
+                  form.tipo_imovel === "quinta" ||
+                  form.tipo_imovel === "herdade") ? (
                   <div className="space-y-2">
                     {label("Área do terreno (m²)", "area_terreno_m2")}
                     <Input
@@ -630,9 +643,10 @@ function ImoveisPage() {
                       placeholder="ex.: 14000"
                     />
                   </div>
+                ) : (
                   <div />
-                </div>
-              )}
+                )}
+              </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
@@ -755,10 +769,13 @@ function ImoveisPage() {
                 {p.area_util_m2 != null && (
                   <span className="inline-flex items-center gap-1"><Maximize className="w-4 h-4" /> {p.area_util_m2} m²</span>
                 )}
-                {(p as unknown as { area_terreno_m2?: number | null }).area_terreno_m2 != null && (
+                {p.area_bruta_m2 != null && (
+                  <span className="inline-flex items-center gap-1"><Maximize className="w-4 h-4" /> Bruta {p.area_bruta_m2} m²</span>
+                )}
+                {p.area_terreno_m2 != null && (
                   <span className="inline-flex items-center gap-1">
                     <Maximize className="w-4 h-4" /> Terreno{" "}
-                    {(p as unknown as { area_terreno_m2?: number | null }).area_terreno_m2} m²
+                    {p.area_terreno_m2} m²
                   </span>
                 )}
                 {p.garagem && <Badge variant="outline">garagem</Badge>}
