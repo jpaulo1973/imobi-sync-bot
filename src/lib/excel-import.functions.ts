@@ -141,6 +141,7 @@ export type ExcelImportResult = {
   analisadas: number;
   novas: number;
   atualizadas: number;
+  duplicados_exatos_fundidos: number;
   mantidas_separadas: number;
   sinalizadas_revisao: number;
   removidas: number;
@@ -176,6 +177,7 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
 
     let novas = 0;
     let atualizadas = 0;
+    let duplicados_exatos_fundidos = 0;
     let mantidas_separadas = 0;
     let sinalizadas_revisao = 0;
     const upsertedIds: string[] = [];
@@ -344,7 +346,11 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
               novas++;
               break;
             case "updated":
-              atualizadas++;
+              if ((res.reason ?? "").includes("auto-merge")) {
+                duplicados_exatos_fundidos++;
+              } else {
+                atualizadas++;
+              }
               break;
             case "kept_separate":
               mantidas_separadas++;
@@ -419,6 +425,7 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
       analisadas: rows.length,
       novas,
       atualizadas,
+      duplicados_exatos_fundidos,
       mantidas_separadas,
       sinalizadas_revisao,
       removidas,

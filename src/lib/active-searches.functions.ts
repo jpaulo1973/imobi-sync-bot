@@ -529,15 +529,23 @@ export async function upsertOne(
   const reasonSummary = bestReasons.join("; ").slice(0, 700);
 
   // 3) Regras de negócio + IA
+  //
+  // Correções Pós-1.3 Melhoria 5: o auto-merge silencioso passa a estar
+  // reservado EXCLUSIVAMENTE ao curto-circuito determinístico
+  // (isExactDuplicate) acima. Qualquer alteração real — mesmo com score
+  // determinístico muito alto — nunca deve ser fundida silenciosamente:
+  // se os dados não são identicamente iguais, o registo tem de ficar
+  // visível ao administrador (Revisão) ou ser criado à parte. Antes,
+  // scoreSimilarity>=95 podia fundir apesar de zona/preço mudarem —
+  // exatamente o comportamento que o utilizador reportou.
   if (bestScore >= 95) {
-    return await mergeInto(
+    return await insertNew(
       supabase,
       userId,
-      best.id,
-      best,
       row,
       bestScore,
-      `duplicado exato (${bestScore}%): ${reasonSummary}`,
+      `possível duplicado (${bestScore}%) — dados divergentes: ${reasonSummary}`,
+      "flagged",
     );
   }
 
@@ -556,24 +564,16 @@ export async function upsertOne(
       },
       ruleScore: bestScore,
     });
-    if (ai.decision === "update") {
-      return await mergeInto(
-        supabase,
-        userId,
-        best.id,
-        best,
-        row,
-        bestScore,
-        `IA fundir (${bestScore}%): ${ai.reason} | ${reasonSummary}`,
-      );
-    }
-    if (ai.decision === "review") {
+    // A decisão "update" da IA passou também a sinalizar para revisão:
+    // qualquer alteração relevante fica visível ao administrador antes
+    // de sobrescrever silenciosamente o registo existente.
+    if (ai.decision === "update" || ai.decision === "review") {
       return await insertNew(
         supabase,
         userId,
         row,
         bestScore,
-        `IA em dúvida (${bestScore}%): ${ai.reason} | ${reasonSummary}`,
+        `${ai.decision === "update" ? "IA sugere fundir" : "IA em dúvida"} (${bestScore}%): ${ai.reason} | ${reasonSummary}`,
         "flagged",
       );
     }

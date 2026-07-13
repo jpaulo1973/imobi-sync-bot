@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { scoreMatch, type BuyerLike, type MatchCategoryResult } from "./matching-engine";
 import { loadZoneContext } from "./functional-zones";
-import { loadConsultorMeta } from "./opportunity-privacy";
+import { loadConsultorMeta, loadConsultorDirectory, resolveConsultor } from "./opportunity-privacy";
 
 // ---------------------------------------------------------------------------
 // Release 1.2 — Property Opportunities
@@ -121,7 +121,10 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
           .map((q: any) => q.user_id as string),
       ),
     );
-    const consultorMap = await loadConsultorMeta(otherUserIds);
+    const [consultorMap, consultorDirectory] = await Promise.all([
+      loadConsultorMeta(otherUserIds),
+      loadConsultorDirectory(),
+    ]);
 
     // Estados por par para este imóvel.
     const { data: stateRows } = await supabase
@@ -183,7 +186,7 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
       const c = (q.criteria ?? {}) as any;
       const origem = (q.origem as OpportunitySource) ?? "excel";
       const isOwner = q.user_id === userId;
-      const consultor = !isOwner ? consultorMap.get(q.user_id) ?? null : null;
+      const uploaderMeta = !isOwner ? consultorMap.get(q.user_id) ?? null : null;
       const state = stateMap.get(`search-${q.id}`) ?? "novo";
       if (state === "nao_interessado" && !data.includeDismissed) {
         hiddenCount++;
@@ -192,6 +195,8 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
       // Consultor por-registo tem prioridade sobre a meta do dono do upload.
       // Excel/WhatsApp guardam consultor_nome/telefone em cada linha; o
       // uploader não é necessariamente o consultor responsável pela procura.
+      // Resolvemos email/agência procurando o consultor na diretoria global
+      // (profiles + auth users) por nome/telefone normalizados.
       const recNome =
         typeof q.consultor_nome === "string" && q.consultor_nome.trim()
           ? q.consultor_nome.trim()
@@ -200,6 +205,12 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
         typeof q.consultor_telefone === "string" && q.consultor_telefone.trim()
           ? q.consultor_telefone.trim()
           : null;
+      const resolved = resolveConsultor(
+        consultorDirectory,
+        recNome,
+        recTelefone,
+        uploaderMeta,
+      );
       opps.push({
         key: `search-${q.id}`,
         source: origem,
@@ -215,10 +226,10 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
         zona: c?.zona ?? c?.municipio ?? c?.freguesia ?? null,
         budget_min: c?.budget_min ?? null,
         budget_max: c?.budget_max ?? null,
-        consultor_nome: recNome ?? consultor?.nome ?? null,
-        consultor_telefone: recTelefone ?? consultor?.telefone ?? null,
-        consultor_email: consultor?.email ?? null,
-        consultor_agency: consultor?.agency ?? null,
+        consultor_nome: resolved.nome,
+        consultor_telefone: resolved.telefone,
+        consultor_email: resolved.email,
+        consultor_agency: resolved.agency,
         data_origem: q.data_origem ?? null,
         hora_origem: q.hora_origem ?? null,
         grupo_whatsapp: q.grupo_whatsapp ?? q.contact_grupo ?? null,

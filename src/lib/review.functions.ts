@@ -6,6 +6,7 @@ import { buildDedupKey } from "./dedup";
 import { scoreMatch, type BuyerLike } from "./matching-engine";
 import { loadZoneContext, resolveZone } from "./functional-zones";
 import { normalizeLocation } from "./location-graph";
+import { loadConsultorDirectory } from "./opportunity-privacy";
 
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase.rpc("has_role", { _user_id: userId, _role: "admin" });
@@ -527,4 +528,103 @@ export const ignoreUnknownZone = createServerFn({ method: "POST" })
       .in("id", data.search_ids);
     if (error) throw new Error(error.message);
     return { ok: true, cleared: data.search_ids.length };
+  });
+
+// ---------------------------------------------------------------------------
+// Correções Pós-1.3 Melhoria 6 — Consultores por Completar
+//
+// Sempre que uma procura for atribuída a um consultor sem informação
+// essencial (nome, telefone, email, agência), esse consultor tem de surgir
+// na aba Revisão para o administrador completar os dados antes de disponibilizar
+// oportunidades entre consultores.
+// ---------------------------------------------------------------------------
+
+function normKey(v: unknown): string {
+  if (typeof v !== "string") return "";
+  return v
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+function normPhoneKey(v: unknown): string {
+  if (v == null) return "";
+  let s = String(v).replace(/\D+/g, "");
+  if (s.startsWith("00")) s = s.slice(2);
+  if (s.startsWith("351") && s.length > 9) s = s.slice(-9);
+  return s;
+}
+
+export type IncompleteConsultor = {
+  key: string;
+  nome: string | null;
+  telefone: string | null;
+  email: string | null;
+  agency: string | null;
+  missing: Array<"nome" | "telefone" | "email" | "agencia">;
+  procuras_afetadas: number;
+};
+
+export const listIncompleteConsultores = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<{ consultores: IncompleteConsultor[] }> => {
+    const { supabase, userId } = context;
+    await assertAdmin(supabase, userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const nowIso = new Date().toISOString();
+    const [{ data: rows }, directory] = await Promise.all([
+      supabaseAdmin
+        .from("active_searches")
+        .select("id, consultor_nome, consultor_telefone")
+        .gt("expires_at", nowIso),
+      loadConsultorDirectory(),
+    ]);
+    const groups = new Map<
+      string,
+      { nome: string | null; telefone: string | null; count: number }
+    >();
+    for (const r of rows ?? []) {
+      const nome = (r as any).consultor_nome ?? null;
+      const telefone = (r as any).consultor_telefone ?? null;
+      if (!nome && !telefone) continue;
+      const key = `${normKey(nome)}|${normPhoneKey(telefone)}`;
+      const g = groups.get(key) ?? { nome, telefone, count: 0 };
+      g.count++;
+      // preserva o primeiro nome/telefone não-vazio
+      if (!g.nome && nome) g.nome = nome;
+      if (!g.telefone && telefone) g.telefone = telefone;
+      groups.set(key, g);
+    }
+    const result: IncompleteConsultor[] = [];
+    for (const [key, g] of groups.entries()) {
+      const hitPhone = g.telefone
+        ? directory.byPhone.get(normPhoneKey(g.telefone))
+        : undefined;
+      const hitName = g.nome
+        ? directory.byName.get(normKey(g.nome))
+        : undefined;
+      const hit = hitPhone ?? hitName ?? null;
+      const nome = g.nome ?? hit?.nome ?? null;
+      const telefone = g.telefone ?? hit?.telefone ?? null;
+      const email = hit?.email ?? null;
+      const agency = hit?.agency ?? null;
+      const missing: IncompleteConsultor["missing"] = [];
+      if (!nome || !nome.trim()) missing.push("nome");
+      if (!telefone || normPhoneKey(telefone).length < 9) missing.push("telefone");
+      if (!email) missing.push("email");
+      if (!agency) missing.push("agencia");
+      if (missing.length === 0) continue;
+      result.push({
+        key,
+        nome,
+        telefone,
+        email,
+        agency,
+        missing,
+        procuras_afetadas: g.count,
+      });
+    }
+    result.sort((a, b) => b.procuras_afetadas - a.procuras_afetadas);
+    return { consultores: result };
   });

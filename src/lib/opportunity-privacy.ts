@@ -280,3 +280,120 @@ export async function loadConsultorMeta(userIds: string[]): Promise<Map<string, 
   }
   return map;
 }
+
+// ---------------------------------------------------------------------------
+// Diretoria global de consultores.
+//
+// Muitas procuras chegam via Excel com consultor_nome / consultor_telefone
+// preenchidos, mas o consultor pode ser DIFERENTE do utilizador que fez o
+// upload. Para expor email/agência corretos precisamos de resolver esse
+// consultor contra a base de perfis. Esta função constrói duas indexações
+// (nome normalizado, telefone normalizado) sobre todos os profiles+auth
+// users, permitindo lookup O(1) sem uma query por linha.
+// ---------------------------------------------------------------------------
+
+function normName(v: unknown): string {
+  if (typeof v !== "string") return "";
+  return v
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normPhone(v: unknown): string {
+  if (v == null) return "";
+  let s = String(v).replace(/\D+/g, "");
+  if (s.startsWith("00")) s = s.slice(2);
+  if (s.startsWith("351") && s.length > 9) s = s.slice(-9);
+  return s;
+}
+
+export type ConsultorDirectory = {
+  byName: Map<string, ConsultorMeta>;
+  byPhone: Map<string, ConsultorMeta>;
+};
+
+let _directoryCache: { at: number; value: ConsultorDirectory } | null = null;
+const DIRECTORY_TTL_MS = 60_000;
+
+export async function loadConsultorDirectory(): Promise<ConsultorDirectory> {
+  const now = Date.now();
+  if (_directoryCache && now - _directoryCache.at < DIRECTORY_TTL_MS) {
+    return _directoryCache.value;
+  }
+  const byName = new Map<string, ConsultorMeta>();
+  const byPhone = new Map<string, ConsultorMeta>();
+  try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: profs } = await supabaseAdmin
+      .from("profiles")
+      .select("id, full_name, agency");
+    const profMap = new Map<string, { full_name: string | null; agency: string | null }>();
+    for (const p of profs ?? []) {
+      profMap.set(p.id, {
+        full_name: p.full_name ?? null,
+        agency: (p as any).agency ?? null,
+      });
+    }
+    // auth.users list — página grande única (chega para tenants pequenos).
+    const { data: authList } = await supabaseAdmin.auth.admin.listUsers({
+      page: 1,
+      perPage: 1000,
+    });
+    for (const u of authList?.users ?? []) {
+      const prof = profMap.get(u.id) ?? { full_name: null, agency: null };
+      const meta = (u.user_metadata ?? {}) as Record<string, unknown>;
+      const metaName =
+        (meta.full_name as string | undefined) ??
+        (meta.name as string | undefined) ??
+        null;
+      const emailPrefix = u.email ? u.email.split("@")[0] : null;
+      const nome = prof.full_name ?? metaName ?? emailPrefix;
+      const phone = (u.phone as string | undefined) ?? null;
+      const record: ConsultorMeta = {
+        nome,
+        email: u.email ?? null,
+        telefone: phone,
+        agency: prof.agency,
+      };
+      const nk = normName(nome);
+      if (nk) byName.set(nk, record);
+      const pk = normPhone(phone);
+      if (pk) byPhone.set(pk, record);
+    }
+  } catch (e) {
+    console.error("loadConsultorDirectory failed", e);
+  }
+  const value = { byName, byPhone };
+  _directoryCache = { at: now, value };
+  return value;
+}
+
+export function resolveConsultor(
+  directory: ConsultorDirectory,
+  perRecordNome: string | null | undefined,
+  perRecordTelefone: string | null | undefined,
+  fallback: ConsultorMeta | null,
+): ConsultorMeta {
+  const hitPhone = perRecordTelefone ? directory.byPhone.get(normPhone(perRecordTelefone)) : undefined;
+  const hitName = perRecordNome ? directory.byName.get(normName(perRecordNome)) : undefined;
+  const hit = hitPhone ?? hitName ?? null;
+  const nome =
+    (perRecordNome && perRecordNome.trim()) ||
+    hit?.nome ||
+    fallback?.nome ||
+    null;
+  const telefone =
+    (perRecordTelefone && perRecordTelefone.trim()) ||
+    hit?.telefone ||
+    fallback?.telefone ||
+    null;
+  return {
+    nome,
+    telefone,
+    email: hit?.email ?? (perRecordNome || perRecordTelefone ? null : fallback?.email ?? null),
+    agency: hit?.agency ?? (perRecordNome || perRecordTelefone ? null : fallback?.agency ?? null),
+  };
+}

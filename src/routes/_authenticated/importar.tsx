@@ -45,7 +45,7 @@ function ImportarPage() {
       const res = await importFn({ data: { fileBase64: b64, filename: file.name } });
       setResult(res);
       toast.success(
-        `${res.novas} novas · ${res.atualizadas} atualizadas · ${res.mantidas_separadas} separadas · ${res.matches} matches`,
+        `${res.novas} novas · ${res.atualizadas} atualizadas · ${res.duplicados_exatos_fundidos} duplicado(s) fundido(s) · ${res.sinalizadas_revisao} revisão · ${res.matches} matches`,
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro na importação.");
@@ -123,10 +123,13 @@ function ImportarPage() {
               <strong>{result.atualizadas}</strong> procura(s) atualizada(s)
             </li>
             <li>
+              <strong>{result.duplicados_exatos_fundidos}</strong> duplicado(s) exato(s) fundido(s) automaticamente
+            </li>
+            <li>
               <strong>{result.mantidas_separadas}</strong> procura(s) semelhante(s), mas mantida(s) separada(s) por segurança
             </li>
             <li>
-              <strong>{result.sinalizadas_revisao}</strong> procura(s) sinalizada(s) para revisão manual
+              <strong>{result.sinalizadas_revisao}</strong> procura(s) enviada(s) para Revisão manual
             </li>
             <li>
               <strong>{result.removidas}</strong> procura(s) removida(s) (já não constavam)
