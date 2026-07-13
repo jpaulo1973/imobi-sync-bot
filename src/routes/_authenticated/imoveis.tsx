@@ -614,6 +614,26 @@ function ImoveisPage() {
                 </div>
               </div>
 
+              {(form.tipo_imovel === "terreno" ||
+                form.tipo_imovel === "moradia" ||
+                form.tipo_imovel === "quinta" ||
+                form.tipo_imovel === "herdade") && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    {label("Área do terreno (m²)", "area_terreno_m2")}
+                    <Input
+                      type="number"
+                      value={form.area_terreno_m2}
+                      onChange={(e) =>
+                        setForm({ ...form, area_terreno_m2: e.target.value })
+                      }
+                      placeholder="ex.: 14000"
+                    />
+                  </div>
+                  <div />
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   {label("Distrito", "distrito")}
