@@ -57,6 +57,9 @@ type Property = Tables<"properties">;
 type MatchResult = Opportunity;
 
 export const Route = createFileRoute("/_authenticated/imoveis")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    open: typeof search.open === "string" ? search.open : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Imóveis — Property Match" },
