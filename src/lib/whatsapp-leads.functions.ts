@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { callLovableAI } from "./ai-gateway.server";
 import { scoreMatch, type MatchCategoryResult } from "./matching-engine";
+import { normalizePhone } from "./dedup";
 
 const QualifiedLeadSchema = z.object({
   nome: z.string().nullable().optional(),
@@ -137,7 +138,7 @@ export const createBuyersFromLeads = createServerFn({ method: "POST" })
       return {
         user_id: userId,
         nome,
-        telefone: l.telefone ?? null,
+        telefone: normalizePhone(l.telefone) ?? null,
         email: l.email ?? null,
         finalidade,
         tipologia: l.tipologia ?? null,
