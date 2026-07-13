@@ -6,7 +6,8 @@ import { buildDedupKey } from "./dedup";
 import { scoreMatch, type BuyerLike } from "./matching-engine";
 import { loadZoneContext, resolveZone } from "./functional-zones";
 import { normalizeLocation } from "./location-graph";
-import { loadConsultorDirectory } from "./opportunity-privacy";
+import { loadConsultorDirectory, loadConsultorMeta, resolveConsultor } from "./opportunity-privacy";
+import { normalizePhone } from "./dedup";
 
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase.rpc("has_role", { _user_id: userId, _role: "admin" });
@@ -580,54 +581,63 @@ export const listIncompleteConsultores = createServerFn({ method: "GET" })
     await assertAdmin(supabase, userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const nowIso = new Date().toISOString();
-    const [{ data: rows }, directory] = await Promise.all([
-      supabaseAdmin
-        .from("active_searches")
-        .select("id, consultor_nome, consultor_telefone")
-        .gt("expires_at", nowIso),
+    // Correções 1.3: audit contra o MESMO caminho de resolução do Motor
+    // Match/DTO. Cada procura ativa contribui com um consultor efetivo
+    // (resolveConsultor) — se o Excel não trouxer, cai no dono do upload.
+    const { data: rows } = await supabaseAdmin
+      .from("active_searches")
+      .select("id, user_id, consultor_nome, consultor_telefone")
+      .gt("expires_at", nowIso);
+    const uploaderIds = Array.from(
+      new Set((rows ?? []).map((r) => (r as any).user_id).filter(Boolean) as string[]),
+    );
+    const [directory, uploaderMap] = await Promise.all([
       loadConsultorDirectory(),
+      loadConsultorMeta(uploaderIds),
     ]);
-    const groups = new Map<
-      string,
-      { nome: string | null; telefone: string | null; count: number }
-    >();
+    type G = {
+      nome: string | null;
+      telefone: string | null;
+      email: string | null;
+      agency: string | null;
+      count: number;
+    };
+    const groups = new Map<string, G>();
     for (const r of rows ?? []) {
-      const nome = (r as any).consultor_nome ?? null;
-      const telefone = (r as any).consultor_telefone ?? null;
-      if (!nome && !telefone) continue;
-      const key = `${normKey(nome)}|${normPhoneKey(telefone)}`;
-      const g = groups.get(key) ?? { nome, telefone, count: 0 };
+      const perNome = (r as any).consultor_nome ?? null;
+      const perTel = (r as any).consultor_telefone ?? null;
+      const uploader = uploaderMap.get((r as any).user_id) ?? null;
+      const resolved = resolveConsultor(directory, perNome, perTel, uploader);
+      const key = `${normKey(resolved.nome)}|${normPhoneKey(resolved.telefone)}`;
+      const g = groups.get(key) ?? {
+        nome: resolved.nome,
+        telefone: resolved.telefone,
+        email: resolved.email,
+        agency: resolved.agency,
+        count: 0,
+      };
       g.count++;
-      // preserva o primeiro nome/telefone não-vazio
-      if (!g.nome && nome) g.nome = nome;
-      if (!g.telefone && telefone) g.telefone = telefone;
+      // preserva o primeiro valor não-vazio
+      if (!g.nome && resolved.nome) g.nome = resolved.nome;
+      if (!g.telefone && resolved.telefone) g.telefone = resolved.telefone;
+      if (!g.email && resolved.email) g.email = resolved.email;
+      if (!g.agency && resolved.agency) g.agency = resolved.agency;
       groups.set(key, g);
     }
     const result: IncompleteConsultor[] = [];
     for (const [key, g] of groups.entries()) {
-      const hitPhone = g.telefone
-        ? directory.byPhone.get(normPhoneKey(g.telefone))
-        : undefined;
-      const hitName = g.nome
-        ? directory.byName.get(normKey(g.nome))
-        : undefined;
-      const hit = hitPhone ?? hitName ?? null;
-      const nome = g.nome ?? hit?.nome ?? null;
-      const telefone = g.telefone ?? hit?.telefone ?? null;
-      const email = hit?.email ?? null;
-      const agency = hit?.agency ?? null;
       const missing: IncompleteConsultor["missing"] = [];
-      if (!nome || !nome.trim()) missing.push("nome");
-      if (!telefone || normPhoneKey(telefone).length < 9) missing.push("telefone");
-      if (!email) missing.push("email");
-      if (!agency) missing.push("agencia");
+      if (!g.nome || !g.nome.trim()) missing.push("nome");
+      if (!g.telefone || (normalizePhone(g.telefone) ?? "").length < 9) missing.push("telefone");
+      if (!g.email) missing.push("email");
+      if (!g.agency) missing.push("agencia");
       if (missing.length === 0) continue;
       result.push({
         key,
-        nome,
-        telefone,
-        email,
-        agency,
+        nome: g.nome,
+        telefone: g.telefone,
+        email: g.email,
+        agency: g.agency,
         missing,
         procuras_afetadas: g.count,
       });
