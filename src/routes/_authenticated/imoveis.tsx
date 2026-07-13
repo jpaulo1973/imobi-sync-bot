@@ -740,21 +740,28 @@ function ImoveisPage() {
                 </div>
               </div>
               <div>
-                <h3 className="font-semibold text-lg">
-                  {p.tipologia && p.tipologia !== "N/D"
-                    ? p.tipologia
-                    : p.tipo_imovel
-                      ? p.tipo_imovel.charAt(0).toUpperCase() + p.tipo_imovel.slice(1)
-                      : "Imóvel"}
-                  {p.tipo_imovel && p.tipologia && p.tipologia !== "N/D" && (
-                    <span className="text-xs text-muted-foreground">
-                      {" "}· {p.tipo_imovel}
-                    </span>
-                  )}
-                  {p.subtipo_imovel && (
-                    <span className="text-xs text-muted-foreground"> ({p.subtipo_imovel})</span>
-                  )}
-                </h3>
+                {(() => {
+                  const tipoLower = (p.tipo_imovel ?? "").toLowerCase();
+                  const isTerrain = tipoLower === "terreno" || tipoLower === "quinta" || tipoLower === "herdade";
+                  const tipoLabel = p.tipo_imovel
+                    ? p.tipo_imovel.charAt(0).toUpperCase() + p.tipo_imovel.slice(1)
+                    : "Imóvel";
+                  const heading = isTerrain
+                    ? tipoLabel
+                    : (p.tipologia && p.tipologia !== "N/D" ? p.tipologia : tipoLabel);
+                  const showTipoSuffix = !isTerrain && p.tipo_imovel && p.tipologia && p.tipologia !== "N/D";
+                  return (
+                    <h3 className="font-semibold text-lg">
+                      {heading}
+                      {showTipoSuffix && (
+                        <span className="text-xs text-muted-foreground"> · {p.tipo_imovel}</span>
+                      )}
+                      {p.subtipo_imovel && (
+                        <span className="text-xs text-muted-foreground"> ({p.subtipo_imovel})</span>
+                      )}
+                    </h3>
+                  );
+                })()}
                 <p className="text-sm text-muted-foreground flex items-center gap-1">
                   <MapPin className="w-3 h-3" />
                   {[p.freguesia, p.concelho, p.distrito].filter(Boolean).join(", ") || p.zona}
@@ -809,7 +816,15 @@ function ImoveisPage() {
             </DialogTitle>
             <DialogDescription>
               {matchProperty && <>
-                Compradores compatíveis com <strong>{matchProperty.tipologia}</strong>
+                Compradores compatíveis com <strong>{(() => {
+                  const t = (matchProperty.tipo_imovel ?? "").toLowerCase();
+                  if (t === "terreno" || t === "quinta" || t === "herdade") {
+                    return matchProperty.tipo_imovel!.charAt(0).toUpperCase() + matchProperty.tipo_imovel!.slice(1);
+                  }
+                  return matchProperty.tipologia && matchProperty.tipologia !== "N/D"
+                    ? matchProperty.tipologia
+                    : (matchProperty.tipo_imovel ?? "imóvel");
+                })()}</strong>
                 {matchProperty.freguesia ? ` em ${matchProperty.freguesia}` : matchProperty.concelho ? ` em ${matchProperty.concelho}` : ""}.
               </>}
             </DialogDescription>
