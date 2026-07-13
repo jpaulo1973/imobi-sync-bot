@@ -49,6 +49,8 @@ import {
   countPropertyOpportunities,
   type Opportunity,
 } from "@/lib/property-match.functions";
+import { updateMatchState } from "@/lib/match-states.functions";
+import { ConsultorContactActions } from "@/components/ConsultorContactActions";
 import type { MatchCategoryResult } from "@/lib/matching-engine";
 
 type Property = Tables<"properties">;
@@ -193,6 +195,9 @@ function ImoveisPage() {
   const [matches, setMatches] = useState<MatchResult[]>([]);
   const [totalBuyers, setTotalBuyers] = useState(0);
   const [totalGlobal, setTotalGlobal] = useState(0);
+  const [hiddenCount, setHiddenCount] = useState(0);
+  const [showDismissed, setShowDismissed] = useState(false);
+  const updateStateFn = useServerFn(updateMatchState);
 
   const load = async () => {
     setLoading(true);
@@ -259,11 +264,12 @@ function ImoveisPage() {
           .then((r) => setMatchCounts(r.counts ?? {}))
           .catch(() => {});
         if (matchOpen && matchProperty) {
-          oppsFn({ data: { propertyId: matchProperty.id } })
+          oppsFn({ data: { propertyId: matchProperty.id, includeDismissed: showDismissed } })
             .then((res) => {
               setMatches(res.opportunities);
               setTotalBuyers(res.totalBuyers);
               setTotalGlobal(res.totalGlobal);
+              setHiddenCount(res.hiddenCount ?? 0);
             })
             .catch(() => {});
         }
@@ -281,7 +287,7 @@ function ImoveisPage() {
       if (debounce) clearTimeout(debounce);
       supabase.removeChannel(channel);
     };
-  }, [countsFn, oppsFn, matchOpen, matchProperty]);
+  }, [countsFn, oppsFn, matchOpen, matchProperty, showDismissed]);
 
   const openNew = () => {
     setEditingId(null);
@@ -303,10 +309,11 @@ function ImoveisPage() {
     setMatchLoading(true);
     setMatches([]);
     try {
-      const res = await oppsFn({ data: { propertyId: p.id } });
+      const res = await oppsFn({ data: { propertyId: p.id, includeDismissed: showDismissed } });
       setMatches(res.opportunities);
       setTotalBuyers(res.totalBuyers);
       setTotalGlobal(res.totalGlobal);
+      setHiddenCount(res.hiddenCount ?? 0);
       setMatchCounts((prev) => ({ ...prev, [p.id]: res.opportunities.length }));
       // fundo: recomputa persistidas (Radar) sem bloquear a UI
       void recomputeFn({ data: { propertyId: p.id } }).catch(() => {});
@@ -314,6 +321,38 @@ function ImoveisPage() {
       toast.error(e instanceof Error ? e.message : "Erro ao calcular oportunidades");
     } finally {
       setMatchLoading(false);
+    }
+  };
+
+  const changeState = async (
+    m: MatchResult,
+    next: "novo" | "contactado" | "nao_interessado",
+  ) => {
+    if (!matchProperty) return;
+    // Optimistic UI
+    setMatches((prev) => prev.map((x) => (x.key === m.key ? { ...x, state: next } : x)));
+    try {
+      await updateStateFn({
+        data: {
+          propertyId: matchProperty.id,
+          buyerSource: m.buyer_source,
+          buyerRef: m.buyer_ref,
+          state: next,
+        },
+      });
+      if (next === "nao_interessado" && !showDismissed) {
+        setMatches((prev) => prev.filter((x) => x.key !== m.key));
+        setHiddenCount((n) => n + 1);
+        setMatchCounts((prev) => ({
+          ...prev,
+          [matchProperty.id]: Math.max(0, (prev[matchProperty.id] ?? 1) - 1),
+        }));
+      }
+      toast.success("Estado actualizado.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao guardar estado.");
+      // reverte em caso de falha
+      setMatches((prev) => prev.map((x) => (x.key === m.key ? { ...x, state: m.state } : x)));
     }
   };
 
