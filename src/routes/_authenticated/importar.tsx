@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { importSearchesFromExcel, type ExcelImportResult } from "@/lib/excel-import.functions";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileSpreadsheet, Upload, CheckCircle2 } from "lucide-react";
+import { FileSpreadsheet, Upload, CheckCircle2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/importar")({
@@ -45,7 +45,7 @@ function ImportarPage() {
       const res = await importFn({ data: { fileBase64: b64, filename: file.name } });
       setResult(res);
       toast.success(
-        `${res.novas} novas · ${res.atualizadas} atualizadas · ${res.duplicados_exatos_fundidos} duplicado(s) fundido(s) · ${res.sinalizadas_revisao} revisão · ${res.matches} matches`,
+        `${res.novas} novas · ${res.atualizadas} atualizadas · ${res.duplicados_exatos_fundidos} duplicados · ${res.sinalizadas_revisao} revisão · ${res.ignoradas_sem_contacto} ignoradas · ${res.descartadas_anuncio} descartadas · ${res.erros} erro(s)`,
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro na importação.");
@@ -108,41 +108,116 @@ function ImportarPage() {
       </Card>
 
       {result && (
-        <Card className="p-6 space-y-3">
-          <div className="flex items-center gap-2 text-emerald-700 font-semibold">
-            <CheckCircle2 className="w-5 h-5" /> Importação concluída
-          </div>
-          <ul className="text-sm space-y-1">
-            <li>
+        <>
+          <Card className="p-6 space-y-4">
+            <div className="flex items-center gap-2 text-emerald-700 font-semibold">
+              <CheckCircle2 className="w-5 h-5" /> Importação concluída
+            </div>
+            <div className="text-sm">
               <strong>{result.analisadas}</strong> linha(s) analisada(s)
-            </li>
-            <li>
-              <strong>{result.novas}</strong> nova(s) procura(s)
-            </li>
-            <li>
-              <strong>{result.atualizadas}</strong> procura(s) atualizada(s)
-            </li>
-            <li>
-              <strong>{result.duplicados_exatos_fundidos}</strong> duplicado(s) exato(s) fundido(s) automaticamente
-            </li>
-            <li>
-              <strong>{result.mantidas_separadas}</strong> procura(s) semelhante(s), mas mantida(s) separada(s) por segurança
-            </li>
-            <li>
-              <strong>{result.sinalizadas_revisao}</strong> procura(s) enviada(s) para Revisão manual
-            </li>
-            <li>
-              <strong>{result.removidas}</strong> procura(s) removida(s) (já não constavam)
-            </li>
-            <li>
-              <strong>{result.matches}</strong> Match(es) encontrado(s) na carteira
-            </li>
-          </ul>
-          <p className="text-sm text-muted-foreground">
-            Vê as procuras — incluindo as marcadas para revisão manual — no <strong>Radar</strong>.
-          </p>
-        </Card>
+              {!result.total_check && (
+                <span className="ml-2 inline-flex items-center gap-1 text-amber-700 text-xs">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Contabilização inconsistente — verificar logs
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+              <SummaryStat label="Novas" value={result.novas} />
+              <SummaryStat label="Atualizadas" value={result.atualizadas} />
+              <SummaryStat label="Duplicados exatos" value={result.duplicados_exatos_fundidos} />
+              <SummaryStat label="Mantidas separadas" value={result.mantidas_separadas} />
+              <SummaryStat label="Revisão" value={result.sinalizadas_revisao} />
+              <SummaryStat label="Ignoradas" value={result.ignoradas_sem_contacto} />
+              <SummaryStat label="Descartadas" value={result.descartadas_anuncio} />
+              <SummaryStat label="Erros" value={result.erros} highlight={result.erros > 0} />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {result.matches} Match(es) encontrado(s) na carteira. Vê as procuras — incluindo as marcadas para revisão — no <strong>Radar</strong>.
+            </p>
+          </Card>
+
+          <Card className="p-0 overflow-hidden">
+            <div className="px-6 py-4 border-b">
+              <h2 className="font-semibold">Relatório linha-a-linha</h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                Uma classificação final por cada linha do ficheiro.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+                  <tr>
+                    <th className="text-left px-4 py-2">Linha</th>
+                    <th className="text-left px-4 py-2">Comprador</th>
+                    <th className="text-left px-4 py-2">Consultor</th>
+                    <th className="text-left px-4 py-2">Resultado</th>
+                    <th className="text-left px-4 py-2">Motivo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.linhas.map((r) => (
+                    <tr key={r.linha} className="border-t">
+                      <td className="px-4 py-2 tabular-nums">{r.linha}</td>
+                      <td className="px-4 py-2">{r.comprador ?? "—"}</td>
+                      <td className="px-4 py-2">{r.consultor ?? "—"}</td>
+                      <td className="px-4 py-2">
+                        <ResultBadge resultado={r.resultado} />
+                      </td>
+                      <td className="px-4 py-2 text-muted-foreground">{r.motivo}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </>
       )}
     </div>
+  );
+}
+
+function SummaryStat({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: number;
+  highlight?: boolean;
+}) {
+  return (
+    <div
+      className={`rounded-md border px-3 py-2 ${
+        highlight ? "border-destructive/40 bg-destructive/5" : ""
+      }`}
+    >
+      <div className="text-2xl font-semibold tabular-nums">{value}</div>
+      <div className="text-xs text-muted-foreground">{label}</div>
+    </div>
+  );
+}
+
+function ResultBadge({
+  resultado,
+}: {
+  resultado: ExcelImportResult["linhas"][number]["resultado"];
+}) {
+  const styles: Record<typeof resultado, string> = {
+    Nova: "bg-emerald-100 text-emerald-800",
+    Atualizada: "bg-blue-100 text-blue-800",
+    "Duplicado exato": "bg-slate-100 text-slate-800",
+    Revisão: "bg-amber-100 text-amber-800",
+    Separada: "bg-indigo-100 text-indigo-800",
+    Ignorada: "bg-muted text-muted-foreground",
+    Descartada: "bg-muted text-muted-foreground",
+    Erro: "bg-red-100 text-red-800",
+  };
+  return (
+    <span
+      className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${styles[resultado]}`}
+    >
+      {resultado}
+    </span>
   );
 }
