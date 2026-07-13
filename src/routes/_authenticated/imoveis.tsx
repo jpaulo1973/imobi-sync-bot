@@ -118,6 +118,7 @@ type FormState = {
   freguesia: string;
   zona: string;
   area_util_m2: string;
+  area_terreno_m2: string;
   garagem: boolean;
   elevador: boolean;
   jardim: boolean;
@@ -136,6 +137,7 @@ const empty: FormState = {
   freguesia: "",
   zona: "",
   area_util_m2: "",
+  area_terreno_m2: "",
   garagem: false,
   elevador: false,
   jardim: false,
@@ -154,6 +156,10 @@ const fromProperty = (p: Property): FormState => ({
   freguesia: p.freguesia ?? "",
   zona: p.zona ?? "",
   area_util_m2: p.area_util_m2 != null ? String(p.area_util_m2) : "",
+  area_terreno_m2:
+    (p as unknown as { area_terreno_m2?: number | null }).area_terreno_m2 != null
+      ? String((p as unknown as { area_terreno_m2?: number | null }).area_terreno_m2)
+      : "",
   garagem: p.garagem ?? false,
   elevador: p.elevador ?? false,
   jardim: p.jardim ?? false,
