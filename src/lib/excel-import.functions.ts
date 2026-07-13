@@ -302,8 +302,8 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
       const mensagem = s(col(raw, "mensagem_original", "mensagem"));
       const dataPub = combineDate(col(raw, "data"), col(raw, "hora"));
       // Release 1.2 — metadados de contexto
-      const dataOrigem = s(col(raw, "data"));
-      const horaOrigem = s(col(raw, "hora"));
+      const dataOrigem = normalizeExcelDate(col(raw, "data"));
+      const horaOrigem = normalizeExcelTime(col(raw, "hora"));
       const consultorNome = s(col(raw, "Consultor", "consultor", "Agente", "agente"));
       const consultorTelefone = s(col(raw, "Consultor_Telefone", "Telefone_Consultor", "consultor_telefone"));
       const comunidade = s(col(raw, "Comunidade", "comunidade"));
