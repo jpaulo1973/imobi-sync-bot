@@ -196,6 +196,8 @@ export const splitReviewSearch = createServerFn({ method: "POST" })
         dedup_key: firstDedup,
         flagged_for_review: false,
         decision_reason: "Dividido manualmente pelo administrador",
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        last_match_at: null,
       })
       .eq("id", data.id);
     if (uErr) throw new Error(uErr.message);
