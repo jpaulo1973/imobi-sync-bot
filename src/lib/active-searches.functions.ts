@@ -459,6 +459,13 @@ export async function upsertOne(
   userId: string,
   row: UpsertRow,
 ): Promise<UpsertResult> {
+  // Correções 1.3: garantir formato único (normalização defensiva também
+  // aqui — permite a callers que ainda não normalizaram).
+  row = {
+    ...row,
+    contact_telefone: normalizePhone(row.contact_telefone) ?? null,
+    consultor_telefone: normalizePhone(row.consultor_telefone) ?? null,
+  };
   const incomingCriteria = row.criteria as SimilarityCriteria;
   const incomingText = row.texto_original ?? row.resumo ?? null;
 
