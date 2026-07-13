@@ -72,6 +72,7 @@ function criteriaToBuyer(c: any): BuyerLike {
     garagem_obrigatoria: gar,
     elevador_obrigatorio: ele,
     proximity: c?.proximity ?? null,
+    caracteristicas: Array.isArray(c?.caracteristicas) ? c.caracteristicas : null,
   };
 }
 
