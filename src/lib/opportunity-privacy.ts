@@ -377,23 +377,27 @@ export function resolveConsultor(
   perRecordTelefone: string | null | undefined,
   fallback: ConsultorMeta | null,
 ): ConsultorMeta {
-  const hitPhone = perRecordTelefone ? directory.byPhone.get(normPhone(perRecordTelefone)) : undefined;
-  const hitName = perRecordNome ? directory.byName.get(normName(perRecordNome)) : undefined;
+  const trimmedNome = perRecordNome && perRecordNome.trim() ? perRecordNome.trim() : null;
+  const trimmedTel = perRecordTelefone && perRecordTelefone.trim() ? perRecordTelefone.trim() : null;
+  const hasPerRecord = !!(trimmedNome || trimmedTel);
+  const hitPhone = trimmedTel ? directory.byPhone.get(normPhone(trimmedTel)) : undefined;
+  const hitName = trimmedNome ? directory.byName.get(normName(trimmedNome)) : undefined;
   const hit = hitPhone ?? hitName ?? null;
-  const nome =
-    (perRecordNome && perRecordNome.trim()) ||
-    hit?.nome ||
-    fallback?.nome ||
-    null;
-  const telefone =
-    (perRecordTelefone && perRecordTelefone.trim()) ||
-    hit?.telefone ||
-    fallback?.telefone ||
-    null;
+  // Regra 1.3: o uploader (fallback) só é usado quando a procura NÃO contém
+  // qualquer informação do consultor (nem nome nem telefone). Caso contrário,
+  // nunca "empresta" dados do utilizador autenticado ao consultor real.
+  if (hasPerRecord) {
+    return {
+      nome: trimmedNome ?? hit?.nome ?? null,
+      telefone: trimmedTel ?? hit?.telefone ?? null,
+      email: hit?.email ?? null,
+      agency: hit?.agency ?? null,
+    };
+  }
   return {
-    nome,
-    telefone,
-    email: hit?.email ?? (perRecordNome || perRecordTelefone ? null : fallback?.email ?? null),
-    agency: hit?.agency ?? (perRecordNome || perRecordTelefone ? null : fallback?.agency ?? null),
+    nome: fallback?.nome ?? null,
+    telefone: fallback?.telefone ?? null,
+    email: fallback?.email ?? null,
+    agency: fallback?.agency ?? null,
   };
 }

@@ -6,7 +6,7 @@ import { buildDedupKey } from "./dedup";
 import { scoreMatch, type BuyerLike } from "./matching-engine";
 import { loadZoneContext, resolveZone } from "./functional-zones";
 import { normalizeLocation } from "./location-graph";
-import { loadConsultorDirectory, loadConsultorMeta, resolveConsultor } from "./opportunity-privacy";
+import { loadConsultorDirectory, resolveConsultor } from "./opportunity-privacy";
 import { normalizePhone } from "./dedup";
 
 async function assertAdmin(supabase: any, userId: string) {
@@ -588,13 +588,10 @@ export const listIncompleteConsultores = createServerFn({ method: "GET" })
       .from("active_searches")
       .select("id, user_id, consultor_nome, consultor_telefone")
       .gt("expires_at", nowIso);
-    const uploaderIds = Array.from(
-      new Set((rows ?? []).map((r) => (r as any).user_id).filter(Boolean) as string[]),
-    );
-    const [directory, uploaderMap] = await Promise.all([
-      loadConsultorDirectory(),
-      loadConsultorMeta(uploaderIds),
-    ]);
+    // Correções 1.3: o audit NÃO usa o dono do upload como fallback — caso
+    // contrário procuras sem consultor mostram nome/telefone/email/agência do
+    // uploader e nada aparece como em falta. Passamos fallback = null.
+    const directory = await loadConsultorDirectory();
     type G = {
       nome: string | null;
       telefone: string | null;
@@ -606,8 +603,7 @@ export const listIncompleteConsultores = createServerFn({ method: "GET" })
     for (const r of rows ?? []) {
       const perNome = (r as any).consultor_nome ?? null;
       const perTel = (r as any).consultor_telefone ?? null;
-      const uploader = uploaderMap.get((r as any).user_id) ?? null;
-      const resolved = resolveConsultor(directory, perNome, perTel, uploader);
+      const resolved = resolveConsultor(directory, perNome, perTel, null);
       const key = `${normKey(resolved.nome)}|${normPhoneKey(resolved.telefone)}`;
       const g = groups.get(key) ?? {
         nome: resolved.nome,

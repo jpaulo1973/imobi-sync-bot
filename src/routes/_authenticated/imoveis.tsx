@@ -257,22 +257,9 @@ function ImoveisPage() {
 
   useEffect(() => { load(); }, []);
 
-  // Correções 1.3: quando chegamos com ?open=<propertyId> (p.ex. via
-  // "Abrir" numa oportunidade do Radar), abrimos automaticamente o painel
-  // de matches desse imóvel, uma única vez após o carregamento.
-  const openParam = Route.useSearch({ select: (s) => s.open });
-  const navigateImv = Route.useNavigate();
-  useEffect(() => {
-    if (!openParam || loading) return;
-    const p = items.find((x) => x.id === openParam);
-    if (!p) return;
-    void runMatch(p);
-    navigateImv({
-      search: (prev: { open?: string }) => ({ ...prev, open: undefined }),
-      replace: true,
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openParam, loading, items]);
+  // Correções 1.3: abrir uma oportunidade no Radar deixou de navegar para
+  // /imoveis (agora é um Sheet inline no próprio Radar), pelo que já não
+  // precisamos do handler ?open=<propertyId>.
 
   // Realtime: sempre que buyer_clients mudar, refresca contadores (e o match aberto).
   useEffect(() => {
@@ -442,6 +429,10 @@ function ImoveisPage() {
       await runMatch(savedRow);
       // Release 1.2: recalcular oportunidades vs Base Global em segundo plano.
       await recomputeForProp(savedRow.id);
+      // Correções 1.3: refrescar contagens no card imediatamente após save.
+      countsFn()
+        .then((r) => setMatchCounts(r.counts ?? {}))
+        .catch(() => {});
     }
   };
 

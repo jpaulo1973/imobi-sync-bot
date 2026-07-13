@@ -1,136 +1,48 @@
+## Objetivo
 
-# Release 1.3 — Colaboração Inteligente e Estabilidade Operacional
+Corrigir os 5 comportamentos observados na validação da Release 1.3, corrigindo a causa real em cada caso.
 
-Implementar apenas o que está descrito abaixo. Preservar Hard Filters 1.2.1, motor de scoring, Privacy Layer e schema existente sempre que possível.
+## Diagnósticos (causas confirmadas por auditoria)
 
----
+**1. Edição do imóvel não atualiza compradores compatíveis**
+O `handleSave` em `src/routes/_authenticated/imoveis.tsx` já chama `runMatch(savedRow)` + `recomputeForProp(savedRow.id)`. O `runMatch` calcula ao vivo (buyers + Base Global) e `recomputeFn` persiste no Radar. **O que falta**:
+- `load()` (que preenche `matchCounts`) corre antes do `runMatch`, mas a contagem só é atualizada após o `countsFn` async; após uma edição o card do imóvel na lista mantém o número antigo (`compradores compatíveis: 0`) até refresh manual. Forçar `countsFn` a re-executar imediatamente após `runMatch`, e definir `matchCounts[savedRow.id] = res.opportunities.length` (já feito dentro de `runMatch` para o próprio id — reforçar após save).
+- Confirmar com teste real (Marinha Grande): se o buyer continua a não aparecer no dialog após save+runMatch, a causa é no motor (`matching-engine`), não no gatilho — investigar o caso e corrigir a regra de zona/freguesia.
 
-## 1. Bugs
+**2. "Consultores por Completar" continua vazio**
+`listIncompleteConsultores` (`review.functions.ts`) usa `resolveConsultor` com `uploaderMap` como fallback. Quando o registo tem `consultor_nome`/`consultor_telefone` a null, o consultor efetivo cai no dono do upload (admin) e "empresta-lhe" nome+telefone+email+agência → nada aparece como em falta. **Fix**: no audit, avaliar exclusivamente o que está gravado na procura + hit direto na diretoria por nome/telefone; NUNCA usar o uploader como fallback. Regra: se `consultor_nome` OU `consultor_telefone` da procura estão vazios, o campo conta como em falta; email/agência só contam presentes se vierem do hit direto na diretoria (match por nome ou telefone) — não do uploader.
 
-### 1.1 Nome do consultor sempre "jpaulo73"
+**3. Nome do consultor incorreto nas oportunidades**
+`resolveConsultor` em `opportunity-privacy.ts` faz `fallback?.nome`/`fallback?.telefone` quando o registo não traz consultor. Isso mostra o utilizador autenticado/uploader como consultor. **Fix**: alinhar com o critério do user — o uploader só é usado quando a procura não tem QUALQUER informação do consultor (nem nome nem telefone). Concretamente:
+- Se `perRecordNome` ou `perRecordTelefone` existir: nome/telefone/email/agência vêm apenas do registo + hit direto na diretoria; NUNCA do fallback.
+- Se ambos forem null: apenas então usar `fallback` (mantém compatibilidade histórica). Alternativa mais estrita (a validar): devolver tudo a null, deixando o UI mostrar "Consultor por completar".
 
-- Causa: em `active_searches` a coluna `consultor_nome` foi preenchida no passado com um valor fixo e o Privacy Layer usa `search.consultor_nome` como fallback (`opportunity-privacy.ts` L168). Além disso `loadConsultorMeta` só lê `profiles.full_name` (sem `agency`).
-- Correção:
-  - `sanitizeSearchForViewer` passa a usar **exclusivamente** `consultor?.nome` (obtido via `loadConsultorMeta(owner_id)`), ignorando o campo legado. Mesmo tratamento para `sanitizeBuyerForViewer` e `sanitizePropertyForViewer`.
-  - `loadConsultorMeta` passa a devolver também `agency` (novo campo da meta) via `profiles.agency`.
-  - Em `property-match.functions.ts` e `buyer-opportunities.functions.ts` remover os fallbacks `?? q.consultor_nome` / `?? q.consultor_telefone`. A fonte única é `loadConsultorMeta`.
-  - Migração leve: definir `active_searches.consultor_nome/telefone` como *deprecated* (mantidos por compatibilidade; nunca lidos daqui em diante). Sem alterações destrutivas.
+**4. Telefones não normalizados**
+Migration + `upsertOne` + `whatsapp-leads` já normalizam. Falta uma via:
+- `src/routes/_authenticated/clientes.tsx` linha 122: `telefone: form.telefone || null` grava o valor do formulário sem normalizar. **Fix**: aplicar `normalizePhone(form.telefone)` no `insert` (e no `update` se existir).
+- Auditar consultas de comparação em `dedup.ts` e `resolveConsultor` — já usam `normalizePhone`, ok.
+- Adicionar backfill defensivo simples em `buyer_clients` (a migration anterior já corre; se o formulário do cliente escreveu depois, basta corrigir o writer — sem nova migration).
 
-### 1.2 Botão "Oportunidades" ignora WhatsApp/Excel
+**5. Abrir oportunidade muda de página**
+Botão "Abrir" no Radar (`radar.tsx` L175-179) usa `<Link to="/imoveis" search={{ open: p.id }}>`, causando navegação para /imoveis. O comportamento pedido é "abrir apenas o detalhe da oportunidade sem alterar navegação". **Fix**: substituir a navegação por um painel/Sheet inline dentro do Radar que mostra o detalhe do imóvel + razões do match, mantendo o utilizador em `/radar`. Reutilizar o padrão do `BuyerOpportunitiesDrawer` (já existe em `clientes.tsx`).
 
-- Verificado: `countPropertyOpportunities` já inclui `buyer_clients` + `active_searches` (Excel/WhatsApp). O botão em `imoveis.tsx` está a mostrar `countPropertyMatches` (só `buyer_clients`).
-- Correção: no card do imóvel usar `countPropertyOpportunities` como fonte única; `countPropertyMatches` deixa de ser chamado pela UI (mantém-se exportado). O drawer já usa `runPropertyOpportunities` (unificado).
+## Alterações por ficheiro
 
----
+- `src/lib/opportunity-privacy.ts` — `resolveConsultor`: usar `fallback` apenas quando `perRecordNome` e `perRecordTelefone` forem ambos vazios; nunca "misturar" fallback com per-record.
+- `src/lib/review.functions.ts` — `listIncompleteConsultores`: remover uso de `uploaderMap` como fallback; passar `null` como fallback ao `resolveConsultor`; regra de missing baseada no per-record + hit direto na diretoria.
+- `src/routes/_authenticated/clientes.tsx` — normalizar telefone antes de inserir buyer_client (import de `normalizePhone` de `@/lib/dedup`).
+- `src/routes/_authenticated/imoveis.tsx` — após `handleSave` bem-sucedido, forçar `countsFn()` para atualizar imediatamente o badge no card do imóvel editado (além do `runMatch` já existente).
+- `src/routes/_authenticated/radar.tsx` — substituir `<Link to="/imoveis" search={{ open: p.id }}>` por um handler que abre um Sheet inline com o detalhe do imóvel + razões do match; remover a navegação automática.
+- `src/routes/_authenticated/imoveis.tsx` — remover o handler `?open=` + `useEffect` que auto-navega/auto-abre (já não é usado). Manter apenas o comportamento normal de abrir dialog via botão local.
 
-## 2. Estado por Match (Imóvel ↔ Comprador)
+## Testes de aceitação
 
-Nova tabela `match_states` (uma entrada por par):
+1. Editar imóvel (mudança de zona para Marinha Grande) → dialog de compradores compatíveis abre imediatamente com o comprador esperado; badge do card atualiza.
+2. Procuras com consultor incompleto passam a aparecer em "Consultores por Completar" (Revisão).
+3. Oportunidades mostram o consultor real da procura; quando a procura não tem consultor, mostrar "—" / "Consultor externo" — nunca o utilizador autenticado.
+4. Adicionar cliente via formulário grava telefone normalizado.
+5. Clicar "Abrir" numa oportunidade do Radar abre um painel de detalhe SEM sair de `/radar`.
 
-```
-id uuid pk
-user_id uuid    -- dono do imóvel (quem gere o estado)
-property_id uuid not null
-buyer_source text not null check in ('cliente','search')
-buyer_ref uuid not null              -- buyer_clients.id OU active_searches.id
-state text not null check in ('novo','contactado','nao_interessado')
-updated_at timestamptz
-unique (property_id, buyer_source, buyer_ref)
-```
+## Fora de âmbito
 
-- Grants + RLS: `authenticated` faz CRUD apenas onde `user_id = auth.uid()`; `service_role` ALL.
-- `runPropertyOpportunities`: faz LEFT JOIN em memória com `match_states` e:
-  - anexa `state` ("novo" por defeito) e `state_updated_at` a cada oportunidade;
-  - filtra fora as marcadas `nao_interessado` da lista ativa (mas conta-as num `hiddenCount` devolvido).
-- `countPropertyOpportunities`: subtrai `match_states` com `state='nao_interessado'` do par respectivo.
-- Novo `updateMatchState({ propertyId, buyerSource, buyerRef, state })` server fn (upsert; verifica ownership do imóvel via RLS).
-- UI drawer de oportunidades em `imoveis.tsx`: cada linha ganha selector "Novo / Contactado / Não interessado" + toggle "Mostrar dispensados".
-- Regras:
-  - Estado pertence ao par → não afeta outros imóveis nem elimina o comprador.
-  - Comprador continua elegível para outros imóveis compatíveis (é só uma linha em `match_states`).
-  - Não expira: se o buyer sair da base (30 dias Excel/WhatsApp), a linha é irrelevante.
-
-Fora de âmbito nesta release: exposição do estado no lado do comprador (radar/clientes) — o estado é interno do angariador.
-
----
-
-## 3. Contacto entre Consultores
-
-Componente novo `<ConsultorContactActions>` reutilizado em: drawer de oportunidades do imóvel, drawer de compradores compatíveis (radar/clientes), lista de matches WhatsApp.
-
-Dois botões:
-- **WhatsApp** — abre `https://wa.me/<telefone_normalizado>` (sem mensagem pré-preenchida). Desativado se sem telefone.
-- **Contacto** — abre popover/dialog **apenas de leitura** com Nome, Telemóvel, Email e Agência (quando disponíveis). Não inicia chamada nem `tel:` link.
-
-Fonte de dados: `loadConsultorMeta(owner_id)` (ver §1.1) — devolve `{ nome, telefone, email, agency }`. Aplicado sempre via Privacy Layer.
-
-Remover / substituir qualquer botão actual que abra `tel:` a partir de oportunidades entre consultores. Contactos directos do próprio cliente do consultor (compradores manuais próprios) mantêm o comportamento actual.
-
----
-
-## 4. Modo de Manutenção
-
-Nova tabela `app_settings` (key/value simples, singleton):
-
-```
-key text pk
-value jsonb
-updated_at timestamptz
-updated_by uuid
-```
-
-- Seed: `('maintenance', '{"enabled": false, "message": null}')`.
-- RLS: SELECT para `authenticated`; UPDATE apenas se `has_role(auth.uid(),'admin')`.
-- Server fns em novo `src/lib/maintenance.functions.ts`:
-  - `getMaintenanceStatus()` — público (authenticated), devolve `{ enabled, message }`.
-  - `setMaintenanceMode({ enabled, message? })` — admin only (verifica `has_role`).
-- Middleware de gate: novo `requireMaintenanceOpen` (server fn middleware) que, para chamadas **não-admin**, lê `getMaintenanceStatus` (cache curto em memória por request) e devolve 503 com `{ maintenance: true }`. Aplicado a todas as server fns de negócio (imoveis, buyers, searches, matches, revisao). Admins passam sempre. Não aplicado a `getMaintenanceStatus`, auth, ou `admin.functions.ts`.
-- UI:
-  - Novo separador em `utilizadores.tsx` (ou nova página `/manutencao` admin-only) com toggle + textarea da mensagem + aviso claro.
-  - Novo `MaintenanceGate` no `_authenticated/route.tsx`: em cada match consulta `getMaintenanceStatus` (via TanStack Query com `staleTime` curto); se `enabled && !isAdmin` mostra página cheia "Sistema em manutenção" com a mensagem. Admin continua a ver o resto da app com badge "Manutenção ativa".
-  - Interceptor global de erros server-fn: se resposta `{ maintenance: true }`, força re-render do gate.
-
----
-
-## Migração SQL (única)
-
-1. `CREATE TABLE public.match_states (...)` + grants (`authenticated` CRUD, `service_role` ALL) + RLS scoped a `user_id`.
-2. `CREATE TABLE public.app_settings (...)` + grants (SELECT `authenticated`, ALL `service_role`) + RLS (SELECT true, UPDATE admin).
-3. Trigger `updated_at` em ambas.
-4. Seed `app_settings` com `maintenance` desligado.
-5. Sem alterações a `active_searches`/`buyer_clients`/`match_opportunities`/`properties`.
-
-## Ficheiros
-
-**Novos**
-- `src/lib/match-states.functions.ts` — `updateMatchState`, `listMatchStates(propertyId)`.
-- `src/lib/maintenance.functions.ts` — get/set + middleware `requireMaintenanceOpen`.
-- `src/components/ConsultorContactActions.tsx` — botões WhatsApp / Contacto.
-- `src/components/MaintenanceGate.tsx` — bloqueio full-page.
-- `src/routes/_authenticated/manutencao.tsx` — painel admin (gate por `isCurrentUserAdmin`).
-- Migração SQL.
-
-**Alterados**
-- `src/lib/opportunity-privacy.ts` — remover fallback `consultor_nome`; adicionar `agency` à meta.
-- `src/lib/property-match.functions.ts` — usar só `loadConsultorMeta`; integrar `match_states`.
-- `src/lib/buyer-opportunities.functions.ts` — mesmo tratamento de consultor (só meta); expor `agency`.
-- `src/lib/active-searches.functions.ts` — deixar de ler `consultor_nome` legado para output.
-- `src/routes/_authenticated/imoveis.tsx` — substituir `countPropertyMatches` por `countPropertyOpportunities`; drawer com selector de estado, filtro "Dispensados", `ConsultorContactActions`.
-- `src/routes/_authenticated/radar.tsx` e `clientes.tsx` — usar `ConsultorContactActions` no lado dos compradores compatíveis.
-- `src/routes/_authenticated/_authenticated.tsx` (layout) — montar `MaintenanceGate`.
-- Server fns de negócio — anexar middleware `requireMaintenanceOpen`.
-
-## Fora de Âmbito
-
-- Estado do match visível ao lado do comprador.
-- Notificações push/email para mudanças de estado ou manutenção.
-- Auditoria de mudanças de estado.
-- Motor de interpretação WhatsApp / OCR / classificação (Release seguinte).
-
-## Acceptance Criteria
-
-- Nome/telefone/email/agência do consultor exibidos correspondem ao dono real da procura/imóvel; "jpaulo73" nunca aparece a menos que seja de facto o dono.
-- Card do imóvel mostra contagem incluindo Excel + WhatsApp + manuais.
-- Marcar "Não interessado" remove o par apenas do imóvel visado; comprador reaparece noutro imóvel compatível; "Mostrar dispensados" reexibe-o.
-- Botão WhatsApp abre conversa correta; botão Contacto mostra dados sem iniciar chamada.
-- Modo manutenção: não-admins veem página de manutenção e todas as server fns respondem `maintenance:true`; admin continua a operar; desligar restaura acesso imediato.
+- Sem novas features. Sem alterações em RLS, schema, ou motor de matching, exceto se o teste 1 (Marinha Grande) demonstrar bug no `matching-engine` — nesse caso corrigir a causa concreta encontrada, sem refactor.

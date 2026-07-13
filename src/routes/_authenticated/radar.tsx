@@ -10,6 +10,13 @@ import {
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import { Radar, Trash2, Sparkles, ArrowRight, Users } from "lucide-react";
 import { toast } from "sonner";
 import { PhoneButton } from "@/components/PhoneButton";
@@ -83,6 +90,9 @@ function RadarPage() {
   const [loading, setLoading] = useState(true);
   const [buyers, setBuyers] = useState<Array<Tables<"buyer_clients">>>([]);
   const [buyerCounts, setBuyerCounts] = useState<Record<string, number>>({});
+  // Correções 1.3: abrir uma oportunidade mostra o detalhe num Sheet inline,
+  // sem sair do Radar.
+  const [openOpp, setOpenOpp] = useState<any | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -172,10 +182,8 @@ function RadarPage() {
                         </div>
                       </div>
                       {p.id && (
-                        <Button asChild size="sm" variant="outline">
-                          <Link to="/imoveis" search={{ open: p.id }}>
-                            Abrir <ArrowRight className="w-3 h-3 ml-1" />
-                          </Link>
+                        <Button size="sm" variant="outline" onClick={() => setOpenOpp(o)}>
+                          Abrir <ArrowRight className="w-3 h-3 ml-1" />
                         </Button>
                       )}
                     </Card>
@@ -281,6 +289,67 @@ function RadarPage() {
       )}
         </>
       )}
+
+      <Sheet open={!!openOpp} onOpenChange={(v) => !v && setOpenOpp(null)}>
+        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+          {openOpp && (() => {
+            const p = openOpp.properties ?? {};
+            const s = openOpp.active_searches ?? {};
+            return (
+              <>
+                <SheetHeader>
+                  <SheetTitle className="flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-primary" /> Detalhe da oportunidade
+                  </SheetTitle>
+                  <SheetDescription>
+                    Compatibilidade <strong>{openOpp.score}%</strong> entre o imóvel e a procura.
+                  </SheetDescription>
+                </SheetHeader>
+                <div className="mt-4 space-y-4 text-sm">
+                  <Card className="p-3 space-y-1">
+                    <div className="text-xs font-semibold uppercase text-muted-foreground">Imóvel</div>
+                    <div className="font-medium">
+                      {p.tipologia ? `${p.tipologia} · ` : ""}
+                      {p.zona ?? p.freguesia ?? p.concelho ?? "—"}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {p.tipo_imovel ?? "—"}
+                      {p.preco ? ` · ${euros(p.preco)}` : ""}
+                      {p.referencia ? ` · Ref: ${p.referencia}` : ""}
+                    </div>
+                  </Card>
+                  <Card className="p-3 space-y-1">
+                    <div className="text-xs font-semibold uppercase text-muted-foreground">Comprador</div>
+                    <div className="font-medium">
+                      {s.contact_nome ?? s.contact_telefone ?? "—"}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {s.criteria?.tipologia ? `${s.criteria.tipologia} · ` : ""}
+                      {s.criteria?.zona ?? "—"}
+                      {s.criteria?.budget_max ? ` · até ${euros(s.criteria.budget_max)}` : ""}
+                    </div>
+                    {s.resumo && (
+                      <p className="text-xs italic text-muted-foreground mt-1">"{s.resumo}"</p>
+                    )}
+                  </Card>
+                  {Array.isArray(openOpp.reasons) && openOpp.reasons.length > 0 && (
+                    <Card className="p-3 space-y-1">
+                      <div className="text-xs font-semibold uppercase text-muted-foreground">
+                        Razões do match
+                      </div>
+                      <ul className="text-xs list-disc pl-4 space-y-0.5">
+                        {openOpp.reasons.map((r: string, i: number) => (
+                          <li key={i}>{r}</li>
+                        ))}
+                      </ul>
+                    </Card>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
