@@ -182,6 +182,8 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
 
     for (const q of searches ?? []) {
       const buyer = criteriaToBuyer(q.criteria);
+      buyer.resumo = q.resumo ?? null;
+      buyer.texto_original = (q as any).texto_original ?? null;
       const s = scoreMatch(buyer, property as any, { zoneContext });
       if (!s.compatible) continue;
       const c = (q.criteria ?? {}) as any;
@@ -311,7 +313,15 @@ export const countPropertyOpportunities = createServerFn({ method: "POST" })
       }
       for (const q of searches ?? []) {
         if (
-          scoreMatch(criteriaToBuyer(q.criteria), p as any, { zoneContext }).compatible &&
+          scoreMatch(
+            {
+              ...criteriaToBuyer(q.criteria),
+              resumo: (q as any).resumo ?? null,
+              texto_original: (q as any).texto_original ?? null,
+            },
+            p as any,
+            { zoneContext },
+          ).compatible &&
           !dismissed.has(`${p.id}|search-${q.id}`)
         )
           n++;
