@@ -147,6 +147,25 @@ export type ExcelImportResult = {
   removidas: number;
   matches: number;
   batch_id: string;
+  ignoradas_sem_contacto: number;
+  descartadas_anuncio: number;
+  erros: number;
+  total_check: boolean;
+  linhas: Array<{
+    linha: number;
+    comprador: string | null;
+    consultor: string | null;
+    resultado:
+      | "Nova"
+      | "Atualizada"
+      | "Duplicado exato"
+      | "Revisão"
+      | "Separada"
+      | "Ignorada"
+      | "Descartada"
+      | "Erro";
+    motivo: string;
+  }>;
 };
 
 export const importSearchesFromExcel = createServerFn({ method: "POST" })
@@ -180,9 +199,27 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
     let duplicados_exatos_fundidos = 0;
     let mantidas_separadas = 0;
     let sinalizadas_revisao = 0;
+    let ignoradas_sem_contacto = 0;
+    let descartadas_anuncio = 0;
+    let erros = 0;
     const upsertedIds: string[] = [];
+    const linhas: ExcelImportResult["linhas"] = [];
 
-    for (const raw of rows) {
+    // Prioridade quando uma linha origina múltiplos splits: o resultado mais
+    // "forte" domina, para que cada linha analisada termine numa e só uma
+    // classificação final.
+    const priority: Record<string, number> = {
+      flagged: 5,
+      updated: 4,
+      duplicado_exato: 3,
+      kept_separate: 2,
+      created: 1,
+    };
+
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+      const raw = rows[rowIndex];
+      // Linha 1 do Excel é o cabeçalho; a primeira linha de dados é a 2.
+      const linhaNumero = rowIndex + 2;
       const nome = s(col(raw, "Nome"));
       const telefone = s(col(raw, "WhatsApp", "Telefone", "Telemovel", "Telemóvel"));
       const email = s(col(raw, "Email", "E-mail"));
@@ -215,13 +252,35 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
       const comunidade = s(col(raw, "Comunidade", "comunidade"));
       const grupoWhatsapp = s(col(raw, "Grupo", "grupo", "grupo_whatsapp"));
 
-      // Regra mínima: precisa de telefone OU (nome + algum critério) para ser útil
-      if (!telefone && !nome) continue;
+      const consultorLabel = consultorNome ?? consultorTelefone ?? null;
+
+      // Regra mínima: precisa de telefone OU nome para ser útil.
+      if (!telefone && !nome) {
+        ignoradas_sem_contacto++;
+        linhas.push({
+          linha: linhaNumero,
+          comprador: null,
+          consultor: consultorLabel,
+          resultado: "Ignorada",
+          motivo: "Sem contacto (telefone e nome em falta)",
+        });
+        continue;
+      }
 
       // Release 1.2.1 — classificar rigorosamente. Anúncios são descartados;
       // casos ambíguos são importados mas sinalizados para revisão manual.
       const textClass = classifyBuyerText(mensagem ?? descricao);
-      if (textClass === "anuncio") continue;
+      if (textClass === "anuncio") {
+        descartadas_anuncio++;
+        linhas.push({
+          linha: linhaNumero,
+          comprador: nome,
+          consultor: consultorLabel,
+          resultado: "Descartada",
+          motivo: "Texto parece anúncio, não procura de comprador",
+        });
+        continue;
+      }
       const flagAsReview = textClass === "ambiguo";
 
       const caracExtras: string[] = [...(caract ?? [])];
@@ -265,6 +324,10 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
       const splits = mayContainMultipleSearches(rawText)
         ? await splitBuyerSearches(rawText, fallbackSearch)
         : [fallbackSearch];
+
+      // Recolhe o resultado de cada split para consolidar numa única
+      // classificação por linha depois do loop interno.
+      const splitOutcomes: Array<{ kind: string; reason: string }> = [];
 
       for (let idx = 0; idx < splits.length; idx++) {
         const sp: SplitSearch = splits[idx];
@@ -340,29 +403,115 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
             } catch (e) {
               console.error("flag ambiguous failed", e);
             }
+            splitOutcomes.push({
+              kind: "flagged",
+              reason: "Texto ambíguo — enviada para Revisão",
+            });
+            sinalizadas_revisao++;
+            continue;
           }
           switch (res.action) {
             case "created":
               novas++;
+              splitOutcomes.push({ kind: "created", reason: res.reason || "Nova procura" });
               break;
             case "updated":
               if ((res.reason ?? "").includes("auto-merge")) {
                 duplicados_exatos_fundidos++;
+                splitOutcomes.push({
+                  kind: "duplicado_exato",
+                  reason: "Duplicado exato — fundido automaticamente",
+                });
               } else {
                 atualizadas++;
+                splitOutcomes.push({
+                  kind: "updated",
+                  reason: res.reason || "Registo atualizado",
+                });
               }
               break;
             case "kept_separate":
               mantidas_separadas++;
+              splitOutcomes.push({
+                kind: "kept_separate",
+                reason: res.reason || "Mantida separada",
+              });
               break;
             case "flagged":
               sinalizadas_revisao++;
+              splitOutcomes.push({
+                kind: "flagged",
+                reason: res.reason || "Enviada para Revisão",
+              });
               break;
           }
         } catch (e) {
           console.error("Excel row upsert failed", e);
+          splitOutcomes.push({
+            kind: "erro",
+            reason: e instanceof Error ? e.message : "Erro desconhecido",
+          });
         }
       }
+
+      // Consolidar num único resultado por linha.
+      if (splitOutcomes.length === 0) {
+        erros++;
+        linhas.push({
+          linha: linhaNumero,
+          comprador: nome,
+          consultor: consultorLabel,
+          resultado: "Erro",
+          motivo: "Nenhum split processado",
+        });
+        continue;
+      }
+      const anyError = splitOutcomes.find((o) => o.kind === "erro");
+      if (anyError) {
+        // Se qualquer split falhou, a linha inteira conta como Erro.
+        // Reverte incrementos parciais dos outros splits desta linha para
+        // manter a invariante "1 linha = 1 classificação".
+        for (const o of splitOutcomes) {
+          if (o.kind === "created") novas--;
+          else if (o.kind === "updated") atualizadas--;
+          else if (o.kind === "duplicado_exato") duplicados_exatos_fundidos--;
+          else if (o.kind === "kept_separate") mantidas_separadas--;
+          else if (o.kind === "flagged") sinalizadas_revisao--;
+        }
+        erros++;
+        linhas.push({
+          linha: linhaNumero,
+          comprador: nome,
+          consultor: consultorLabel,
+          resultado: "Erro",
+          motivo: anyError.reason,
+        });
+        continue;
+      }
+      // Escolhe o outcome dominante pela ordem de prioridade.
+      splitOutcomes.sort((a, b) => (priority[b.kind] ?? 0) - (priority[a.kind] ?? 0));
+      const top = splitOutcomes[0];
+      const label: ExcelImportResult["linhas"][number]["resultado"] =
+        top.kind === "flagged"
+          ? "Revisão"
+          : top.kind === "updated"
+            ? "Atualizada"
+            : top.kind === "duplicado_exato"
+              ? "Duplicado exato"
+              : top.kind === "kept_separate"
+                ? "Separada"
+                : "Nova";
+      const motivo =
+        splitOutcomes.length > 1
+          ? `${top.reason} (linha originou ${splitOutcomes.length} procuras)`
+          : top.reason;
+      linhas.push({
+        linha: linhaNumero,
+        comprador: nome,
+        consultor: consultorLabel,
+        resultado: label,
+        motivo,
+      });
     }
 
     // 2) Regra Release 1.1: procuras ausentes do ficheiro NÃO são desativadas
@@ -421,6 +570,22 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
       }
     }
 
+    const somaFinal =
+      novas +
+      atualizadas +
+      duplicados_exatos_fundidos +
+      mantidas_separadas +
+      sinalizadas_revisao +
+      ignoradas_sem_contacto +
+      descartadas_anuncio +
+      erros;
+    const total_check = somaFinal === rows.length;
+    if (!total_check) {
+      console.warn(
+        `[excel-import] contabilização inconsistente: analisadas=${rows.length} soma=${somaFinal}`,
+      );
+    }
+
     return {
       analisadas: rows.length,
       novas,
@@ -431,5 +596,10 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
       removidas,
       matches,
       batch_id,
+      ignoradas_sem_contacto,
+      descartadas_anuncio,
+      erros,
+      total_check,
+      linhas,
     };
   });
