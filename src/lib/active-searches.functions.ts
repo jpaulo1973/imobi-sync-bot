@@ -654,6 +654,7 @@ function criteriaToBuyer(c: ActiveSearchCriteria): BuyerLike {
     garagem_obrigatoria: gar,
     elevador_obrigatorio: ele,
     proximity: c.proximity ?? null,
+    caracteristicas: c.caracteristicas ?? null,
   };
 }
 
