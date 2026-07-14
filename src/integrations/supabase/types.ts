@@ -32,6 +32,7 @@ export type Database = {
           dedup_key: string | null
           expires_at: string
           flagged_for_review: boolean
+          geo_library_version: number | null
           grupo_whatsapp: string | null
           hora_origem: string | null
           id: string
@@ -66,6 +67,7 @@ export type Database = {
           dedup_key?: string | null
           expires_at: string
           flagged_for_review?: boolean
+          geo_library_version?: number | null
           grupo_whatsapp?: string | null
           hora_origem?: string | null
           id?: string
@@ -100,6 +102,7 @@ export type Database = {
           dedup_key?: string | null
           expires_at?: string
           flagged_for_review?: boolean
+          geo_library_version?: number | null
           grupo_whatsapp?: string | null
           hora_origem?: string | null
           id?: string
@@ -152,6 +155,7 @@ export type Database = {
           email: string | null
           finalidade: Database["public"]["Enums"]["finalidade_tipo"]
           garagem_obrigatoria: boolean
+          geo_library_version: number | null
           id: string
           location_ids: string[]
           nome: string
@@ -176,6 +180,7 @@ export type Database = {
           email?: string | null
           finalidade?: Database["public"]["Enums"]["finalidade_tipo"]
           garagem_obrigatoria?: boolean
+          geo_library_version?: number | null
           id?: string
           location_ids?: string[]
           nome: string
@@ -200,6 +205,7 @@ export type Database = {
           email?: string | null
           finalidade?: Database["public"]["Enums"]["finalidade_tipo"]
           garagem_obrigatoria?: boolean
+          geo_library_version?: number | null
           id?: string
           location_ids?: string[]
           nome?: string
@@ -281,6 +287,30 @@ export type Database = {
           id?: string
           nome?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      geo_library_version: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          notes: string | null
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          notes?: string | null
+          version: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          notes?: string | null
+          version?: number
         }
         Relationships: []
       }
@@ -679,6 +709,7 @@ export type Database = {
           finalidade: Database["public"]["Enums"]["finalidade_tipo"]
           freguesia: string | null
           garagem: boolean | null
+          geo_library_version: number | null
           id: string
           jardim: boolean | null
           location_id: string | null
@@ -709,6 +740,7 @@ export type Database = {
           finalidade?: Database["public"]["Enums"]["finalidade_tipo"]
           freguesia?: string | null
           garagem?: boolean | null
+          geo_library_version?: number | null
           id?: string
           jardim?: boolean | null
           location_id?: string | null
@@ -739,6 +771,7 @@ export type Database = {
           finalidade?: Database["public"]["Enums"]["finalidade_tipo"]
           freguesia?: string | null
           garagem?: boolean | null
+          geo_library_version?: number | null
           id?: string
           jardim?: boolean | null
           location_id?: string | null

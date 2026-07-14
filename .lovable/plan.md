@@ -2,169 +2,170 @@
 
 ## Objetivo
 
-Eliminar definitivamente o texto livre como fonte de verdade para localização.
+Eliminar definitivamente o texto livre como fonte de verdade para localização. Criar uma infraestrutura geográfica única para todo o Property Match, onde todas as decisões passam obrigatoriamente pela mesma biblioteca, parser, pipeline e motor. Após esta sprint deixará de existir qualquer implementação paralela de lógica geográfica.
 
-Criar uma infraestrutura geográfica única, reutilizável e permanente para todo o Property Match. Após esta sprint passará a existir: uma única biblioteca geográfica, um único parser, um único componente de seleção, um único pipeline de ingestão, um único motor de matching e um único modelo interno baseado em IDs. Toda a aplicação utilizará obrigatoriamente esta arquitetura.
+## Decisões arquiteturais
 
-## Decisões arquiteturais aprovadas
-
-- Desenvolvimento em 3 fases (Fundação → Pipeline → Motor).
-- `EntitySelector` minimalista.
-- `LocationSelector` como primeira especialização.
-- Parser totalmente determinístico.
-- Fuzzy Matching fora desta sprint.
-- Nenhuma implementação paralela de localização será permitida após esta sprint.
+- 3 commits: Fundação → Pipeline → Motor.
+- `EntitySelector` minimalista; `LocationSelector` como primeira especialização.
+- Parser totalmente determinístico. Fuzzy Matching fora do âmbito.
+- Toda a lógica geográfica existe apenas uma vez. Nenhum canal pode implementar interpretação própria.
 
 ---
 
-## Fase A — Fundação de Dados
+## Commit 1 — Fundação  *(parcialmente concluído)*
 
-### 1. Biblioteca geográfica — `locations`
+**Já aplicado na migração anterior:**
 
-Campos: `id`, `slug`, `nome`, `tipo`, `parent_id`, `aprovado`, `created_at`, `updated_at`.
+- `locations` (id, slug, nome, tipo, parent_id, aprovado).
+- `location_relations` (from/to/relation_type: parent, child, adjacent, nearby, contains).
+- `functional_zone_members` (functional_zone_id, location_id).
+- `location_aliases` (alias_normalizado, location_ids, origem, aprovado, created_by, times_used, last_used_at).
+- `location_metadata` (INE, lat/long, centroide, bounding box, NUTS, população, área, código postal).
+- `active_searches.location_ids`, `audit_geo`, `pending_geo`.
+- `buyer_clients.location_ids`.
+- `properties.location_id`.
 
-Tipos: `distrito`, `concelho`, `freguesia`, `zona_funcional`.
+**Ajustes necessários nesta iteração:**
 
-### 2. Relações geográficas
+1. **Versionamento — `geo_library_version`**
+   - Nova tabela `geo_library_version` (id, version int, notas, created_at) para registar cada incremento.
+   - Adicionar coluna `geo_library_version int` a `active_searches`, `buyer_clients` e `properties`.
+   - Incrementar sempre que novos aliases, locais, zonas, relações ou coberturas modifiquem potencialmente o parser.
+   - Reprocessamento via `backfillLocations()`.
 
-Não utilizar arrays dentro de `locations`. Criar tabelas relacionais.
+2. **Seed inicial** — distritos, concelhos, freguesias, zonas funcionais, relações, aliases conhecidos (Alverca, Costa, Expo, Lx, Margem Sul, Grande Lisboa, Linha de Cascais, Lisboa 30 min, Lisboa 20 km, etc.).
 
-**`location_relations`** — `from_location_id`, `to_location_id`, `relation_type` (`parent | child | adjacent | nearby | contains`).
-
-**`functional_zone_members`** — `functional_zone_id`, `location_id`. Cada zona funcional passa a ser um conjunto de localizações.
-
-### 3. Biblioteca de aliases — `location_aliases`
-
-Campos: `alias_normalizado`, `location_ids`, `origem`, `aprovado`, `created_by`, `created_at`, `updated_at`.
-
-Métricas: `times_used`, `last_used_at`.
-
-### 4. Metadados — `location_metadata`
-
-Preparada para evolução futura (código INE, latitude, longitude, centroide, bounding box, NUTS, população, área, código postal). Não é necessário preencher nesta sprint.
-
-### 5. Alterações às tabelas
-
-- **`active_searches`** — `location_ids uuid[]`, `audit_geo jsonb`. Novo estado `pending_geo` — enquanto existir, a procura não entra no motor.
-- **`buyer_clients`** — `location_ids uuid[]`.
-- **`properties`** — `location_id uuid`.
-
-Embora nesta fase cada imóvel possua apenas uma localização principal, toda a arquitetura (`LocationRepository`, parser e motor) deve ser implementada permitindo futura evolução para relação N:N (`property_location_relations`) sem alterar a lógica do motor.
-
-O motor nunca deve assumir internamente que um imóvel possui apenas uma localização — deve trabalhar sempre sobre uma coleção, mesmo que hoje contenha um único elemento.
-
-- Hoje: `[property.location_id]`
-- Futuro: `[loc1, loc2, loc3]` — sem alterar o algoritmo.
-
-### 6. Seed inicial
-
-Popular automaticamente: distritos, concelhos, freguesias, zonas funcionais, relações e aliases conhecidos (Alverca, Costa, Expo, Lx, Margem Sul, Grande Lisboa, Linha de Cascais, Lisboa 30 min, Lisboa 20 km, etc.).
+3. **Backfill inicial** — apenas correspondência exata; não resolvidos ficam `pending_geo`.
 
 ---
 
-## Fase B — Parser, UI e Pipeline
+## Commit 2 — Parser + UI + Pipeline
 
-### 1. Biblioteca
+### Biblioteca `src/lib/geo/`
 
-Criar `src/lib/geo/` com: `geo-types`, `geo-context`, `geo-parser`, `location-repository`.
+- `geo-types.ts` — tipos partilhados.
+- `geo-context.ts` — contexto (versão, opções).
+- `geo-parser.ts` — função pura `parseLocations(text, context)`.
+- `location-repository.ts` — única API de acesso.
 
-### 2. LocationRepository
+### `LocationRepository`
 
-Toda a aplicação utiliza exclusivamente o `LocationRepository`. API mínima:
+Toda a aplicação consome exclusivamente:
 
 - `search()`
 - `resolve()`
 - `getById()`
 - `getChildren()`
 - `getAdjacent()`
-- `getCoverage()`
+- `getFunctionalZoneMembers()`
 
-Nenhum componente consulta diretamente a base de dados.
+Nenhum componente consulta diretamente as tabelas geográficas.
 
-### 3. Parser — `parseLocations(text, context)`
+### `parseLocations(text, context)`
 
-Função pura. Nunca grava dados, cria aliases, altera informação, nem depende da UI ou de React.
+Função pura. Nunca grava, aprende, altera dados nem conhece a UI.
 
-Pipeline: divisão por conectores → normalização → alias → slug → freguesia → concelho → distrito → zona funcional → `unresolved`. Sem fuzzy.
+**Pipeline:** conectores → normalização → alias → slug → freguesia → concelho → distrito → zona funcional → `unresolved`. **Sem fuzzy.**
 
-Retorno: `resolved`, `aliases_used`, `unresolved`, `audit_trail`, `confidence`. `confidence` fica preparado para futuras evoluções.
+**Retorno:** `resolved`, `aliases_used`, `confidence`, `unresolved`, `audit_trail`. `confidence` é transitória, nunca persistida como dado de negócio.
 
-### 4. Server Functions
+**Regras de validação:**
 
-Criar: `searchLocations()`, `resolveLocationText()`, `promoteAlias()`, `updateSearchLocations()`.
+| Confidence | Ação |
+|---|---|
+| 95+ | Aceitação automática |
+| 80–94 | Aceitação + auditoria |
+| 60–79 | Sugestão de revisão |
+| <60 | Revisão obrigatória |
 
-### 5. EntitySelector
+Qualquer `unresolved` → `pending_geo`.
 
-Componente base reutilizável. Primeira especialização: `LocationSelector`. Não implementar ainda: tipologias, características, proximidade, certificados.
+### Server functions
 
-### 6. Utilização obrigatória
+- `searchLocations()`
+- `resolveLocationText()`
+- `promoteAlias()`
+- `updateSearchLocations()`
+- `backfillLocations()`
 
-Substituir todos os campos texto por `LocationSelector` em: Revisão, Compradores, Imóveis, Active Searches, Radar, Importação Manual. Nenhum campo de localização poderá continuar a utilizar texto livre.
+### `EntitySelector` + `LocationSelector`
 
-### 7. Pipeline único
+Componente base minimalista, primeira especialização é `LocationSelector`. Substituir todos os campos de localização em: Revisão, Compradores, Imóveis, Active Searches, Radar, Importação Manual.
 
-Todos os canais utilizam exatamente o mesmo fluxo:
+### Pipeline único
 
 ```
-Canal → parseLocations() → resolved → location_ids → Motor
-                        └→ unresolved → pending_geo → Revisão
+Excel | WhatsApp | PDF | API | Manual
+                ↓
+        LocationRepository
+                ↓
+           Geo Parser
+                ↓
+      Location IDs + Audit
+                ↓
+       Validation Rules
+                ↓
+       Aceite  |  pending_geo
+                ↓
+              Motor
 ```
 
-Aplica-se a: Excel, WhatsApp, PDF, API, Manual, `extractAndMatch`.
+Nenhum canal implementa lógica própria.
 
-### 8. Revisão inteligente
+### Revisão inteligente
 
-A Revisão passa a apresentar: texto original → resultado do parser → aliases utilizados → localizações → IDs → motivo → decisão → "Guardar Alias?".
+Mostrar: texto original, resultado do parser, aliases utilizados, localizações, IDs, versão da biblioteca, motivo, decisão. Se for nova interpretação: perguntar "Pretende guardar esta interpretação?" → `promoteAlias()`. Aprendizagem sempre explícita.
 
-Se o utilizador escolher "Guardar esta interpretação", executar `promoteAlias()`. Aprendizagem sempre explícita, nunca automática.
+### Backfill
 
-### 9. Backfill
-
-Executar sobre `properties`, `buyer_clients`, `active_searches`. Popular `location_id` / `location_ids`. Tudo o que não puder ser resolvido fica `pending_geo`.
+Executar `backfillLocations()` para `properties`, `buyer_clients`, `active_searches`.
 
 ---
 
-## Fase C — Motor
+## Commit 3 — Motor
 
-Reescrever completamente o matching. Nunca comparar texto. Comparar apenas IDs.
+Reescrever completamente o matching. Nunca comparar texto — apenas IDs.
 
-Comparações suportadas:
+**Comparações suportadas:** match direto, parent/child, zona funcional, adjacência.
 
-- Match direto
-- Relações parent/child
-- Zona funcional
-- Adjacência
+**Eliminar definitivamente:**
 
-Eliminar definitivamente: `KNOWN_CONCELHOS`, `ADJACENT`, `.includes()`, `.toLowerCase()` sobre campos de zona. Toda a lógica geográfica passa a viver exclusivamente na biblioteca geográfica.
+- `location-graph.ts`
+- `KNOWN_CONCELHOS`
+- `ADJACENT`
+- `.includes()` e `.toLowerCase()` sobre campos de zona.
+
+Toda a lógica passa exclusivamente para a infraestrutura geográfica. O motor trabalha sempre sobre coleção de localizações do imóvel — hoje `[property.location_id]`, no futuro `[loc1, loc2, loc3]` sem alterar o algoritmo.
 
 ---
 
 ## Testes permanentes
 
-Criar: `geo-parser.test`, `geo-parser.cross-channel.test`, `matching-engine.geo.test`.
-
-Adicionar guarda estática que impede qualquer comparação textual de localização.
+- `geo-parser.test`
+- `geo-parser.cross-channel.test`
+- `matching-engine.geo.test`
+- Guarda estática que impede qualquer comparação textual de localização.
 
 ---
 
 ## Critério de conclusão
 
-- existir uma única biblioteca geográfica;
-- existir um único parser;
-- existir um único componente de seleção;
-- existir um único pipeline;
-- existir um único motor;
-- todas as localizações forem armazenadas como IDs;
-- o motor deixar definitivamente de comparar texto;
-- o mesmo input produzir exatamente o mesmo resultado em qualquer canal;
-- as correções efetuadas na Revisão forem automaticamente reutilizadas através da biblioteca de aliases;
-- toda a suite de regressão estiver verde.
+- única biblioteca geográfica, único parser, único `LocationRepository`, único pipeline, único componente de seleção, único motor;
+- todas as localizações armazenadas como IDs;
+- motor deixa definitivamente de comparar texto;
+- mesmo input → mesmo resultado em qualquer canal;
+- correções da Revisão reutilizadas via biblioteca de aliases;
+- `geo_id`/IDs imutáveis; alterações estruturais apenas exigem incremento de `geo_library_version` e eventual `backfillLocations()`, sem alterar o motor;
+- suite de regressão verde.
+
+## Princípios arquiteturais permanentes
+
+Uma fonte de verdade, uma biblioteca, um repositório, um parser, um pipeline, um componente de seleção. Parser nunca altera dados nem toma decisões de negócio. Motor nunca interpreta texto — trabalha exclusivamente sobre entidades estruturadas. Aprendizagem sempre explícita e auditável. Nenhum canal pode implementar lógica geográfica própria.
 
 ## Fora do âmbito
 
 - Fuzzy Matching.
 - Outras especializações do `EntitySelector`.
-- Alterações ao `search-acceptance`.
-- Alterações ao `bedrooms-normalize`.
-
-Esses módulos permanecem inalterados e serão tratados em sprints próprias.
+- Alterações ao `search-acceptance.ts`.
+- Alterações ao `bedrooms-normalize.ts`.
