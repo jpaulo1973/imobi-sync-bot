@@ -437,8 +437,10 @@ function scoreTipologia(buyer: BuyerLike, property: PropertyLike): MatchCategory
       : "—";
     return cat("tipologia", "Tipo", true, label, weight, weight);
   }
-  const bQ = buyer.quartos_min ?? tipologiaQuartos(buyer.tipologia);
-  const pQ = property.quartos ?? tipologiaQuartos(property.tipologia);
+  const bQ = sanitizeQuartos(buyer.quartos_min ?? null, "buyer.quartos_min")
+    ?? tipologiaQuartos(buyer.tipologia);
+  const pQ = sanitizeQuartos(property.quartos ?? null, "property.quartos")
+    ?? tipologiaQuartos(property.tipologia);
   if (bQ == null) {
     return cat("tipologia", "Tipologia", true, property.tipologia ?? (pQ != null ? `${pQ} quartos` : "—"), weight, weight);
   }
