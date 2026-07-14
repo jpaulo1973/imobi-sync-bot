@@ -16,7 +16,7 @@ import type { GeoSnapshot } from "@/lib/geo";
 //
 // Cobre as quatro operações estruturais suportadas pela infraestrutura
 // geográfica (parent, child, adjacent, functionalMembers). Não depende de
-// qualquer estrutura textual (KNOWN_CONCELHOS, ADJACENT, aliases textuais).
+// qualquer estrutura textual legada (aliases textuais, grafos hard-coded).
 // ---------------------------------------------------------------------------
 
 export type GeoMatchIndex = {
