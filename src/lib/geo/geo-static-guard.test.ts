@@ -27,10 +27,9 @@ const FORBIDDEN_SYMBOLS = [
   "ZoneResolverContext",
 ];
 
-// `normalizeLocation` só é permitido dentro de src/lib/geo/ (nome antigo
-// reservado a helpers internos). No motor e nos callers, usa-se
-// `normalizeGeoText`.
-const RESTRICTED_TO_GEO = ["normalizeLocation"];
+// Símbolo exacto `normalizeLocation(` só é permitido dentro de src/lib/geo/.
+// Aceita-se `normalizeLocationsBatch` (função distinta de outro subsistema).
+const RESTRICTED_PATTERNS: RegExp[] = [/\bnormalizeLocation\s*\(/];
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
@@ -58,13 +57,13 @@ describe("geo static guard (Fase 3)", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("normalizeLocation só vive dentro de src/lib/geo/", () => {
+  it("normalizeLocation() só vive dentro de src/lib/geo/", () => {
     const offenders: string[] = [];
     for (const f of files) {
       if (f.includes(`${"/"}lib${"/"}geo${"/"}`)) continue;
       const src = readFileSync(f, "utf8");
-      for (const sym of RESTRICTED_TO_GEO) {
-        if (src.includes(sym)) offenders.push(`${f}: contém "${sym}"`);
+      for (const re of RESTRICTED_PATTERNS) {
+        if (re.test(src)) offenders.push(`${f}: contém "${re.source}"`);
       }
     }
     expect(offenders).toEqual([]);
