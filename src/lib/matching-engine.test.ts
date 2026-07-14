@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { scoreMatch, isInvestorBulkSearch, type BuyerLike, type PropertyLike } from "./matching-engine";
 
 describe("investor bulk search filter", () => {
+  const LISBOA_ID = "00000000-0000-0000-0000-00000000lisboa";
   const auraBuyer: BuyerLike = {
     finalidade: "venda",
     tipo_imovel: ["Apartamento"],
     tipologia: "T0",
-    zona: "Lisboa",
-    municipio: "Lisboa",
+    location_ids: [LISBOA_ID],
     budget_max: 800000,
     caracteristicas: ["proj. aprovados >80 frações"],
     resumo:
@@ -18,10 +18,7 @@ describe("investor bulk search filter", () => {
     finalidade: "venda",
     tipo_imovel: "apartamento",
     tipologia: "T2",
-    distrito: "Lisboa",
-    concelho: "Lisboa",
-    freguesia: "Estrela",
-    zona: "Campo de Ourique",
+    location_id: LISBOA_ID,
     preco: 285000,
     area_util_m2: 60,
     quartos: 2,
