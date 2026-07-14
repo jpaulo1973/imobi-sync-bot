@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       active_searches: {
         Row: {
+          audit_geo: Json | null
           comunidade: string | null
           consultor_nome: string | null
           consultor_telefone: string | null
@@ -36,9 +37,11 @@ export type Database = {
           id: string
           import_batch_id: string | null
           last_match_at: string | null
+          location_ids: string[]
           matches_count: number
           merged_from_count: number
           origem: string
+          pending_geo: boolean
           proximity: Json | null
           resumo: string | null
           similarity_score: number | null
@@ -47,6 +50,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          audit_geo?: Json | null
           comunidade?: string | null
           consultor_nome?: string | null
           consultor_telefone?: string | null
@@ -67,9 +71,11 @@ export type Database = {
           id?: string
           import_batch_id?: string | null
           last_match_at?: string | null
+          location_ids?: string[]
           matches_count?: number
           merged_from_count?: number
           origem?: string
+          pending_geo?: boolean
           proximity?: Json | null
           resumo?: string | null
           similarity_score?: number | null
@@ -78,6 +84,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          audit_geo?: Json | null
           comunidade?: string | null
           consultor_nome?: string | null
           consultor_telefone?: string | null
@@ -98,9 +105,11 @@ export type Database = {
           id?: string
           import_batch_id?: string | null
           last_match_at?: string | null
+          location_ids?: string[]
           matches_count?: number
           merged_from_count?: number
           origem?: string
+          pending_geo?: boolean
           proximity?: Json | null
           resumo?: string | null
           similarity_score?: number | null
@@ -144,6 +153,7 @@ export type Database = {
           finalidade: Database["public"]["Enums"]["finalidade_tipo"]
           garagem_obrigatoria: boolean
           id: string
+          location_ids: string[]
           nome: string
           notas: string | null
           proximity: Json | null
@@ -167,6 +177,7 @@ export type Database = {
           finalidade?: Database["public"]["Enums"]["finalidade_tipo"]
           garagem_obrigatoria?: boolean
           id?: string
+          location_ids?: string[]
           nome: string
           notas?: string | null
           proximity?: Json | null
@@ -190,6 +201,7 @@ export type Database = {
           finalidade?: Database["public"]["Enums"]["finalidade_tipo"]
           garagem_obrigatoria?: boolean
           id?: string
+          location_ids?: string[]
           nome?: string
           notas?: string | null
           proximity?: Json | null
@@ -202,6 +214,42 @@ export type Database = {
           zona?: string | null
         }
         Relationships: []
+      }
+      functional_zone_members: {
+        Row: {
+          created_at: string
+          functional_zone_id: string
+          id: string
+          location_id: string
+        }
+        Insert: {
+          created_at?: string
+          functional_zone_id: string
+          id?: string
+          location_id: string
+        }
+        Update: {
+          created_at?: string
+          functional_zone_id?: string
+          id?: string
+          location_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "functional_zone_members_functional_zone_id_fkey"
+            columns: ["functional_zone_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "functional_zone_members_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       functional_zones: {
         Row: {
@@ -235,6 +283,184 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      location_aliases: {
+        Row: {
+          alias_normalizado: string
+          aprovado: boolean
+          created_at: string
+          created_by: string | null
+          id: string
+          last_used_at: string | null
+          location_ids: string[]
+          origem: string
+          times_used: number
+          updated_at: string
+        }
+        Insert: {
+          alias_normalizado: string
+          aprovado?: boolean
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          last_used_at?: string | null
+          location_ids: string[]
+          origem?: string
+          times_used?: number
+          updated_at?: string
+        }
+        Update: {
+          alias_normalizado?: string
+          aprovado?: boolean
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          last_used_at?: string | null
+          location_ids?: string[]
+          origem?: string
+          times_used?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      location_metadata: {
+        Row: {
+          area_km2: number | null
+          bounding_box: Json | null
+          centroide: Json | null
+          codigo_ine: string | null
+          codigo_postal: string | null
+          created_at: string
+          extras: Json | null
+          id: string
+          latitude: number | null
+          location_id: string
+          longitude: number | null
+          nuts: string | null
+          populacao: number | null
+          updated_at: string
+        }
+        Insert: {
+          area_km2?: number | null
+          bounding_box?: Json | null
+          centroide?: Json | null
+          codigo_ine?: string | null
+          codigo_postal?: string | null
+          created_at?: string
+          extras?: Json | null
+          id?: string
+          latitude?: number | null
+          location_id: string
+          longitude?: number | null
+          nuts?: string | null
+          populacao?: number | null
+          updated_at?: string
+        }
+        Update: {
+          area_km2?: number | null
+          bounding_box?: Json | null
+          centroide?: Json | null
+          codigo_ine?: string | null
+          codigo_postal?: string | null
+          created_at?: string
+          extras?: Json | null
+          id?: string
+          latitude?: number | null
+          location_id?: string
+          longitude?: number | null
+          nuts?: string | null
+          populacao?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "location_metadata_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: true
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      location_relations: {
+        Row: {
+          created_at: string
+          from_location_id: string
+          id: string
+          relation_type: Database["public"]["Enums"]["location_relation_type"]
+          to_location_id: string
+        }
+        Insert: {
+          created_at?: string
+          from_location_id: string
+          id?: string
+          relation_type: Database["public"]["Enums"]["location_relation_type"]
+          to_location_id: string
+        }
+        Update: {
+          created_at?: string
+          from_location_id?: string
+          id?: string
+          relation_type?: Database["public"]["Enums"]["location_relation_type"]
+          to_location_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "location_relations_from_location_id_fkey"
+            columns: ["from_location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "location_relations_to_location_id_fkey"
+            columns: ["to_location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      locations: {
+        Row: {
+          aprovado: boolean
+          created_at: string
+          id: string
+          nome: string
+          parent_id: string | null
+          slug: string
+          tipo: Database["public"]["Enums"]["location_type"]
+          updated_at: string
+        }
+        Insert: {
+          aprovado?: boolean
+          created_at?: string
+          id?: string
+          nome: string
+          parent_id?: string | null
+          slug: string
+          tipo: Database["public"]["Enums"]["location_type"]
+          updated_at?: string
+        }
+        Update: {
+          aprovado?: boolean
+          created_at?: string
+          id?: string
+          nome?: string
+          parent_id?: string | null
+          slug?: string
+          tipo?: Database["public"]["Enums"]["location_type"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "locations_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       match_opportunities: {
         Row: {
@@ -455,6 +681,7 @@ export type Database = {
           garagem: boolean | null
           id: string
           jardim: boolean | null
+          location_id: string | null
           piscina: boolean | null
           preco: number
           quartos: number | null
@@ -484,6 +711,7 @@ export type Database = {
           garagem?: boolean | null
           id?: string
           jardim?: boolean | null
+          location_id?: string | null
           piscina?: boolean | null
           preco: number
           quartos?: number | null
@@ -513,6 +741,7 @@ export type Database = {
           garagem?: boolean | null
           id?: string
           jardim?: boolean | null
+          location_id?: string | null
           piscina?: boolean | null
           preco?: number
           quartos?: number | null
@@ -524,7 +753,15 @@ export type Database = {
           user_id?: string
           zona?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "properties_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
@@ -564,6 +801,13 @@ export type Database = {
     Enums: {
       app_role: "admin" | "user"
       finalidade_tipo: "venda" | "arrendamento"
+      location_relation_type:
+        | "parent"
+        | "child"
+        | "adjacent"
+        | "nearby"
+        | "contains"
+      location_type: "distrito" | "concelho" | "freguesia" | "zona_funcional"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -693,6 +937,14 @@ export const Constants = {
     Enums: {
       app_role: ["admin", "user"],
       finalidade_tipo: ["venda", "arrendamento"],
+      location_relation_type: [
+        "parent",
+        "child",
+        "adjacent",
+        "nearby",
+        "contains",
+      ],
+      location_type: ["distrito", "concelho", "freguesia", "zona_funcional"],
     },
   },
 } as const
