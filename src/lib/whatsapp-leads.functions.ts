@@ -61,7 +61,8 @@ export type QualifiedLeadWithAcceptance = QualifiedLead & {
 // a aceitação vive em src/lib/search-acceptance.ts.
 function applyAcceptance(leads: QualifiedLead[]): QualifiedLeadWithAcceptance[] {
   const out: QualifiedLeadWithAcceptance[] = [];
-  for (const l of leads) {
+  for (const raw of leads) {
+    const l = enrichLeadFinalidade(raw);
     const decision = evaluateSearchAcceptance({
       text: l.mensagem_original ?? l.resumo ?? null,
       finalidade: l.finalidade,
