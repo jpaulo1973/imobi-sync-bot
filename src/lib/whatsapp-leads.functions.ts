@@ -242,7 +242,7 @@ export type PropertyMatchResult = {
 };
 
 export type LeadMatchResult = {
-  lead: QualifiedLead;
+  lead: QualifiedLeadWithAcceptance;
   matches: PropertyMatchResult[];
 };
 
@@ -299,6 +299,9 @@ RESPOSTA: APENAS JSON válido:
     }
     if (!parsed.total_capturas) parsed.total_capturas = imgs.length;
 
+    // Aceitação centralizada — descarta anúncios, anota revisão vs aceite.
+    const acceptedLeads = applyAcceptance(parsed.leads);
+
     // 2) Ir buscar a carteira do utilizador (só imóveis ativos).
     const { data: properties, error: pErr } = await supabase
       .from("properties")
@@ -309,8 +312,10 @@ RESPOSTA: APENAS JSON válido:
       .eq("ativo", true);
     if (pErr) throw new Error(pErr.message);
 
-    // 3) Para cada lead, correr o motor contra toda a carteira e devolver top 10.
-    const results: LeadMatchResult[] = parsed.leads.map((lead) => {
+    // 3) Para cada lead ACEITE, correr o motor contra toda a carteira. Leads
+    //    em revisão continuam a devolver os melhores matches para o consultor
+    //    poder decidir manualmente; anúncios já foram filtrados.
+    const results: LeadMatchResult[] = acceptedLeads.map((lead) => {
       const buyer = leadToBuyer(lead);
       const scored = (properties ?? [])
         .map((p) => ({ p, s: scoreMatch(buyer, p) }))
