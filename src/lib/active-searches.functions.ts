@@ -402,6 +402,11 @@ async function mergeInto(
     grupo_whatsapp: row.grupo_whatsapp ?? existing.grupo_whatsapp,
     comunidade: row.comunidade ?? existing.comunidade,
   };
+  // Fase 3 — se o caller resolveu location_ids, propaga para o registo
+  // fundido; nunca sobrescreve com [] quando o caller não os resolveu.
+  if (row.location_ids && row.location_ids.length > 0) {
+    (update as any).location_ids = row.location_ids;
+  }
   const { data: upd, error } = await supabase
     .from("active_searches")
     .update(update)
