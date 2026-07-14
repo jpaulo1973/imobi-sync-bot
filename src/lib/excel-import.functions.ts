@@ -331,11 +331,12 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
       if (elevador) caracExtras.push("elevador");
       if (garagem) caracExtras.push("garagem");
 
+      const baseBedrooms = normalizeSearchBedrooms({ tipologia }, "excel-import:baseCriteria");
       const baseCriteria = {
         nome,
         finalidade,
         tipo_imovel: tipoImovel,
-        tipologia,
+        tipologia: baseBedrooms.tipologia,
         zona,
         freguesia,
         municipio,
@@ -345,7 +346,7 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
         area_min: area,
         area_terreno_min: area_terreno,
         wc_min: wc,
-        quartos_min: tipologia ? Number(tipologia.replace(/\D/g, "")) || null : null,
+        quartos_min: baseBedrooms.quartos_min,
         caracteristicas: caracExtras.length ? caracExtras : null,
       };
 
@@ -380,7 +381,11 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
         const spZona = sp.zona ?? null;
         const spMunicipio = sp.municipio ?? null;
         const spFreguesia = sp.freguesia ?? null;
-        const spTipologia = sp.tipologia ?? null;
+        const spBedrooms = normalizeSearchBedrooms(
+          { tipologia: sp.tipologia, quartos_min: sp.quartos_min },
+          "excel-import:split",
+        );
+        const spTipologia = spBedrooms.tipologia;
         const criteria = {
           nome,
           finalidade: sp.finalidade ?? "indefinido",
@@ -395,9 +400,7 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
           area_min: sp.area_min ?? null,
           area_terreno_min: area_terreno,
           wc_min: wc,
-          quartos_min:
-            sp.quartos_min ??
-            (spTipologia ? Number(spTipologia.replace(/\D/g, "")) || null : null),
+          quartos_min: spBedrooms.quartos_min,
           caracteristicas: sp.caracteristicas ?? null,
         };
 
