@@ -29,6 +29,45 @@ export type SplitSearch = z.infer<typeof SplitSearchSchema>;
 
 const Response = z.object({ searches: z.array(SplitSearchSchema) });
 
+// -------------------------------------------------------------------------
+// Grounding: garante que zona/municipio/freguesia produzidos pelo splitter
+// aparecem efetivamente no texto original do consultor. Impede o LLM de
+// inventar zonas funcionais (ex.: "Margem Sul" a partir de "Almada-Amora")
+// que depois seriam resolvidas pelo motor e gerariam matches em freguesias
+// não pedidas (ex.: Azeitão). Regra: se o token não estiver presente no
+// texto — comparação sem acentos/case — é descartado.
+// -------------------------------------------------------------------------
+function stripAccents(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+function foldForMatch(s: string): string {
+  return stripAccents(s).toLowerCase();
+}
+function textContainsToken(haystack: string, token: string): boolean {
+  const h = foldForMatch(haystack);
+  // Considera qualquer segmento separado por vírgula/barra/hífen/"ou"/"e".
+  const parts = foldForMatch(token)
+    .split(/[,/;]|\s+ou\s+|\s+e\s+|\s+-\s+|-/)
+    .map((p) => p.trim())
+    .filter((p) => p.length >= 3);
+  if (parts.length === 0) return false;
+  // Basta que UM dos segmentos apareça no texto — se nenhum aparece a
+  // localização é hallucination do LLM.
+  return parts.some((p) => h.includes(p));
+}
+export function groundLocationsInText(sp: SplitSearch, rawText: string): SplitSearch {
+  const out: SplitSearch = { ...sp };
+  for (const field of ["zona", "municipio", "freguesia"] as const) {
+    const v = out[field];
+    if (typeof v === "string" && v.trim().length > 0) {
+      if (!textContainsToken(rawText, v)) {
+        out[field] = null;
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * Detecta se um texto pode conter várias procuras independentes. Evita
  * chamadas IA quando é claramente uma procura única.
@@ -125,7 +164,13 @@ Campos por procura (todos opcionais, null se desconhecido):
 - caracteristicas: array curto
 - resumo: 1 frase
 Se só existir 1 procura, devolve searches com 1 elemento.
-Se o texto não descreve procura de comprador, devolve searches: [].`;
+Se o texto não descreve procura de comprador, devolve searches: [].
+
+REGRAS DE LOCALIZAÇÃO (obrigatórias):
+- Usa APENAS nomes de localidades EXPLICITAMENTE mencionados no texto. Não inventes, não expandas, não generalizes.
+- É PROIBIDO devolver zonas funcionais ou regiões macro (ex.: "Margem Sul", "Grande Lisboa", "Linha de Cascais", "Área Metropolitana", "Zona Norte") a menos que essas expressões apareçam literalmente no texto.
+- Se o texto disser "Almada-Amora" ou "Almada/Amora", trata como duas localidades independentes (Almada e Amora) — NUNCA como uma região agregadora.
+- Se não houver localização clara, devolve null.`;
 
   try {
     const raw = await callLovableAI({
@@ -138,7 +183,8 @@ Se o texto não descreve procura de comprador, devolve searches: [].`;
     });
     const parsed = Response.parse(JSON.parse(raw));
     if (!parsed.searches.length) return [fallback];
-    return parsed.searches;
+    // Post-processing determinístico: descarta zonas que o LLM inventou.
+    return parsed.searches.map((s) => groundLocationsInText(s, text));
   } catch (e) {
     console.error("splitBuyerSearches failed", e);
     return [fallback];
