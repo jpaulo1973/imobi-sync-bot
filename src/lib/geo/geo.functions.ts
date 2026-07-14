@@ -30,3 +30,17 @@ export const resolveLocationText = createServerFn({ method: "POST" })
     const snap = await LocationRepository.getSnapshot();
     return parseLocations(data.text, snap);
   });
+
+const byIdsSchema = z.object({ ids: z.array(z.string().uuid()).max(200) });
+
+export const getLocationsByIds = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => byIdsSchema.parse(data))
+  .handler(async ({ data }): Promise<Location[]> => {
+    const snap = await LocationRepository.getSnapshot();
+    const out: Location[] = [];
+    for (const id of data.ids) {
+      const l = snap.byId.get(id);
+      if (l) out.push(l);
+    }
+    return out;
+  });
