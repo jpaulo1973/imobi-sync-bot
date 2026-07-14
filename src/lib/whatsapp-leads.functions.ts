@@ -156,9 +156,10 @@ function parseLlmAnalysisResponse(
     );
   }
 
-  const zres = AnalysisResponse.safeParse(json);
-  if (!zres.success) {
-    const failed_fields = zres.error.issues.map((i) => ({
+  // 1) Validar o envelope de topo (total_capturas + leads como array).
+  const env = AnalysisEnvelope.safeParse(json);
+  if (!env.success) {
+    const failed_fields = env.error.issues.map((i) => ({
       path: i.path.join("."),
       message: i.message,
       code: i.code,
@@ -168,7 +169,7 @@ function parseLlmAnalysisResponse(
       error_type: "ZOD_VALIDATION" as const,
       raw_excerpt: rawExcerpt,
       failed_fields,
-      cause_message: zres.error.message,
+      cause_message: env.error.message,
     };
     console.error("[whatsapp-leads] LLM_PARSING_FAILURE", { source: ctx.source, ...detail });
     throw new WhatsappParseError(
@@ -177,9 +178,61 @@ function parseLlmAnalysisResponse(
     );
   }
 
-  const out = zres.data;
-  if (!out.total_capturas) out.total_capturas = ctx.total_capturas;
-  return out;
+  // 2) Validar cada lead individualmente. Descartar inválidos com telemetria
+  //    em vez de rejeitar a resposta inteira — 1 lead corrompido não pode
+  //    fazer perder os restantes.
+  const validLeads: QualifiedLead[] = [];
+  const droppedLeads: Array<{ index: number; failed_fields: Array<{ path: string; message: string; code: string }> }> = [];
+  for (let i = 0; i < env.data.leads.length; i++) {
+    const r = QualifiedLeadSchema.safeParse(env.data.leads[i]);
+    if (r.success) {
+      validLeads.push(r.data);
+    } else {
+      droppedLeads.push({
+        index: i,
+        failed_fields: r.error.issues.map((iss) => ({
+          path: iss.path.join("."),
+          message: iss.message,
+          code: iss.code,
+        })),
+      });
+    }
+  }
+
+  if (droppedLeads.length > 0) {
+    console.warn("[whatsapp-leads] LLM_PARTIAL_LEADS_DROPPED", {
+      source: ctx.source,
+      execution_id: ctx.execution_id,
+      total_received: env.data.leads.length,
+      dropped_count: droppedLeads.length,
+      kept_count: validLeads.length,
+      dropped: droppedLeads,
+    });
+  }
+
+  // 3) Se TODOS os leads foram descartados e havia leads na resposta,
+  //    tratamos como falha real de parsing (mostrar toast dedicado).
+  if (env.data.leads.length > 0 && validLeads.length === 0) {
+    const detail = {
+      execution_id: ctx.execution_id,
+      error_type: "ZOD_VALIDATION" as const,
+      raw_excerpt: rawExcerpt,
+      failed_fields: droppedLeads.flatMap((d) =>
+        d.failed_fields.map((f) => ({ ...f, path: `leads.${d.index}.${f.path}` })),
+      ),
+      cause_message: `Todos os ${env.data.leads.length} leads devolvidos pela IA falharam validação.`,
+    };
+    console.error("[whatsapp-leads] LLM_PARSING_FAILURE", { source: ctx.source, ...detail });
+    throw new WhatsappParseError(
+      "A IA devolveu dados que não cumprem o formato esperado.",
+      detail,
+    );
+  }
+
+  return {
+    total_capturas: env.data.total_capturas || ctx.total_capturas,
+    leads: validLeads,
+  };
 }
 
 const AnalyzeInput = z
