@@ -74,14 +74,13 @@ export function PhoneButton({ telefone, variant = "outline", size = "sm", compac
             )}
           </div>
           {wa ? (
-            <Button asChild size="sm" variant="outline" className="w-full">
-              <a
-                href={`https://wa.me/${wa}`}
-                target="_blank"
-                rel="noreferrer noopener"
-              >
-                <MessageCircle className="w-3.5 h-3.5 mr-1" /> WhatsApp
-              </a>
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full"
+              onClick={() => openWhatsApp(telefone)}
+            >
+              <MessageCircle className="w-3.5 h-3.5 mr-1" /> WhatsApp
             </Button>
           ) : (
             <Button size="sm" variant="outline" className="w-full" disabled title="Sem número válido para WhatsApp">
