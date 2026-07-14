@@ -286,6 +286,10 @@ export type UpsertRow = {
   hora_origem?: string | null;
   grupo_whatsapp?: string | null;
   comunidade?: string | null;
+  // Fase 3 — location_ids resolvidos pelo LocationRepository ANTES da
+  // persistência. Passa a ser gravado atomicamente no INSERT, para que
+  // uma procura reconhecida geograficamente nunca fique com {}.
+  location_ids?: string[] | null;
 };
 
 export type UpsertAction = "created" | "updated" | "kept_separate" | "flagged";
