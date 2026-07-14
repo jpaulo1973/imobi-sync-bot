@@ -208,6 +208,7 @@ export const splitReviewSearch = createServerFn({ method: "POST" })
         decision_reason: "Dividido manualmente pelo administrador",
         expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         last_match_at: null,
+        ...(first.location_ids ? { location_ids: first.location_ids } : {}),
       })
       .eq("id", data.id);
     if (uErr) throw new Error(uErr.message);
@@ -228,6 +229,7 @@ export const splitReviewSearch = createServerFn({ method: "POST" })
         .insert({
           user_id: source.user_id,
           criteria: merged,
+          location_ids: p.location_ids ?? source.location_ids ?? [],
           resumo: source.resumo,
           texto_original: source.texto_original,
           contact_nome: source.contact_nome,
