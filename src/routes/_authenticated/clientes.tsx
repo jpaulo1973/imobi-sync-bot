@@ -279,6 +279,18 @@ function ClientesPage() {
                   <Input value={form.zona} onChange={(e) => setForm({ ...form, zona: e.target.value })} placeholder="Cascais" />
                 </div>
               </div>
+              <div className="space-y-2">
+                <Label>Localizações estruturadas</Label>
+                <LocationSelector
+                  value={form.location_ids}
+                  onChange={(ids) => setForm({ ...form, location_ids: ids })}
+                  multiple
+                  placeholder="Pesquisar concelho, freguesia ou zona…"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Fonte de verdade geográfica. O texto acima permanece como referência humana.
+                </p>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>Budget mín (€)</Label>
