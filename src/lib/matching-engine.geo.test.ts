@@ -98,10 +98,11 @@ describe("matching-engine geo (Fase 3 — IDs exclusivamente)", () => {
     expect(r.compatible).toBe(true);
   });
 
-  it("hierarquia descendente — buyer na freguesia, imóvel no concelho pai", () => {
+  it("hierarquia descendente — buyer no concelho aceita descendente", () => {
+    // buyer em [LISBOA] com um alvo desce até [ESTRELA] via childrenOf
     const r = scoreMatch(
-      { ...BASE_BUYER, location_ids: [ESTRELA] },
-      { ...BASE_PROPERTY, location_id: LISBOA },
+      { ...BASE_BUYER, location_ids: [LISBOA] },
+      { ...BASE_PROPERTY, location_id: CAMPO_OURIQUE },
       { geoIndex },
     );
     expect(r.compatible).toBe(true);
