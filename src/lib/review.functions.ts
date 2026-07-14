@@ -59,7 +59,7 @@ export const listPendingReview = createServerFn({ method: "GET" })
     const { data, error } = await supabase
       .from("active_searches")
       .select(
-        "id, user_id, criteria, resumo, texto_original, contact_nome, contact_telefone, contact_email, contact_grupo, consultor_nome, consultor_telefone, comunidade, grupo_whatsapp, origem, decision_reason, similarity_score, created_at, data_origem",
+        "id, user_id, criteria, location_ids, resumo, texto_original, contact_nome, contact_telefone, contact_email, contact_grupo, consultor_nome, consultor_telefone, comunidade, grupo_whatsapp, origem, decision_reason, similarity_score, created_at, data_origem",
       )
       .eq("flagged_for_review", true)
       .order("created_at", { ascending: false })
@@ -93,6 +93,7 @@ export const updateReviewSearch = createServerFn({ method: "POST" })
         criteria: CriteriaPatch,
         contact_nome: z.string().nullable().optional(),
         contact_telefone: z.string().nullable().optional(),
+        location_ids: z.array(z.string().uuid()).optional(),
         resolve: z.boolean().default(true),
       })
       .parse(data),
@@ -102,7 +103,7 @@ export const updateReviewSearch = createServerFn({ method: "POST" })
     await assertAdmin(supabase, userId);
     const { data: existing, error: gErr } = await supabase
       .from("active_searches")
-      .select("id, user_id, criteria, contact_telefone, contact_nome")
+      .select("id, user_id, criteria, contact_telefone, contact_nome, location_ids")
       .eq("id", data.id)
       .maybeSingle();
     if (gErr) throw new Error(gErr.message);
@@ -124,6 +125,7 @@ export const updateReviewSearch = createServerFn({ method: "POST" })
       contact_telefone: telefone,
       dedup_key,
     };
+    if (data.location_ids) patch.location_ids = data.location_ids;
     if (data.resolve) {
       patch.flagged_for_review = false;
       patch.decision_reason = "Revisto manualmente pelo administrador";
@@ -157,7 +159,14 @@ export const deleteReviewSearch = createServerFn({ method: "POST" })
 
 const SplitInput = z.object({
   id: z.string().uuid(),
-  parts: z.array(CriteriaPatch).min(1).max(10),
+  parts: z
+    .array(
+      CriteriaPatch.extend({
+        location_ids: z.array(z.string().uuid()).optional(),
+      }),
+    )
+    .min(1)
+    .max(10),
 });
 
 export const splitReviewSearch = createServerFn({ method: "POST" })
@@ -199,6 +208,7 @@ export const splitReviewSearch = createServerFn({ method: "POST" })
         decision_reason: "Dividido manualmente pelo administrador",
         expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         last_match_at: null,
+        ...(first.location_ids ? { location_ids: first.location_ids } : {}),
       })
       .eq("id", data.id);
     if (uErr) throw new Error(uErr.message);
@@ -219,6 +229,7 @@ export const splitReviewSearch = createServerFn({ method: "POST" })
         .insert({
           user_id: source.user_id,
           criteria: merged,
+          location_ids: p.location_ids ?? source.location_ids ?? [],
           resumo: source.resumo,
           texto_original: source.texto_original,
           contact_nome: source.contact_nome,

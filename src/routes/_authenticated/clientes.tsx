@@ -12,6 +12,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Trash2, Phone, Mail, MapPin, Euro, Home, Sparkles, Lock } from "lucide-react";
+import { Pencil } from "lucide-react";
+import { LocationSelector } from "@/components/entity-selector/LocationSelector";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -70,6 +72,7 @@ const empty = {
   finalidade: "venda" as "venda" | "arrendamento",
   tipologia: "",
   zona: "",
+  location_ids: [] as string[],
   tipo_imovel: [] as string[],
   budget_min: "",
   budget_max: "",
@@ -87,6 +90,7 @@ function ClientesPage() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [drawerBuyerId, setDrawerBuyerId] = useState<string | null>(null);
   const countFn = useServerFn(countBuyerOpportunities);
@@ -117,14 +121,14 @@ function ClientesPage() {
     setSaving(true);
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
-    const { error } = await supabase.from("buyer_clients").insert({
-      user_id: u.user.id,
+    const payload = {
       nome: form.nome,
       telefone: normalizePhone(form.telefone) ?? null,
       email: form.email || null,
       finalidade: form.finalidade,
       tipologia: form.tipologia || null,
       zona: form.zona || null,
+      location_ids: form.location_ids,
       tipo_imovel: form.tipo_imovel.length > 0 ? form.tipo_imovel : null,
       budget_min: form.budget_min ? Number(form.budget_min) : null,
       budget_max: form.budget_max ? Number(form.budget_max) : null,
@@ -134,16 +138,43 @@ function ClientesPage() {
       garagem_obrigatoria: form.garagem_obrigatoria,
       elevador_obrigatorio: form.elevador_obrigatorio,
       notas: form.notas || null,
-    });
+    };
+    const { error } = editingId
+      ? await supabase.from("buyer_clients").update(payload).eq("id", editingId)
+      : await supabase.from("buyer_clients").insert({ user_id: u.user.id, ...payload });
     setSaving(false);
     if (error) {
       toast.error(error.message);
       return;
     }
-    toast.success("Cliente adicionado");
+    toast.success(editingId ? "Cliente atualizado" : "Cliente adicionado");
     setOpen(false);
+    setEditingId(null);
     setForm(empty);
     load();
+  };
+
+  const openEdit = (c: Buyer) => {
+    setEditingId(c.id);
+    setForm({
+      nome: c.nome ?? "",
+      telefone: c.telefone ?? "",
+      email: c.email ?? "",
+      finalidade: (c.finalidade as "venda" | "arrendamento") ?? "venda",
+      tipologia: c.tipologia ?? "",
+      zona: c.zona ?? "",
+      location_ids: (c as any).location_ids ?? [],
+      tipo_imovel: c.tipo_imovel ?? [],
+      budget_min: c.budget_min != null ? String(c.budget_min) : "",
+      budget_max: c.budget_max != null ? String(c.budget_max) : "",
+      area_min: c.area_min != null ? String(c.area_min) : "",
+      quartos_min: c.quartos_min != null ? String(c.quartos_min) : "",
+      andar_min: c.andar_min != null ? String(c.andar_min) : "",
+      garagem_obrigatoria: c.garagem_obrigatoria ?? false,
+      elevador_obrigatorio: c.elevador_obrigatorio ?? false,
+      notas: c.notas ?? "",
+    });
+    setOpen(true);
   };
 
   const remove = async (id: string) => {
@@ -165,7 +196,16 @@ function ClientesPage() {
             {items.length} {items.length === 1 ? "cliente" : "clientes"} com critérios de procura
           </p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog
+          open={open}
+          onOpenChange={(v) => {
+            setOpen(v);
+            if (!v) {
+              setEditingId(null);
+              setForm(empty);
+            }
+          }}
+        >
           <DialogTrigger asChild>
             <Button>
               <Plus className="w-4 h-4 mr-2" /> Adicionar cliente
@@ -173,7 +213,7 @@ function ClientesPage() {
           </DialogTrigger>
           <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Novo cliente comprador</DialogTitle>
+              <DialogTitle>{editingId ? "Editar cliente comprador" : "Novo cliente comprador"}</DialogTitle>
             </DialogHeader>
             <form onSubmit={save} className="space-y-4">
               <div className="space-y-2">
@@ -239,6 +279,18 @@ function ClientesPage() {
                   <Input value={form.zona} onChange={(e) => setForm({ ...form, zona: e.target.value })} placeholder="Cascais" />
                 </div>
               </div>
+              <div className="space-y-2">
+                <Label>Localizações estruturadas</Label>
+                <LocationSelector
+                  value={form.location_ids}
+                  onChange={(ids) => setForm({ ...form, location_ids: ids })}
+                  multiple
+                  placeholder="Pesquisar concelho, freguesia ou zona…"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Fonte de verdade geográfica. O texto acima permanece como referência humana.
+                </p>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>Budget mín (€)</Label>
@@ -302,9 +354,14 @@ function ClientesPage() {
                     {c.finalidade === "venda" ? "Comprar" : "Arrendar"}
                   </Badge>
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => remove(c.id)} aria-label="Eliminar cliente">
-                  <Trash2 className="w-4 h-4 text-destructive" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="icon" onClick={() => openEdit(c)} aria-label="Editar cliente">
+                    <Pencil className="w-4 h-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => remove(c.id)} aria-label="Eliminar cliente">
+                    <Trash2 className="w-4 h-4 text-destructive" />
+                  </Button>
+                </div>
               </div>
               {counts[c.id] > 0 && (
                 <button

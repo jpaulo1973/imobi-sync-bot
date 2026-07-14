@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { LocationSelector } from "@/components/entity-selector/LocationSelector";
 import {
   Dialog,
   DialogContent,
@@ -117,6 +118,7 @@ type FormState = {
   concelho: string;
   freguesia: string;
   zona: string;
+  location_id: string | null;
   area_util_m2: string;
   area_bruta_m2: string;
   area_terreno_m2: string;
@@ -137,6 +139,7 @@ const empty: FormState = {
   concelho: "",
   freguesia: "",
   zona: "",
+  location_id: null,
   area_util_m2: "",
   area_bruta_m2: "",
   area_terreno_m2: "",
@@ -157,6 +160,7 @@ const fromProperty = (p: Property): FormState => ({
   concelho: p.concelho ?? "",
   freguesia: p.freguesia ?? "",
   zona: p.zona ?? "",
+  location_id: (p as any).location_id ?? null,
   area_util_m2: p.area_util_m2 != null ? String(p.area_util_m2) : "",
   area_bruta_m2: p.area_bruta_m2 != null ? String(p.area_bruta_m2) : "",
   area_terreno_m2:
@@ -406,6 +410,7 @@ function ImoveisPage() {
       concelho: form.concelho || null,
       freguesia: form.freguesia || null,
       zona: form.zona || form.freguesia || form.concelho || "Por preencher",
+      location_id: form.location_id,
       area_util_m2: form.area_util_m2 ? Number(form.area_util_m2) : null,
       area_m2: form.area_util_m2 ? Number(form.area_util_m2) : null,
       area_bruta_m2: form.area_bruta_m2 ? Number(form.area_bruta_m2) : null,
@@ -668,6 +673,19 @@ function ImoveisPage() {
                   {label("Zona / bairro", "zona")}
                   <Input value={form.zona} onChange={(e) => setForm({ ...form, zona: e.target.value })} placeholder="opcional" />
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs">Localização estruturada</Label>
+                <LocationSelector
+                  value={form.location_id ? [form.location_id] : []}
+                  onChange={(ids) => setForm({ ...form, location_id: ids[0] ?? null })}
+                  multiple={false}
+                  placeholder="Pesquisar concelho, freguesia ou zona…"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Fonte de verdade geográfica. Ligada à biblioteca central.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3 pt-2">
