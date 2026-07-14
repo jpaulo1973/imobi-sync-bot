@@ -259,7 +259,7 @@ INSTRUÇÕES:
 4. SEPARAÇÃO DE PROCURAS: se UMA mensagem contém várias procuras INDEPENDENTES (diferentes tipologias, zonas ou orçamentos), cria UM lead separado por cada procura. NUNCA mistures critérios entre procuras diferentes.
 4. Para CADA lead identificada extrai:
    - nome: nome do cliente/família se referido (ou null; não é o nome de quem envia a mensagem)
-   - finalidade: "venda" (comprar) | "arrendamento" (arrendar) | "indefinido"
+   - finalidade: OBRIGATÓRIO. Um de exatamente três valores: "venda" (comprar) | "arrendamento" (arrendar) | "indefinido". NUNCA null, NUNCA outro valor. Se não conseguires determinar, usa "indefinido".
    - tipo_imovel: array com "Apartamento","Moradia","Terreno","Loja","Escritório","Armazém","Prédio","Espaço comercial" (ou null)
    - tipologia: "T0","T1","T2","T3","T4","T5+" (ou null)
    - zona: cidade/concelho/zona/freguesia (ou null)
@@ -273,6 +273,7 @@ INSTRUÇÕES:
    - confianca: "alta" (pedido claro com finalidade+zona+outro critério), "media" (razoavelmente claro), "baixa" (pedido ambíguo ou dados insuficientes)
 5. Se não houver leads, devolve leads:[].
 6. Não inventes dados. Campo desconhecido = null.
+7. EXCEÇÃO à regra 6: o campo "finalidade" nunca pode ser null — usa "indefinido" quando desconhecido.
 
 RESPOSTA: APENAS JSON válido no formato:
 {"total_capturas": <número de imagens analisadas>, "leads": [ ... ]}`;
