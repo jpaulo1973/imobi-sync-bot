@@ -1,48 +1,170 @@
+# Sprint — Dados Estruturados e Inteligência Geográfica (Versão Final Aprovada)
+
 ## Objetivo
 
-Corrigir os 5 comportamentos observados na validação da Release 1.3, corrigindo a causa real em cada caso.
+Eliminar definitivamente o texto livre como fonte de verdade para localização.
 
-## Diagnósticos (causas confirmadas por auditoria)
+Criar uma infraestrutura geográfica única, reutilizável e permanente para todo o Property Match. Após esta sprint passará a existir: uma única biblioteca geográfica, um único parser, um único componente de seleção, um único pipeline de ingestão, um único motor de matching e um único modelo interno baseado em IDs. Toda a aplicação utilizará obrigatoriamente esta arquitetura.
 
-**1. Edição do imóvel não atualiza compradores compatíveis**
-O `handleSave` em `src/routes/_authenticated/imoveis.tsx` já chama `runMatch(savedRow)` + `recomputeForProp(savedRow.id)`. O `runMatch` calcula ao vivo (buyers + Base Global) e `recomputeFn` persiste no Radar. **O que falta**:
-- `load()` (que preenche `matchCounts`) corre antes do `runMatch`, mas a contagem só é atualizada após o `countsFn` async; após uma edição o card do imóvel na lista mantém o número antigo (`compradores compatíveis: 0`) até refresh manual. Forçar `countsFn` a re-executar imediatamente após `runMatch`, e definir `matchCounts[savedRow.id] = res.opportunities.length` (já feito dentro de `runMatch` para o próprio id — reforçar após save).
-- Confirmar com teste real (Marinha Grande): se o buyer continua a não aparecer no dialog após save+runMatch, a causa é no motor (`matching-engine`), não no gatilho — investigar o caso e corrigir a regra de zona/freguesia.
+## Decisões arquiteturais aprovadas
 
-**2. "Consultores por Completar" continua vazio**
-`listIncompleteConsultores` (`review.functions.ts`) usa `resolveConsultor` com `uploaderMap` como fallback. Quando o registo tem `consultor_nome`/`consultor_telefone` a null, o consultor efetivo cai no dono do upload (admin) e "empresta-lhe" nome+telefone+email+agência → nada aparece como em falta. **Fix**: no audit, avaliar exclusivamente o que está gravado na procura + hit direto na diretoria por nome/telefone; NUNCA usar o uploader como fallback. Regra: se `consultor_nome` OU `consultor_telefone` da procura estão vazios, o campo conta como em falta; email/agência só contam presentes se vierem do hit direto na diretoria (match por nome ou telefone) — não do uploader.
+- Desenvolvimento em 3 fases (Fundação → Pipeline → Motor).
+- `EntitySelector` minimalista.
+- `LocationSelector` como primeira especialização.
+- Parser totalmente determinístico.
+- Fuzzy Matching fora desta sprint.
+- Nenhuma implementação paralela de localização será permitida após esta sprint.
 
-**3. Nome do consultor incorreto nas oportunidades**
-`resolveConsultor` em `opportunity-privacy.ts` faz `fallback?.nome`/`fallback?.telefone` quando o registo não traz consultor. Isso mostra o utilizador autenticado/uploader como consultor. **Fix**: alinhar com o critério do user — o uploader só é usado quando a procura não tem QUALQUER informação do consultor (nem nome nem telefone). Concretamente:
-- Se `perRecordNome` ou `perRecordTelefone` existir: nome/telefone/email/agência vêm apenas do registo + hit direto na diretoria; NUNCA do fallback.
-- Se ambos forem null: apenas então usar `fallback` (mantém compatibilidade histórica). Alternativa mais estrita (a validar): devolver tudo a null, deixando o UI mostrar "Consultor por completar".
+---
 
-**4. Telefones não normalizados**
-Migration + `upsertOne` + `whatsapp-leads` já normalizam. Falta uma via:
-- `src/routes/_authenticated/clientes.tsx` linha 122: `telefone: form.telefone || null` grava o valor do formulário sem normalizar. **Fix**: aplicar `normalizePhone(form.telefone)` no `insert` (e no `update` se existir).
-- Auditar consultas de comparação em `dedup.ts` e `resolveConsultor` — já usam `normalizePhone`, ok.
-- Adicionar backfill defensivo simples em `buyer_clients` (a migration anterior já corre; se o formulário do cliente escreveu depois, basta corrigir o writer — sem nova migration).
+## Fase A — Fundação de Dados
 
-**5. Abrir oportunidade muda de página**
-Botão "Abrir" no Radar (`radar.tsx` L175-179) usa `<Link to="/imoveis" search={{ open: p.id }}>`, causando navegação para /imoveis. O comportamento pedido é "abrir apenas o detalhe da oportunidade sem alterar navegação". **Fix**: substituir a navegação por um painel/Sheet inline dentro do Radar que mostra o detalhe do imóvel + razões do match, mantendo o utilizador em `/radar`. Reutilizar o padrão do `BuyerOpportunitiesDrawer` (já existe em `clientes.tsx`).
+### 1. Biblioteca geográfica — `locations`
 
-## Alterações por ficheiro
+Campos: `id`, `slug`, `nome`, `tipo`, `parent_id`, `aprovado`, `created_at`, `updated_at`.
 
-- `src/lib/opportunity-privacy.ts` — `resolveConsultor`: usar `fallback` apenas quando `perRecordNome` e `perRecordTelefone` forem ambos vazios; nunca "misturar" fallback com per-record.
-- `src/lib/review.functions.ts` — `listIncompleteConsultores`: remover uso de `uploaderMap` como fallback; passar `null` como fallback ao `resolveConsultor`; regra de missing baseada no per-record + hit direto na diretoria.
-- `src/routes/_authenticated/clientes.tsx` — normalizar telefone antes de inserir buyer_client (import de `normalizePhone` de `@/lib/dedup`).
-- `src/routes/_authenticated/imoveis.tsx` — após `handleSave` bem-sucedido, forçar `countsFn()` para atualizar imediatamente o badge no card do imóvel editado (além do `runMatch` já existente).
-- `src/routes/_authenticated/radar.tsx` — substituir `<Link to="/imoveis" search={{ open: p.id }}>` por um handler que abre um Sheet inline com o detalhe do imóvel + razões do match; remover a navegação automática.
-- `src/routes/_authenticated/imoveis.tsx` — remover o handler `?open=` + `useEffect` que auto-navega/auto-abre (já não é usado). Manter apenas o comportamento normal de abrir dialog via botão local.
+Tipos: `distrito`, `concelho`, `freguesia`, `zona_funcional`.
 
-## Testes de aceitação
+### 2. Relações geográficas
 
-1. Editar imóvel (mudança de zona para Marinha Grande) → dialog de compradores compatíveis abre imediatamente com o comprador esperado; badge do card atualiza.
-2. Procuras com consultor incompleto passam a aparecer em "Consultores por Completar" (Revisão).
-3. Oportunidades mostram o consultor real da procura; quando a procura não tem consultor, mostrar "—" / "Consultor externo" — nunca o utilizador autenticado.
-4. Adicionar cliente via formulário grava telefone normalizado.
-5. Clicar "Abrir" numa oportunidade do Radar abre um painel de detalhe SEM sair de `/radar`.
+Não utilizar arrays dentro de `locations`. Criar tabelas relacionais.
 
-## Fora de âmbito
+**`location_relations`** — `from_location_id`, `to_location_id`, `relation_type` (`parent | child | adjacent | nearby | contains`).
 
-- Sem novas features. Sem alterações em RLS, schema, ou motor de matching, exceto se o teste 1 (Marinha Grande) demonstrar bug no `matching-engine` — nesse caso corrigir a causa concreta encontrada, sem refactor.
+**`functional_zone_members`** — `functional_zone_id`, `location_id`. Cada zona funcional passa a ser um conjunto de localizações.
+
+### 3. Biblioteca de aliases — `location_aliases`
+
+Campos: `alias_normalizado`, `location_ids`, `origem`, `aprovado`, `created_by`, `created_at`, `updated_at`.
+
+Métricas: `times_used`, `last_used_at`.
+
+### 4. Metadados — `location_metadata`
+
+Preparada para evolução futura (código INE, latitude, longitude, centroide, bounding box, NUTS, população, área, código postal). Não é necessário preencher nesta sprint.
+
+### 5. Alterações às tabelas
+
+- **`active_searches`** — `location_ids uuid[]`, `audit_geo jsonb`. Novo estado `pending_geo` — enquanto existir, a procura não entra no motor.
+- **`buyer_clients`** — `location_ids uuid[]`.
+- **`properties`** — `location_id uuid`.
+
+Embora nesta fase cada imóvel possua apenas uma localização principal, toda a arquitetura (`LocationRepository`, parser e motor) deve ser implementada permitindo futura evolução para relação N:N (`property_location_relations`) sem alterar a lógica do motor.
+
+O motor nunca deve assumir internamente que um imóvel possui apenas uma localização — deve trabalhar sempre sobre uma coleção, mesmo que hoje contenha um único elemento.
+
+- Hoje: `[property.location_id]`
+- Futuro: `[loc1, loc2, loc3]` — sem alterar o algoritmo.
+
+### 6. Seed inicial
+
+Popular automaticamente: distritos, concelhos, freguesias, zonas funcionais, relações e aliases conhecidos (Alverca, Costa, Expo, Lx, Margem Sul, Grande Lisboa, Linha de Cascais, Lisboa 30 min, Lisboa 20 km, etc.).
+
+---
+
+## Fase B — Parser, UI e Pipeline
+
+### 1. Biblioteca
+
+Criar `src/lib/geo/` com: `geo-types`, `geo-context`, `geo-parser`, `location-repository`.
+
+### 2. LocationRepository
+
+Toda a aplicação utiliza exclusivamente o `LocationRepository`. API mínima:
+
+- `search()`
+- `resolve()`
+- `getById()`
+- `getChildren()`
+- `getAdjacent()`
+- `getCoverage()`
+
+Nenhum componente consulta diretamente a base de dados.
+
+### 3. Parser — `parseLocations(text, context)`
+
+Função pura. Nunca grava dados, cria aliases, altera informação, nem depende da UI ou de React.
+
+Pipeline: divisão por conectores → normalização → alias → slug → freguesia → concelho → distrito → zona funcional → `unresolved`. Sem fuzzy.
+
+Retorno: `resolved`, `aliases_used`, `unresolved`, `audit_trail`, `confidence`. `confidence` fica preparado para futuras evoluções.
+
+### 4. Server Functions
+
+Criar: `searchLocations()`, `resolveLocationText()`, `promoteAlias()`, `updateSearchLocations()`.
+
+### 5. EntitySelector
+
+Componente base reutilizável. Primeira especialização: `LocationSelector`. Não implementar ainda: tipologias, características, proximidade, certificados.
+
+### 6. Utilização obrigatória
+
+Substituir todos os campos texto por `LocationSelector` em: Revisão, Compradores, Imóveis, Active Searches, Radar, Importação Manual. Nenhum campo de localização poderá continuar a utilizar texto livre.
+
+### 7. Pipeline único
+
+Todos os canais utilizam exatamente o mesmo fluxo:
+
+```
+Canal → parseLocations() → resolved → location_ids → Motor
+                        └→ unresolved → pending_geo → Revisão
+```
+
+Aplica-se a: Excel, WhatsApp, PDF, API, Manual, `extractAndMatch`.
+
+### 8. Revisão inteligente
+
+A Revisão passa a apresentar: texto original → resultado do parser → aliases utilizados → localizações → IDs → motivo → decisão → "Guardar Alias?".
+
+Se o utilizador escolher "Guardar esta interpretação", executar `promoteAlias()`. Aprendizagem sempre explícita, nunca automática.
+
+### 9. Backfill
+
+Executar sobre `properties`, `buyer_clients`, `active_searches`. Popular `location_id` / `location_ids`. Tudo o que não puder ser resolvido fica `pending_geo`.
+
+---
+
+## Fase C — Motor
+
+Reescrever completamente o matching. Nunca comparar texto. Comparar apenas IDs.
+
+Comparações suportadas:
+
+- Match direto
+- Relações parent/child
+- Zona funcional
+- Adjacência
+
+Eliminar definitivamente: `KNOWN_CONCELHOS`, `ADJACENT`, `.includes()`, `.toLowerCase()` sobre campos de zona. Toda a lógica geográfica passa a viver exclusivamente na biblioteca geográfica.
+
+---
+
+## Testes permanentes
+
+Criar: `geo-parser.test`, `geo-parser.cross-channel.test`, `matching-engine.geo.test`.
+
+Adicionar guarda estática que impede qualquer comparação textual de localização.
+
+---
+
+## Critério de conclusão
+
+- existir uma única biblioteca geográfica;
+- existir um único parser;
+- existir um único componente de seleção;
+- existir um único pipeline;
+- existir um único motor;
+- todas as localizações forem armazenadas como IDs;
+- o motor deixar definitivamente de comparar texto;
+- o mesmo input produzir exatamente o mesmo resultado em qualquer canal;
+- as correções efetuadas na Revisão forem automaticamente reutilizadas através da biblioteca de aliases;
+- toda a suite de regressão estiver verde.
+
+## Fora do âmbito
+
+- Fuzzy Matching.
+- Outras especializações do `EntitySelector`.
+- Alterações ao `search-acceptance`.
+- Alterações ao `bedrooms-normalize`.
+
+Esses módulos permanecem inalterados e serão tratados em sprints próprias.
