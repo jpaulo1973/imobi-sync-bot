@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, Save, Split, Trash2, Plus, X, RefreshCw, MapPin, UserX } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { LocationSelector } from "@/components/entity-selector/LocationSelector";
 
 export const Route = createFileRoute("/_authenticated/revisao")({
   head: () => ({
@@ -40,6 +41,7 @@ type CriteriaForm = {
   tipo_imovel: string;
   tipologia: string;
   zona: string;
+  location_ids: string[];
   budget_min: string;
   budget_max: string;
   area_min: string;
@@ -47,12 +49,13 @@ type CriteriaForm = {
   caracteristicas: string;
 };
 
-function criteriaToForm(c: any): CriteriaForm {
+function criteriaToForm(c: any, location_ids: string[] = []): CriteriaForm {
   return {
     finalidade: (c?.finalidade ?? "indefinido") as any,
     tipo_imovel: Array.isArray(c?.tipo_imovel) ? c.tipo_imovel.join(", ") : "",
     tipologia: c?.tipologia ?? "",
     zona: c?.zona ?? c?.municipio ?? c?.freguesia ?? "",
+    location_ids: [...location_ids],
     budget_min: c?.budget_min != null ? String(c.budget_min) : "",
     budget_max: c?.budget_max != null ? String(c.budget_max) : "",
     area_min: c?.area_min != null ? String(c.area_min) : "",
