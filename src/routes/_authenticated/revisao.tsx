@@ -506,6 +506,15 @@ function ReviewCard({ item, onDone }: { item: Item; onDone: () => void }) {
               <Label className="text-xs">Localização</Label>
               <Input value={f.zona} onChange={(e) => update(idx, { zona: e.target.value })} placeholder="Cascais" />
             </div>
+            <div className="md:col-span-3">
+              <Label className="text-xs">Localizações estruturadas</Label>
+              <LocationSelector
+                value={f.location_ids}
+                onChange={(ids) => update(idx, { location_ids: ids })}
+                multiple
+                placeholder="Pesquisar concelho, freguesia ou zona…"
+              />
+            </div>
             <div>
               <Label className="text-xs">Preço mín (€)</Label>
               <Input value={f.budget_min} onChange={(e) => update(idx, { budget_min: e.target.value })} inputMode="numeric" />
