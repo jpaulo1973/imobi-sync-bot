@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { LocationRepository, parseLocations } from "@/lib/geo";
 
 // TEMPORÁRIA — validação Fase 2. Remover após encerramento.
-export const Route = createFileRoute("/api/public/_test-geo-fase2")({
+export const Route = createFileRoute("/api/public/test-geo-fase2")({
   server: {
     handlers: {
       POST: async ({ request }) => {

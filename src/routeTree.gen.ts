@@ -25,7 +25,7 @@ import { Route as AuthenticatedCruzarRouteImport } from './routes/_authenticated
 import { Route as AuthenticatedClientesRouteImport } from './routes/_authenticated/clientes'
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
 import { Route as Char91DotmcpChar93ListToolsRouteImport } from './routes/[.mcp]/list-tools'
-import { Route as ApiPublicTestGeoFase2RouteImport } from './routes/api/public/_test-geo-fase2'
+import { Route as ApiPublicTestGeoFase2RouteImport } from './routes/api/public/test-geo-fase2'
 import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
 import { Route as DotlovableOauthConsentRouteImport } from './routes/[.]lovable.oauth.consent'
 
@@ -112,8 +112,8 @@ const Char91DotmcpChar93ListToolsRoute =
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiPublicTestGeoFase2Route = ApiPublicTestGeoFase2RouteImport.update({
-  id: '/api/public/_test-geo-fase2',
-  path: '/api/public',
+  id: '/api/public/test-geo-fase2',
+  path: '/api/public/test-geo-fase2',
   getParentRoute: () => rootRouteImport,
 } as any)
 const Char91DotmcpChar93InvokeToolToolRoute =
@@ -146,7 +146,7 @@ export interface FileRoutesByFullPath {
   '/utilizadores': typeof AuthenticatedUtilizadoresRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
-  '/api/public': typeof ApiPublicTestGeoFase2Route
+  '/api/public/test-geo-fase2': typeof ApiPublicTestGeoFase2Route
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -166,7 +166,7 @@ export interface FileRoutesByTo {
   '/utilizadores': typeof AuthenticatedUtilizadoresRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
-  '/api/public': typeof ApiPublicTestGeoFase2Route
+  '/api/public/test-geo-fase2': typeof ApiPublicTestGeoFase2Route
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -188,7 +188,7 @@ export interface FileRoutesById {
   '/_authenticated/utilizadores': typeof AuthenticatedUtilizadoresRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
-  '/api/public/_test-geo-fase2': typeof ApiPublicTestGeoFase2Route
+  '/api/public/test-geo-fase2': typeof ApiPublicTestGeoFase2Route
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -210,7 +210,7 @@ export interface FileRouteTypes {
     | '/utilizadores'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
-    | '/api/public'
+    | '/api/public/test-geo-fase2'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -230,7 +230,7 @@ export interface FileRouteTypes {
     | '/utilizadores'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
-    | '/api/public'
+    | '/api/public/test-geo-fase2'
   id:
     | '__root__'
     | '/'
@@ -251,7 +251,7 @@ export interface FileRouteTypes {
     | '/_authenticated/utilizadores'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
-    | '/api/public/_test-geo-fase2'
+    | '/api/public/test-geo-fase2'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -381,10 +381,10 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Char91DotmcpChar93ListToolsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/_test-geo-fase2': {
-      id: '/api/public/_test-geo-fase2'
-      path: '/api/public'
-      fullPath: '/api/public'
+    '/api/public/test-geo-fase2': {
+      id: '/api/public/test-geo-fase2'
+      path: '/api/public/test-geo-fase2'
+      fullPath: '/api/public/test-geo-fase2'
       preLoaderRoute: typeof ApiPublicTestGeoFase2RouteImport
       parentRoute: typeof rootRouteImport
     }
