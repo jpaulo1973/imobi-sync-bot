@@ -41,12 +41,15 @@ function parseFinalidade(v: unknown): "venda" | "arrendamento" | "indefinido" {
   return "indefinido";
 }
 
-// Classifica um texto como procura de comprador, oferta/anúncio, ou ambíguo.
-// Regra 1.2.1: exigimos sinal EXPLÍCITO de procura para importar directamente.
-// Se apenas parece anúncio → descartar. Se ambíguo → sinalizar para revisão.
+// Classifica um texto como procura (compra ou arrendamento), oferta/anúncio,
+// ou ambíguo. A partir da Release que introduziu Arrendamento, "procura"
+// engloba ambos os fluxos: Compra (comprador/investidor) e Arrendamento
+// (inquilino). Anúncios (senhorio a oferecer, agente a vender) continuam
+// descartados. Casos sem texto livre mas com dados estruturados válidos são
+// tratados no wrapper `evaluateSearchAcceptance` — não aqui.
 export type BuyerTextClass = "procura" | "anuncio" | "ambiguo";
 
-function classifyBuyerText(text: string | null): BuyerTextClass {
+export function classifyBuyerText(text: string | null): BuyerTextClass {
   if (!text) return "ambiguo";
   const t = text.toLowerCase();
   const procuraSignals = [
@@ -57,6 +60,7 @@ function classifyBuyerText(text: string | null): BuyerTextClass {
     /interessad[oa]s?\s+em\s+(comprar|arrendar)/,
     /aprovad[oa]\s+para\s+cr[eé]dito/, /or[cç]amento\s+at[eé]/,
     /compra\s+urgente/, /precisa[m]?\s+de\s+(casa|apartamento|moradia)/,
+    /inquilin[oa]\s+(procura|pretende|para)/,
   ];
   const hasProcura = procuraSignals.some((re) => re.test(t));
   const ofertaSignals = [
@@ -82,6 +86,75 @@ function classifyBuyerText(text: string | null): BuyerTextClass {
 // Mantém compatibilidade — devolve true quando não é anúncio confirmado.
 function looksLikeBuyerSearch(text: string | null): boolean {
   return classifyBuyerText(text) !== "anuncio";
+}
+
+// Detecta o papel implícito no texto: quem é que está a agir. Usado para
+// diagnosticar incoerência com a finalidade estruturada (ex.: finalidade
+// = "venda" mas texto fala em "procuro inquilino" → senhorio a arrendar).
+export type RoleSignal = "comprador" | "investidor" | "inquilino" | "senhorio" | null;
+
+export function detectRoleSignal(text: string | null): RoleSignal {
+  if (!text) return null;
+  const t = text.toLowerCase();
+  if (/procuro\s+inquilin|tenho\s+.*\bpara\s+arrendar|disponibiliz[oa]\s+.*arrend|senhori[oa]/.test(t))
+    return "senhorio";
+  if (/investidor|projet[oa]s?\s+aprovad|empreendimento|>\s*\d+\s*fra[cç]/.test(t))
+    return "investidor";
+  if (/inquilin[oa]\s+(procura|pretende|para)|arrendat[aá]ri[oa]|pretende\s+arrendar|procur[oa]\s+.*(arrend|renda|aluguer)/.test(t))
+    return "inquilino";
+  if (/tenho\s+comprador|cliente\s+(aprovad|pretende\s+comprar)|pretende\s+comprar|procur[oa]\s+.*(comprar|para\s+compra)|compra\s+urgente/.test(t))
+    return "comprador";
+  return null;
+}
+
+// Decide se uma procura estruturada + texto livre deve ser aceite, sinalizada
+// para revisão, ou descartada como anúncio. Regras:
+//   - anúncio confirmado → descartar
+//   - papel no texto incoerente com a finalidade estruturada → revisão
+//   - texto ambíguo mas dados estruturados completos → aceitar
+//   - texto ambíguo e dados estruturados incompletos → revisão
+//   - qualquer outro caso (procura clara) → aceitar
+// Combinações válidas: Compra+Comprador, Compra+Investidor, Arrendamento+Inquilino.
+export type AcceptanceDecision = {
+  kind: "aceite" | "revisao" | "anuncio";
+  reason: string;
+};
+
+export function evaluateSearchAcceptance(input: {
+  text: string | null;
+  finalidade: "venda" | "arrendamento" | "indefinido";
+  hasStructured: boolean;
+}): AcceptanceDecision {
+  const cls = classifyBuyerText(input.text);
+  if (cls === "anuncio") {
+    return { kind: "anuncio", reason: "Texto parece anúncio, não procura" };
+  }
+  const role = detectRoleSignal(input.text);
+  // Incoerência: finalidade venda mas texto é claramente senhorio/inquilino, ou
+  // finalidade arrendamento mas texto é claramente senhorio (oferece).
+  if (input.finalidade === "venda" && (role === "inquilino" || role === "senhorio")) {
+    return {
+      kind: "revisao",
+      reason: "Finalidade Compra incoerente com o texto — rever manualmente",
+    };
+  }
+  if (input.finalidade === "arrendamento" && role === "senhorio") {
+    return {
+      kind: "revisao",
+      reason: "Finalidade Arrendamento incoerente com o texto (senhorio) — rever manualmente",
+    };
+  }
+  if (cls === "procura") {
+    return { kind: "aceite", reason: "Procura reconhecida" };
+  }
+  // Ambíguo — só aceita se dados estruturados forem suficientes.
+  if (input.hasStructured) {
+    return { kind: "aceite", reason: "Dados estruturados suficientes" };
+  }
+  return {
+    kind: "revisao",
+    reason: "Procura ambígua e dados insuficientes — rever manualmente",
+  };
 }
 
 function parseTipologia(v: unknown): string | null {
