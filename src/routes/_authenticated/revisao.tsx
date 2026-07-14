@@ -380,7 +380,9 @@ function ReviewCard({ item, onDone }: { item: Item; onDone: () => void }) {
   const deleteFn = useServerFn(deleteReviewSearch);
   const splitFn = useServerFn(splitReviewSearch);
 
-  const [forms, setForms] = useState<CriteriaForm[]>(() => [criteriaToForm(item.criteria)]);
+  const [forms, setForms] = useState<CriteriaForm[]>(() => [
+    criteriaToForm(item.criteria, (item as any).location_ids ?? []),
+  ]);
   const [saving, setSaving] = useState(false);
 
   const isSplit = forms.length > 1;
@@ -394,12 +396,23 @@ function ReviewCard({ item, onDone }: { item: Item; onDone: () => void }) {
     try {
       if (isSplit) {
         await splitFn({
-          data: { id: item.id, parts: forms.map((f) => formToCriteria(f)) as any },
+          data: {
+            id: item.id,
+            parts: forms.map((f) => ({
+              ...(formToCriteria(f) as any),
+              location_ids: f.location_ids,
+            })),
+          },
         });
         toast.success(`Procura dividida em ${forms.length} registos.`);
       } else {
         await updateFn({
-          data: { id: item.id, criteria: formToCriteria(forms[0]) as any, resolve: true },
+          data: {
+            id: item.id,
+            criteria: formToCriteria(forms[0]) as any,
+            location_ids: forms[0].location_ids,
+            resolve: true,
+          },
         });
         toast.success("Procura atualizada e reintegrada.");
       }
