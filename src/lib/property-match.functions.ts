@@ -2,7 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { scoreMatch, type BuyerLike, type MatchCategoryResult } from "./matching-engine";
-import { loadZoneContext } from "./functional-zones";
+import { buildGeoMatchIndex } from "./matching-engine";
+import { LocationRepository } from "./geo";
 import { loadConsultorMeta, loadConsultorDirectory, resolveConsultor } from "./opportunity-privacy";
 
 // ---------------------------------------------------------------------------
@@ -54,7 +55,7 @@ export type Opportunity = {
   isOwner: boolean;
 };
 
-function criteriaToBuyer(c: any): BuyerLike {
+function criteriaToBuyer(c: any, location_ids: string[] = []): BuyerLike {
   const finalidade = c?.finalidade === "indefinido" ? undefined : c?.finalidade;
   const gar = ((c?.caracteristicas ?? []) as string[]).some((x) => /garagem/i.test(x));
   const ele = ((c?.caracteristicas ?? []) as string[]).some((x) => /elevador/i.test(x));
@@ -62,9 +63,7 @@ function criteriaToBuyer(c: any): BuyerLike {
     finalidade,
     tipo_imovel: c?.tipo_imovel ?? null,
     tipologia: c?.tipologia ?? null,
-    zona: c?.zona ?? c?.municipio ?? c?.freguesia ?? null,
-    freguesia: c?.freguesia ?? null,
-    municipio: c?.municipio ?? null,
+    location_ids,
     budget_min: c?.budget_min ?? null,
     budget_max: c?.budget_max ?? null,
     area_min: c?.area_min ?? null,
@@ -113,7 +112,7 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
       .select("*")
       .gt("expires_at", nowIso);
 
-    const zoneContext = await loadZoneContext();
+    const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
     // Consultor meta para procuras de OUTROS consultores (Privacy Layer).
     const otherUserIds = Array.from(
       new Set(
@@ -142,7 +141,7 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
     let hiddenCount = 0;
 
     for (const b of buyers ?? []) {
-      const s = scoreMatch(b as BuyerLike, property as any, { zoneContext });
+      const s = scoreMatch(b as BuyerLike, property as any, { geoIndex });
       if (!s.compatible) continue;
       const state = stateMap.get(`cliente-${b.id}`) ?? "novo";
       if (state === "nao_interessado" && !data.includeDismissed) {
@@ -181,10 +180,10 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
     }
 
     for (const q of searches ?? []) {
-      const buyer = criteriaToBuyer(q.criteria);
+      const buyer = criteriaToBuyer(q.criteria, (q as any).location_ids ?? []);
       buyer.resumo = q.resumo ?? null;
       buyer.texto_original = (q as any).texto_original ?? null;
-      const s = scoreMatch(buyer, property as any, { zoneContext });
+      const s = scoreMatch(buyer, property as any, { geoIndex });
       if (!s.compatible) continue;
       const c = (q.criteria ?? {}) as any;
       const origem = (q.origem as OpportunitySource) ?? "excel";
@@ -287,10 +286,10 @@ export const countPropertyOpportunities = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: searches } = await supabaseAdmin
       .from("active_searches")
-      .select("id, criteria, origem, expires_at, resumo, texto_original")
+      .select("id, criteria, origem, expires_at, resumo, texto_original, location_ids")
       .gt("expires_at", new Date().toISOString());
 
-    const zoneContext = await loadZoneContext();
+    const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
     // Estados marcados como 'nao_interessado' — filtrados da contagem.
     const { data: stateRows } = await supabase
       .from("match_states")
@@ -306,7 +305,7 @@ export const countPropertyOpportunities = createServerFn({ method: "POST" })
       let n = 0;
       for (const b of buyers ?? []) {
         if (
-          scoreMatch(b as BuyerLike, p as any, { zoneContext }).compatible &&
+          scoreMatch(b as BuyerLike, p as any, { geoIndex }).compatible &&
           !dismissed.has(`${p.id}|cliente-${b.id}`)
         )
           n++;
@@ -315,12 +314,12 @@ export const countPropertyOpportunities = createServerFn({ method: "POST" })
         if (
           scoreMatch(
             {
-              ...criteriaToBuyer(q.criteria),
+              ...criteriaToBuyer(q.criteria, (q as any).location_ids ?? []),
               resumo: (q as any).resumo ?? null,
               texto_original: (q as any).texto_original ?? null,
             },
             p as any,
-            { zoneContext },
+            { geoIndex },
           ).compatible &&
           !dismissed.has(`${p.id}|search-${q.id}`)
         )
@@ -351,8 +350,8 @@ export const runPropertyMatch = createServerFn({ method: "POST" })
     if (bErr) throw new Error(bErr.message);
     if (!property) throw new Error("Imóvel não encontrado.");
 
-    const zoneContext = await loadZoneContext();
-    const scored = (buyers ?? []).map((b) => ({ buyer: b, ...scoreMatch(b, property, { zoneContext }) }));
+    const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
+    const scored = (buyers ?? []).map((b) => ({ buyer: b, ...scoreMatch(b, property, { geoIndex }) }));
     const catOk = (m: (typeof scored)[number], key: string) =>
       m.categories.find((c) => c.key === key)?.ok ? 1 : 0;
     const matches = scored
@@ -382,12 +381,12 @@ export const countPropertyMatches = createServerFn({ method: "POST" })
     if (pErr) throw new Error(pErr.message);
     if (bErr) throw new Error(bErr.message);
 
-    const zoneContext = await loadZoneContext();
+    const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
     const counts: Record<string, number> = {};
     for (const p of properties ?? []) {
       let n = 0;
       for (const b of buyers ?? []) {
-        if (scoreMatch(b, p, { zoneContext }).compatible) n++;
+        if (scoreMatch(b, p, { geoIndex }).compatible) n++;
       }
       counts[p.id] = n;
     }

@@ -4,8 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { recomputeForSearch } from "./active-searches.functions";
 import { buildDedupKey } from "./dedup";
 import { scoreMatch, type BuyerLike } from "./matching-engine";
-import { loadZoneContext, resolveZone } from "./functional-zones";
-import { normalizeLocation } from "./location-graph";
+import { normalizeGeoText } from "./geo";
 import { loadConsultorDirectory, resolveConsultor } from "./opportunity-privacy";
 import { normalizePhone } from "./dedup";
 
@@ -31,7 +30,7 @@ function completenessScore(row: any): number {
   return s;
 }
 
-function criteriaToBuyer(c: any): BuyerLike {
+function criteriaToBuyer(c: any, location_ids: string[] = []): BuyerLike {
   const finalidade = c?.finalidade === "indefinido" ? undefined : c?.finalidade;
   const gar = ((c?.caracteristicas ?? []) as string[]).some((x) => /garagem/i.test(x));
   const ele = ((c?.caracteristicas ?? []) as string[]).some((x) => /elevador/i.test(x));
@@ -39,9 +38,7 @@ function criteriaToBuyer(c: any): BuyerLike {
     finalidade,
     tipo_imovel: c?.tipo_imovel ?? null,
     tipologia: c?.tipologia ?? null,
-    zona: c?.zona ?? c?.municipio ?? c?.freguesia ?? null,
-    freguesia: c?.freguesia ?? null,
-    municipio: c?.municipio ?? null,
+    location_ids,
     budget_min: c?.budget_min ?? null,
     budget_max: c?.budget_max ?? null,
     area_min: c?.area_min ?? null,
@@ -378,7 +375,7 @@ export const recruzarTudo = createServerFn({ method: "POST" })
     const { data: opps } = await supabaseAdmin
       .from("match_opportunities")
       .select(
-        "id, user_id, active_search_id, property_id, active_searches(criteria), properties(*)",
+        "id, user_id, active_search_id, property_id, active_searches(criteria, location_ids), properties(*)",
       );
     const staleIds: string[] = [];
     for (const o of opps ?? []) {
@@ -388,7 +385,7 @@ export const recruzarTudo = createServerFn({ method: "POST" })
         staleIds.push(o.id);
         continue;
       }
-      const r = scoreMatch(criteriaToBuyer(s.criteria), p);
+      const r = scoreMatch(criteriaToBuyer(s.criteria, (s as any).location_ids ?? []), p);
       if (!r.compatible || r.score < 60) staleIds.push(o.id);
     }
     if (staleIds.length > 0) {
@@ -430,7 +427,7 @@ export const listUnknownZones = createServerFn({ method: "GET" })
       const c = (r.criteria ?? {}) as any;
       const expr = c?.zona ?? c?.municipio ?? c?.freguesia ?? null;
       if (!expr) continue;
-      const key = normalizeLocation(expr);
+      const key = normalizeGeoText(expr);
       if (!key) continue;
       const g =
         groups.get(key) ??
@@ -477,7 +474,7 @@ export const createFunctionalZoneFromReview = createServerFn({ method: "POST" })
     const aliases = Array.from(
       new Set(
         [data.nome, ...data.aliases]
-          .map((a) => normalizeLocation(a))
+          .map((a) => normalizeGeoText(a))
           .filter(Boolean),
       ),
     );

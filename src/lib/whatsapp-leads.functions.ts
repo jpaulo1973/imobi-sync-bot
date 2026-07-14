@@ -315,19 +315,28 @@ RESPOSTA: APENAS JSON válido:
     const { data: properties, error: pErr } = await supabase
       .from("properties")
       .select(
-        "id, referencia, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
+        "id, referencia, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade, location_id",
       )
       .eq("user_id", userId)
       .eq("ativo", true);
     if (pErr) throw new Error(pErr.message);
 
+    // Fase 3 — motor puro por IDs. Resolvemos a zona textual do lead através
+    // do LocationRepository antes de correr o motor. Leads cujo texto não
+    // resolva ficam com location_ids=[] e não geram matches (pending_geo).
+    const { LocationRepository, parseLocations } = await import("./geo");
+    const { buildGeoMatchIndex } = await import("./matching-engine");
+    const snap = await LocationRepository.getSnapshot();
+    const geoIndex = buildGeoMatchIndex(snap);
+
     // 3) Para cada lead ACEITE, correr o motor contra toda a carteira. Leads
     //    em revisão continuam a devolver os melhores matches para o consultor
     //    poder decidir manualmente; anúncios já foram filtrados.
     const results: LeadMatchResult[] = acceptedLeads.map((lead) => {
-      const buyer = leadToBuyer(lead);
+      const location_ids = lead.zona ? parseLocations(lead.zona, snap).resolved : [];
+      const buyer = { ...leadToBuyer(lead), location_ids };
       const scored = (properties ?? [])
-        .map((p) => ({ p, s: scoreMatch(buyer, p) }))
+        .map((p) => ({ p, s: scoreMatch(buyer, p, { geoIndex }) }))
         .filter((x) => x.s.compatible)
         .sort((a, b) => b.s.score - a.s.score)
         .slice(0, 10)

@@ -1,8 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { scoreMatch, type BuyerLike, type MatchCategoryResult } from "./matching-engine";
-import { loadZoneContext } from "./functional-zones";
+import { scoreMatch, buildGeoMatchIndex, type BuyerLike, type MatchCategoryResult } from "./matching-engine";
+import { LocationRepository } from "./geo";
 import {
   loadConsultorMeta,
   sanitizePropertyForViewer,
@@ -23,9 +23,7 @@ function buyerToBuyerLike(b: any): BuyerLike {
     finalidade: b.finalidade ?? null,
     tipo_imovel: b.tipo_imovel ?? null,
     tipologia: b.tipologia ?? null,
-    zona: b.zona ?? null,
-    freguesia: null,
-    municipio: null,
+    location_ids: Array.isArray(b.location_ids) ? (b.location_ids as string[]) : [],
     budget_min: b.budget_min ?? null,
     budget_max: b.budget_max ?? null,
     area_min: b.area_min ?? null,
@@ -65,7 +63,7 @@ export const runBuyerOpportunities = createServerFn({ method: "POST" })
       .select("*")
       .eq("ativo", true);
 
-    const zoneContext = await loadZoneContext();
+    const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
     const buyerLike = buyerToBuyerLike(buyer);
 
     // 3) Pré-carregar meta dos consultores angariadores de imóveis externos.
@@ -81,7 +79,7 @@ export const runBuyerOpportunities = createServerFn({ method: "POST" })
     // 4) Correr motor + Hard Filters 1.2.1.
     const matches: BuyerPropertyMatch[] = [];
     for (const p of properties ?? []) {
-      const r = scoreMatch(buyerLike, p as any, { zoneContext });
+      const r = scoreMatch(buyerLike, p as any, { geoIndex });
       if (!r.compatible || r.score < 60) continue;
       const isOwner = (p as any).user_id === userId;
       const consultor = !isOwner ? consultorMap.get((p as any).user_id) ?? null : null;
@@ -107,15 +105,15 @@ export const countBuyerOpportunities = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: properties } = await supabaseAdmin
       .from("properties")
-      .select("id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade")
+      .select("id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade, location_id")
       .eq("ativo", true);
-    const zoneContext = await loadZoneContext();
+    const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
     const counts: Record<string, number> = {};
     for (const b of buyers ?? []) {
       let n = 0;
       const bl = buyerToBuyerLike(b);
       for (const p of properties ?? []) {
-        if (scoreMatch(bl, p as any, { zoneContext }).compatible) n++;
+        if (scoreMatch(bl, p as any, { geoIndex }).compatible) n++;
       }
       counts[b.id] = n;
     }

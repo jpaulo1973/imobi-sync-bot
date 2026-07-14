@@ -569,25 +569,30 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
     const { data: properties } = await supabase
       .from("properties")
       .select(
-        "id, referencia, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
+        "id, referencia, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade, location_id",
       )
       .eq("user_id", userId)
       .eq("ativo", true);
 
     const { data: searches } = await supabase
       .from("active_searches")
-      .select("id, criteria")
+      .select("id, criteria, location_ids")
       .eq("user_id", userId)
       .eq("import_batch_id", batch_id);
 
     let matches = 0;
+    const { LocationRepository } = await import("./geo");
+    const { buildGeoMatchIndex } = await import("./matching-engine");
+    const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
     for (const s of searches ?? []) {
       const c = s.criteria as Record<string, any>;
       const buyer: BuyerLike = {
         finalidade: c.finalidade === "indefinido" ? undefined : c.finalidade,
         tipo_imovel: c.tipo_imovel ?? null,
         tipologia: c.tipologia ?? null,
-        zona: c.zona ?? c.municipio ?? c.freguesia ?? null,
+        location_ids: Array.isArray((s as any).location_ids)
+          ? ((s as any).location_ids as string[])
+          : [],
         budget_min: c.budget_min ?? null,
         budget_max: c.budget_max ?? null,
         area_min: c.area_min ?? null,
@@ -597,7 +602,7 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
       };
       let has = false;
       for (const p of properties ?? []) {
-        const r = scoreMatch(buyer, p);
+        const r = scoreMatch(buyer, p, { geoIndex });
         if (r.compatible && r.score >= 60) {
           matches++;
           has = true;

@@ -1,28 +1,112 @@
-// Motor de compatibilidade Property Match — Release 1.2.1.
+// Motor de compatibilidade Property Match — Release 1.3 (Fase 3).
 //
-// Arquitetura: registo configurável de Hard Filters. Cada filtro devolve
+// Arquitectura: registo configurável de Hard Filters. Cada filtro devolve
 // {ok:true} | {ok:false, reason} | {ok:false, needsReview, reviewReason, reason}.
 // Um único filtro falhado impede totalmente a geração da oportunidade.
 // Só depois de TODOS passarem é calculado o soft score (0-100).
 //
-// Adicionar um novo Hard Filter = juntar entrada em HARD_FILTERS. O motor
-// não precisa de mudar.
+// Fase 3 — o motor deixou de interpretar texto de localização. Toda a
+// resolução geográfica passa exclusivamente por `location_id` / `location_ids`
+// e pelo `GeoMatchIndex` derivado do `LocationRepository`.
 
-import { areFreguesiasAdjacent, isKnownConcelho, normalizeLocation } from "./location-graph";
-import {
-  coverageIncludesProperty,
-  resolveZone,
-  type ZoneResolverContext,
-} from "./functional-zones";
+import type { GeoSnapshot } from "@/lib/geo";
+
+// ---------------------------------------------------------------------------
+// GeoMatchIndex — projecção síncrona do GeoSnapshot para o motor puro.
+//
+// Cobre as quatro operações estruturais suportadas pela infraestrutura
+// geográfica (parent, child, adjacent, functionalMembers). Não depende de
+// qualquer estrutura textual legada (aliases textuais, grafos hard-coded).
+// ---------------------------------------------------------------------------
+
+export type GeoMatchIndex = {
+  parentsOf: (id: string) => string[];
+  childrenOf: (id: string) => string[];
+  adjacentOf: (id: string) => string[];
+  functionalMembersOf: (id: string) => string[];
+};
+
+export function buildGeoMatchIndex(snap: GeoSnapshot): GeoMatchIndex {
+  const parentsCache = new Map<string, string[]>();
+  const descendantsCache = new Map<string, string[]>();
+  const functionalCache = new Map<string, string[]>();
+
+  const collectAncestors = (id: string): string[] => {
+    const cached = parentsCache.get(id);
+    if (cached) return cached;
+    const out: string[] = [];
+    let cur = snap.byId.get(id) ?? null;
+    const guard = new Set<string>([id]);
+    while (cur?.parent_id && !guard.has(cur.parent_id)) {
+      out.push(cur.parent_id);
+      guard.add(cur.parent_id);
+      cur = snap.byId.get(cur.parent_id) ?? null;
+    }
+    parentsCache.set(id, out);
+    return out;
+  };
+
+  const collectDescendants = (id: string): string[] => {
+    const cached = descendantsCache.get(id);
+    if (cached) return cached;
+    const seen = new Set<string>();
+    const stack = [id];
+    while (stack.length) {
+      const cur = stack.pop()!;
+      for (const child of snap.childrenOf.get(cur) ?? []) {
+        if (!seen.has(child)) {
+          seen.add(child);
+          stack.push(child);
+        }
+      }
+    }
+    const out = [...seen];
+    descendantsCache.set(id, out);
+    return out;
+  };
+
+  const collectFunctionalMembers = (id: string): string[] => {
+    const cached = functionalCache.get(id);
+    if (cached) return cached;
+    const loc = snap.byId.get(id);
+    if (!loc || loc.tipo !== "zona_funcional") {
+      functionalCache.set(id, []);
+      return [];
+    }
+    const seen = new Set<string>();
+    const stack = [...(snap.functionalZoneMembers.get(id) ?? [])];
+    while (stack.length) {
+      const cur = stack.pop()!;
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      for (const child of snap.childrenOf.get(cur) ?? []) {
+        if (!seen.has(child)) stack.push(child);
+      }
+    }
+    const out = [...seen];
+    functionalCache.set(id, out);
+    return out;
+  };
+
+  return {
+    parentsOf: collectAncestors,
+    childrenOf: collectDescendants,
+    adjacentOf: (id) => [...(snap.adjacentOf.get(id) ?? [])],
+    functionalMembersOf: collectFunctionalMembers,
+  };
+}
+
+function normTipoText(v: unknown): string {
+  if (typeof v !== "string") return "";
+  return v.trim().toLowerCase();
+}
 
 export type BuyerLike = {
   finalidade?: string | null;
   tipo_imovel?: string[] | null;
   tipologia?: string | null;
-  zona?: string | null;
-  freguesia?: string | null;
-  municipio?: string | null;
-  concelho?: string | null;
+  /** IDs de localização pretendidos (Fase 3 — única fonte geográfica). */
+  location_ids?: string[] | null;
   budget_min?: number | string | null;
   budget_max?: number | string | null;
   area_min?: number | string | null;
@@ -42,10 +126,8 @@ export type PropertyLike = {
   finalidade?: string | null;
   tipo_imovel?: string | null;
   tipologia?: string | null;
-  distrito?: string | null;
-  concelho?: string | null;
-  freguesia?: string | null;
-  zona?: string | null;
+  /** ID da localização do imóvel (Fase 3 — única fonte geográfica). */
+  location_id?: string | null;
   preco?: number | string | null;
   area_util_m2?: number | string | null;
   area_m2?: number | string | null;
@@ -96,10 +178,11 @@ export type MatchOptions = {
    */
   priceTolerance?: number;
   /**
-   * Contexto de zonas funcionais para o motor reconhecer aliases como
-   * "Linha de Cascais" ou "Margem Sul". Pré-carregado uma vez por request.
+   * Índice geográfico pré-calculado a partir do LocationRepository.
+   * Requerido para resolver hierarquia (parent/child), adjacência e zonas
+   * funcionais. Sem `geoIndex` o motor só reconhece match directo por ID.
    */
-  zoneContext?: ZoneResolverContext | null;
+  geoIndex?: GeoMatchIndex | null;
 };
 
 // Pesos soft (somam 100). Só se aplicam a imóveis que passaram nos Hard Filters.
@@ -165,7 +248,7 @@ export type HardFilterResult = HardFilterOk | HardFilterFail;
 export type HardFilter = {
   name: string;
   key: MatchCategoryKey;
-  run: (buyer: BuyerLike, property: PropertyLike, ctx?: ZoneResolverContext | null) => HardFilterResult;
+  run: (buyer: BuyerLike, property: PropertyLike, ctx?: GeoMatchIndex | null) => HardFilterResult;
 };
 
 function finalidadeFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResult {
@@ -185,9 +268,9 @@ function finalidadeFilter(buyer: BuyerLike, property: PropertyLike): HardFilterR
 }
 
 function tipoFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResult {
-  const buyerTipos = (buyer.tipo_imovel ?? []).map(normalizeLocation).filter(Boolean);
-  const pTipo = normalizeLocation(property.tipo_imovel);
-  const pTipoRaw = (property.tipo_imovel ?? "").toLowerCase();
+  const buyerTipos = (buyer.tipo_imovel ?? []).map(normTipoText).filter(Boolean);
+  const pTipo = normTipoText(property.tipo_imovel);
+  const pTipoRaw = pTipo;
   const isTerrainType =
     pTipoRaw === "terreno" || pTipoRaw === "quinta" || pTipoRaw === "herdade";
   if (buyerTipos.length === 0) {
@@ -218,90 +301,150 @@ function cat(key: MatchCategoryKey, label: string, ok: boolean, detail: string, 
 function localizacaoFilter(
   buyer: BuyerLike,
   property: PropertyLike,
-  zoneContext?: ZoneResolverContext | null,
+  geoIndex?: GeoMatchIndex | null,
 ): HardFilterResult {
-  const bZone = normalizeLocation(buyer.zona ?? buyer.freguesia ?? buyer.municipio);
-  if (!bZone) {
-    return { ok: false, category: cat("localizacao", "Localização", false, "Localização não indicada na procura") };
+  const weight = WEIGHTS.localizacao;
+  const buyerIds = (buyer.location_ids ?? []).filter(
+    (id): id is string => typeof id === "string" && id.length > 0,
+  );
+  if (buyerIds.length === 0) {
+    return {
+      ok: false,
+      category: cat("localizacao", "Localização", false, "Localização não indicada na procura"),
+    };
+  }
+  const propertyId =
+    typeof property.location_id === "string" && property.location_id
+      ? property.location_id
+      : null;
+  if (!propertyId) {
+    return {
+      ok: false,
+      needsReview: {
+        reviewReason: "freguesia_em_falta",
+        reason: "Localização do imóvel em falta",
+      },
+      category: cat(
+        "localizacao",
+        "Localização",
+        false,
+        "Imóvel sem localização estruturada — revisão manual",
+      ),
+    };
   }
 
-  const pFreg = normalizeLocation(property.freguesia);
-  const pConc = normalizeLocation(property.concelho);
-  const pZona = normalizeLocation(property.zona);
+  const buyerSet = new Set(buyerIds);
 
-  // Modo CONCELHO — comprador aceita qualquer freguesia dentro do concelho.
-  if (isKnownConcelho(bZone)) {
-    if (pConc && pConc === bZone) {
-      const detail = property.freguesia ?? property.concelho ?? bZone;
-      const weight = WEIGHTS.localizacao;
-      return { ok: true, category: cat("localizacao", "Localização", true, detail, weight, weight) };
-    }
-    // Também aceitar via zona quando o imóvel só tem zona preenchida.
-    if (!pConc && pZona && pZona === bZone) {
-      const weight = WEIGHTS.localizacao;
-      return { ok: true, category: cat("localizacao", "Localização", true, property.zona ?? bZone, weight, weight) };
-    }
-    return { ok: false, category: cat("localizacao", "Localização", false, `Fora do concelho (${property.concelho ?? property.zona ?? "?"} ≠ ${buyer.zona})`) };
+  // 1) Match directo — intersecção entre location_ids do comprador e o
+  //    location_id do imóvel.
+  if (buyerSet.has(propertyId)) {
+    return {
+      ok: true,
+      category: cat("localizacao", "Localização", true, "Localização pretendida", weight, weight),
+    };
   }
 
-  // Modo FREGUESIA — comprador pediu uma freguesia específica.
-  if (pFreg) {
-    if (pFreg === bZone) {
-      const weight = WEIGHTS.localizacao;
-      return { ok: true, category: cat("localizacao", "Localização", true, property.freguesia ?? bZone, weight, weight) };
-    }
-    if (areFreguesiasAdjacent(bZone, pFreg)) {
-      const weight = WEIGHTS.localizacao;
-      return {
-        ok: true,
-        category: cat("localizacao", "Localização", true, `${property.freguesia} (freguesia limítrofe)`, Math.round(weight * 0.75), weight),
-      };
-    }
-    if (zoneContext) {
-      const resolved = resolveZone(bZone, zoneContext);
-      if (resolved.source === "functional" && coverageIncludesProperty(resolved, property)) {
-        const weight = WEIGHTS.localizacao;
-        return {
-          ok: true,
-          category: cat(
-            "localizacao",
-            "Localização",
-            true,
-            `${property.freguesia} (zona funcional: ${resolved.matchedZone?.nome ?? buyer.zona})`,
-            Math.round(weight * 0.8),
-            weight,
-          ),
-        };
-      }
-    }
-    return { ok: false, category: cat("localizacao", "Localização", false, `Freguesia diferente (${property.freguesia} ≠ ${buyer.zona})`) };
+  if (!geoIndex) {
+    return {
+      ok: false,
+      category: cat("localizacao", "Localização", false, "Localização fora da área pretendida"),
+    };
   }
 
-  // Zona funcional (buyer sem match administrativo direto).
-  if (zoneContext) {
-    const resolved = resolveZone(bZone, zoneContext);
-    if (resolved.source === "functional" && coverageIncludesProperty(resolved, property)) {
-      const weight = WEIGHTS.localizacao;
+  const propertyAncestors = geoIndex.parentsOf(propertyId);
+
+  // 2) Relação hierárquica ascendente — buyer pediu concelho/distrito e
+  //    imóvel está numa freguesia descendente.
+  for (const ancestor of propertyAncestors) {
+    if (buyerSet.has(ancestor)) {
       return {
         ok: true,
         category: cat(
           "localizacao",
           "Localização",
           true,
-          `Zona funcional: ${resolved.matchedZone?.nome ?? buyer.zona}`,
-          Math.round(weight * 0.8),
+          "Dentro da área administrativa pretendida",
+          weight,
           weight,
         ),
       };
     }
   }
 
-  // Imóvel sem freguesia — não podemos afirmar compatibilidade automática,
-  // mas o consultor pode querer rever manualmente.
+  // 3) Relação hierárquica descendente — buyer pediu freguesia e imóvel está
+  //    no concelho pai (ou nível superior).
+  for (const buyerId of buyerIds) {
+    const descendants = geoIndex.childrenOf(buyerId);
+    if (descendants.includes(propertyId)) {
+      return {
+        ok: true,
+        category: cat(
+          "localizacao",
+          "Localização",
+          true,
+          "Dentro do perímetro alargado da procura",
+          weight,
+          weight,
+        ),
+      };
+    }
+  }
+
+  // 4) Zona funcional — buyer pediu uma zona_funcional cujos membros
+  //    (recursivos, incluindo descendentes desses membros) incluem o imóvel.
+  for (const buyerId of buyerIds) {
+    const members = geoIndex.functionalMembersOf(buyerId);
+    if (members.length === 0) continue;
+    if (members.includes(propertyId)) {
+      return {
+        ok: true,
+        category: cat(
+          "localizacao",
+          "Localização",
+          true,
+          "Zona funcional pretendida",
+          Math.round(weight * 0.8),
+          weight,
+        ),
+      };
+    }
+    for (const ancestor of propertyAncestors) {
+      if (members.includes(ancestor)) {
+        return {
+          ok: true,
+          category: cat(
+            "localizacao",
+            "Localização",
+            true,
+            "Zona funcional pretendida",
+            Math.round(weight * 0.8),
+            weight,
+          ),
+        };
+      }
+    }
+  }
+
+  // 5) Adjacência — algum ID pretendido pelo buyer é adjacente ao imóvel.
+  for (const buyerId of buyerIds) {
+    if (geoIndex.adjacentOf(buyerId).includes(propertyId)) {
+      return {
+        ok: true,
+        category: cat(
+          "localizacao",
+          "Localização",
+          true,
+          "Localização limítrofe da pretendida",
+          Math.round(weight * 0.75),
+          weight,
+        ),
+      };
+    }
+  }
+
   return {
     ok: false,
-    needsReview: { reviewReason: "freguesia_em_falta", reason: "Freguesia do imóvel em falta" },
-    category: cat("localizacao", "Localização", false, "Imóvel sem freguesia — revisão manual"),
+    category: cat("localizacao", "Localização", false, "Localização fora da área pretendida"),
   };
 }
 
@@ -526,12 +669,12 @@ export function scoreMatch(
   options: MatchOptions = {},
 ): MatchScore {
   const tolerance = options.priceTolerance ?? 0.1;
-  const zoneCtx = options.zoneContext ?? null;
+  const geoIndex = options.geoIndex ?? null;
 
   // Corre a lista configurável de hard filters, em ordem estrita.
   const passed: MatchCategoryResult[] = [];
   for (const f of HARD_FILTERS) {
-    const r = f.run(buyer, property, zoneCtx);
+    const r = f.run(buyer, property, geoIndex);
     if (!r.ok) {
       return fail(r.category.key, r.category.label, r.category.detail, r.needsReview ?? null);
     }
