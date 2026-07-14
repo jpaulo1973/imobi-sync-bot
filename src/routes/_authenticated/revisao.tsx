@@ -23,6 +23,7 @@ import { AlertTriangle, Save, Split, Trash2, Plus, X, RefreshCw, MapPin, UserX }
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { LocationSelector } from "@/components/entity-selector/LocationSelector";
+import { promoteAlias, resolveLocationText } from "@/lib/geo/geo.functions";
 
 export const Route = createFileRoute("/_authenticated/revisao")({
   head: () => ({
