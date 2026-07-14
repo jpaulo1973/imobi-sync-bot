@@ -4,6 +4,11 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { callLovableAI } from "./ai-gateway.server";
 import { scoreMatch, type MatchCategoryResult } from "./matching-engine";
 import { normalizePhone } from "./dedup";
+import {
+  evaluateSearchAcceptance,
+  hasStructuredCriteria,
+  type AcceptanceDecision,
+} from "./search-acceptance";
 
 const QualifiedLeadSchema = z.object({
   nome: z.string().nullable().optional(),
@@ -26,6 +31,37 @@ const QualifiedLeadSchema = z.object({
 });
 
 export type QualifiedLead = z.infer<typeof QualifiedLeadSchema>;
+
+// Lead enriquecido com a decisão do módulo central de aceitação. Nenhum
+// consumidor deve inferir aceitação a partir do LLM — usa `acceptance`.
+export type QualifiedLeadWithAcceptance = QualifiedLead & {
+  acceptance: AcceptanceDecision;
+};
+
+// Aplica o decisor único a cada lead extraído pelo LLM. Descarta anúncios
+// e devolve leads com decisão anotada (aceite/revisao). O LLM só extrai —
+// a aceitação vive em src/lib/search-acceptance.ts.
+function applyAcceptance(leads: QualifiedLead[]): QualifiedLeadWithAcceptance[] {
+  const out: QualifiedLeadWithAcceptance[] = [];
+  for (const l of leads) {
+    const decision = evaluateSearchAcceptance({
+      text: l.mensagem_original ?? l.resumo ?? null,
+      finalidade: l.finalidade,
+      hasStructured: hasStructuredCriteria({
+        finalidade: l.finalidade,
+        tipologia: l.tipologia,
+        tipo_imovel: l.tipo_imovel,
+        zona: l.zona,
+        budget_min: l.budget_min,
+        budget_max: l.budget_max,
+        area_min: l.area_min,
+      }),
+    });
+    if (decision.kind === "anuncio") continue;
+    out.push({ ...l, acceptance: decision });
+  }
+  return out;
+}
 
 const AnalysisResponse = z.object({
   total_capturas: z.number().default(0),
@@ -108,7 +144,7 @@ RESPOSTA: APENAS JSON válido no formato:
       parsed = { total_capturas: imgs.length, leads: [] };
     }
     if (!parsed.total_capturas) parsed.total_capturas = imgs.length;
-    return parsed;
+    return { ...parsed, leads: applyAcceptance(parsed.leads) };
   });
 
 const LeadToCreate = QualifiedLeadSchema.extend({
