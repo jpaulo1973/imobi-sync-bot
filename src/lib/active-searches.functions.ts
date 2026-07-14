@@ -5,6 +5,7 @@ import { scoreMatch, buildGeoMatchIndex, type BuyerLike } from "./matching-engin
 import { buildDedupKey, normalizePhone, scoreSimilarity, type SimilarityCriteria } from "./dedup";
 import { LocationRepository } from "./geo";
 import { extractProximityCriteria } from "./search-splitter.server";
+import { inferFinalidadeFromText } from "./whatsapp-ingestion-normalize";
 
 const CriteriaSchema = z.object({
   nome: z.string().nullable().optional(),
@@ -60,17 +61,48 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
     // exista um único formato interno (9 dígitos PT / E.164-lite).
     const contactPhoneNorm = normalizePhone(data.contact_telefone) ?? null;
     const consultorPhoneNorm = normalizePhone(data.consultor_telefone) ?? null;
+
+    // Correção crítica ingestão WhatsApp (Fase 3+):
+    // 1) Se o LLM devolveu finalidade="indefinido" mas o texto original
+    //    permite inferi-la, corrigimos ANTES de persistir. Nunca gravar
+    //    "indefinido" quando o texto o determina.
+    // 2) Resolver location_ids via LocationRepository ANTES de gravar,
+    //    para que uma zona reconhecível nunca fique com {}.
+    const criteria = { ...data.criteria };
+    if (criteria.finalidade === "indefinido") {
+      const inferred = inferFinalidadeFromText(
+        data.texto_original ?? data.resumo ?? null,
+        { budget_max: criteria.budget_max ?? null },
+      );
+      if (inferred) criteria.finalidade = inferred;
+    }
+
+    const zonaText = criteria.zona ?? criteria.municipio ?? criteria.freguesia ?? null;
+    let resolvedLocationIds: string[] = [];
+    let zonaUnresolved = false;
+    if (zonaText) {
+      try {
+        const snap = await LocationRepository.getSnapshot();
+        const { parseLocations } = await import("./geo");
+        const parseRes = parseLocations(zonaText, snap);
+        resolvedLocationIds = parseRes.resolved;
+        zonaUnresolved = parseRes.resolved.length === 0;
+      } catch (e) {
+        console.error("[saveActiveSearch] location resolution failed", e);
+      }
+    }
+
     const dedup_key = buildDedupKey({
       telefone: contactPhoneNorm,
       nome: data.contact_nome ?? data.criteria.nome ?? null,
-      finalidade: data.criteria.finalidade,
-      tipologia: data.criteria.tipologia ?? null,
-      tipo_imovel: data.criteria.tipo_imovel ?? null,
-      zona: data.criteria.zona ?? null,
+      finalidade: criteria.finalidade,
+      tipologia: criteria.tipologia ?? null,
+      tipo_imovel: criteria.tipo_imovel ?? null,
+      zona: criteria.zona ?? null,
     });
     const res = await upsertOne(supabase, userId, {
       dedup_key,
-      criteria: data.criteria,
+      criteria,
       resumo: data.resumo ?? null,
       texto_original: data.texto_original ?? null,
       contact_nome: data.contact_nome ?? null,
@@ -87,6 +119,7 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
       hora_origem: data.hora_origem ?? null,
       grupo_whatsapp: data.grupo_whatsapp ?? data.contact_grupo ?? null,
       comunidade: data.comunidade ?? null,
+      location_ids: resolvedLocationIds,
     });
     // Release 1.1: sempre que entra uma procura ativa, cruzar imediatamente
     // com todos os imóveis ativos e materializar oportunidades novas.
@@ -95,35 +128,21 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
     } catch (e) {
       console.error("recomputeForSearch failed", e);
     }
-    // Release 1.2 — se a zona indicada não é reconhecida como administrativa
-    // nem como zona funcional, marcar para Revisão (motivo zona_desconhecida).
-    // Fase 3 — usar exclusivamente o LocationRepository para resolver texto
-    // → location_ids. Se resolver, guardamos os IDs; se não, sinalizamos.
-    try {
-      const zonaText = data.criteria.zona ?? data.criteria.municipio ?? data.criteria.freguesia ?? null;
-      if (zonaText) {
-        const snap = await LocationRepository.getSnapshot();
-        const { parseLocations } = await import("./geo");
-        const parseRes = parseLocations(zonaText, snap);
-        if (parseRes.resolved.length > 0) {
-          await supabase
-            .from("active_searches")
-            .update({ location_ids: parseRes.resolved })
-            .eq("id", res.id)
-            .eq("user_id", userId);
-        } else {
-          await supabase
-            .from("active_searches")
-            .update({
-              flagged_for_review: true,
-              decision_reason: `zona_desconhecida: "${zonaText}"`,
-            })
-            .eq("id", res.id)
-            .eq("user_id", userId);
-        }
+    // Fase 3 — zona textual que o parser não conseguiu resolver deve ir
+    // para Revisão. location_ids já foram gravados atomicamente acima.
+    if (zonaText && zonaUnresolved) {
+      try {
+        await supabase
+          .from("active_searches")
+          .update({
+            flagged_for_review: true,
+            decision_reason: `zona_desconhecida: "${zonaText}"`,
+          })
+          .eq("id", res.id)
+          .eq("user_id", userId);
+      } catch (e) {
+        console.error("[saveActiveSearch] flag zona_desconhecida failed", e);
       }
-    } catch (e) {
-      console.error("zone review flagging failed", e);
     }
     return {
       id: res.id,
