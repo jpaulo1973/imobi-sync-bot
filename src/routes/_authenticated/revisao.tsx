@@ -23,6 +23,7 @@ import { AlertTriangle, Save, Split, Trash2, Plus, X, RefreshCw, MapPin, UserX }
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { LocationSelector } from "@/components/entity-selector/LocationSelector";
+import { promoteAlias, resolveLocationText } from "@/lib/geo/geo.functions";
 
 export const Route = createFileRoute("/_authenticated/revisao")({
   head: () => ({
@@ -379,6 +380,8 @@ function ReviewCard({ item, onDone }: { item: Item; onDone: () => void }) {
   const updateFn = useServerFn(updateReviewSearch);
   const deleteFn = useServerFn(deleteReviewSearch);
   const splitFn = useServerFn(splitReviewSearch);
+  const promoteFn = useServerFn(promoteAlias);
+  const resolveFn = useServerFn(resolveLocationText);
 
   const [forms, setForms] = useState<CriteriaForm[]>(() => [
     criteriaToForm(item.criteria, (item as any).location_ids ?? []),
@@ -415,6 +418,33 @@ function ReviewCard({ item, onDone }: { item: Item; onDone: () => void }) {
           },
         });
         toast.success("Procura atualizada e reintegrada.");
+        // Aprendizagem explícita: se a interpretação humana diferir da
+        // resolução determinística do texto original, propor promoção
+        // do alias para futuras ocorrências.
+        const originalText = (forms[0].zona || item.texto_original || "").trim();
+        const finalIds = [...forms[0].location_ids].sort();
+        if (originalText && finalIds.length > 0) {
+          try {
+            const parsed = await resolveFn({ data: { text: originalText } });
+            const parsedIds = [...parsed.resolved].sort();
+            const same =
+              parsedIds.length === finalIds.length &&
+              parsedIds.every((id, i) => id === finalIds[i]);
+            if (!same) {
+              const ok = window.confirm(
+                `Guardar esta interpretação para futuras ocorrências de "${originalText}"?`,
+              );
+              if (ok) {
+                await promoteFn({
+                  data: { text: originalText, location_ids: finalIds, origem: "revisao" },
+                });
+                toast.success("Alias aprendido. Próximas ocorrências serão reconhecidas.");
+              }
+            }
+          } catch (err) {
+            console.warn("promoteAlias check failed", err);
+          }
+        }
       }
       onDone();
     } catch (e) {
@@ -503,8 +533,13 @@ function ReviewCard({ item, onDone }: { item: Item; onDone: () => void }) {
               <Input value={f.tipologia} onChange={(e) => update(idx, { tipologia: e.target.value })} placeholder="T2" />
             </div>
             <div className="md:col-span-3">
-              <Label className="text-xs">Localização</Label>
-              <Input value={f.zona} onChange={(e) => update(idx, { zona: e.target.value })} placeholder="Cascais" />
+              <Label className="text-xs">Texto original da localização</Label>
+              <div className="text-sm bg-muted/50 rounded p-2 min-h-9 whitespace-pre-wrap break-words">
+                {f.zona || <span className="text-muted-foreground italic">— sem texto original —</span>}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Informativo. O motor utiliza apenas as localizações estruturadas abaixo.
+              </p>
             </div>
             <div className="md:col-span-3">
               <Label className="text-xs">Localizações estruturadas</Label>

@@ -275,8 +275,13 @@ function ClientesPage() {
                   <Input value={form.tipologia} onChange={(e) => setForm({ ...form, tipologia: e.target.value })} placeholder="T2" />
                 </div>
                 <div className="space-y-2">
-                  <Label>Zona / Localização</Label>
-                  <Input value={form.zona} onChange={(e) => setForm({ ...form, zona: e.target.value })} placeholder="Cascais" />
+                  <Label>Texto original da localização</Label>
+                  <div className="text-sm bg-muted/50 rounded p-2 min-h-10 whitespace-pre-wrap break-words border">
+                    {form.zona || <span className="text-muted-foreground italic">— sem texto original —</span>}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Informativo (auditoria). Não utilizado pelo motor.
+                  </p>
                 </div>
               </div>
               <div className="space-y-2">
@@ -288,7 +293,7 @@ function ClientesPage() {
                   placeholder="Pesquisar concelho, freguesia ou zona…"
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Fonte de verdade geográfica. O texto acima permanece como referência humana.
+                  Única fonte de verdade geográfica. O motor utiliza exclusivamente este campo.
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-3">
