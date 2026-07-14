@@ -354,9 +354,14 @@ function ClientesPage() {
                     {c.finalidade === "venda" ? "Comprar" : "Arrendar"}
                   </Badge>
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => remove(c.id)} aria-label="Eliminar cliente">
-                  <Trash2 className="w-4 h-4 text-destructive" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="icon" onClick={() => openEdit(c)} aria-label="Editar cliente">
+                    <Pencil className="w-4 h-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => remove(c.id)} aria-label="Eliminar cliente">
+                    <Trash2 className="w-4 h-4 text-destructive" />
+                  </Button>
+                </div>
               </div>
               {counts[c.id] > 0 && (
                 <button
