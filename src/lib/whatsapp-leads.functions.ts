@@ -69,6 +69,90 @@ const AnalysisResponse = z.object({
   leads: z.array(QualifiedLeadSchema),
 });
 
+// Erro dedicado a falhas de extração/parse da resposta do LLM.
+// Distingue explicitamente:
+//   - "IA não devolveu procuras" (leads: [] no JSON válido) ⇒ NÃO lança.
+//   - "IA devolveu algo mas não é interpretável" ⇒ lança este erro.
+// A UI apanha `WHATSAPP_PARSE_ERROR` e mostra uma mensagem distinta.
+export class WhatsappParseError extends Error {
+  code = "WHATSAPP_PARSE_ERROR" as const;
+  constructor(
+    message: string,
+    public readonly detail: {
+      execution_id: string;
+      error_type: "JSON_PARSE" | "ZOD_VALIDATION" | "EMPTY_RESPONSE";
+      raw_excerpt: string;
+      failed_fields?: Array<{ path: string; message: string; code: string }>;
+      cause_message: string;
+    },
+  ) {
+    super(message);
+    this.name = "WhatsappParseError";
+  }
+}
+
+// Parser único da resposta do LLM. Nunca engole erros — regista telemetria
+// estruturada e lança `WhatsappParseError` para o handler decidir.
+function parseLlmAnalysisResponse(
+  raw: string,
+  ctx: { execution_id: string; source: "analyze" | "match"; total_capturas: number },
+): z.infer<typeof AnalysisResponse> {
+  const rawExcerpt = (raw ?? "").slice(0, 1000);
+
+  if (!raw || raw.trim().length === 0) {
+    const detail = {
+      execution_id: ctx.execution_id,
+      error_type: "EMPTY_RESPONSE" as const,
+      raw_excerpt: rawExcerpt,
+      cause_message: "LLM devolveu resposta vazia",
+    };
+    console.error("[whatsapp-leads] LLM_PARSING_FAILURE", { source: ctx.source, ...detail });
+    throw new WhatsappParseError("A IA devolveu uma resposta vazia.", detail);
+  }
+
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch (e) {
+    const detail = {
+      execution_id: ctx.execution_id,
+      error_type: "JSON_PARSE" as const,
+      raw_excerpt: rawExcerpt,
+      cause_message: e instanceof Error ? e.message : String(e),
+    };
+    console.error("[whatsapp-leads] LLM_PARSING_FAILURE", { source: ctx.source, ...detail });
+    throw new WhatsappParseError(
+      "A IA devolveu uma resposta que não é JSON válido.",
+      detail,
+    );
+  }
+
+  const zres = AnalysisResponse.safeParse(json);
+  if (!zres.success) {
+    const failed_fields = zres.error.issues.map((i) => ({
+      path: i.path.join("."),
+      message: i.message,
+      code: i.code,
+    }));
+    const detail = {
+      execution_id: ctx.execution_id,
+      error_type: "ZOD_VALIDATION" as const,
+      raw_excerpt: rawExcerpt,
+      failed_fields,
+      cause_message: zres.error.message,
+    };
+    console.error("[whatsapp-leads] LLM_PARSING_FAILURE", { source: ctx.source, ...detail });
+    throw new WhatsappParseError(
+      "A IA devolveu dados que não cumprem o formato esperado.",
+      detail,
+    );
+  }
+
+  const out = zres.data;
+  if (!out.total_capturas) out.total_capturas = ctx.total_capturas;
+  return out;
+}
+
 const AnalyzeInput = z
   .object({
     texto: z.string().max(50000).optional().default(""),
@@ -138,13 +222,11 @@ RESPOSTA: APENAS JSON válido no formato:
       ],
     });
 
-    let parsed: z.infer<typeof AnalysisResponse>;
-    try {
-      parsed = AnalysisResponse.parse(JSON.parse(raw));
-    } catch {
-      parsed = { total_capturas: imgs.length, leads: [] };
-    }
-    if (!parsed.total_capturas) parsed.total_capturas = imgs.length;
+    const parsed = parseLlmAnalysisResponse(raw, {
+      execution_id: crypto.randomUUID(),
+      source: "analyze",
+      total_capturas: imgs.length,
+    });
     return { ...parsed, leads: applyAcceptance(parsed.leads) };
   });
 
@@ -300,13 +382,11 @@ RESPOSTA: APENAS JSON válido:
       ],
     });
 
-    let parsed: z.infer<typeof AnalysisResponse>;
-    try {
-      parsed = AnalysisResponse.parse(JSON.parse(raw));
-    } catch {
-      parsed = { total_capturas: imgs.length, leads: [] };
-    }
-    if (!parsed.total_capturas) parsed.total_capturas = imgs.length;
+    const parsed = parseLlmAnalysisResponse(raw, {
+      execution_id: crypto.randomUUID(),
+      source: "match",
+      total_capturas: imgs.length,
+    });
 
     // Aceitação centralizada — descarta anúncios, anota revisão vs aceite.
     const acceptedLeads = applyAcceptance(parsed.leads);
