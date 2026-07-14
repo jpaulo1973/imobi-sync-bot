@@ -14,6 +14,7 @@ import {
   type BuyerTextClass,
   type RoleSignal,
 } from "./search-acceptance";
+import { normalizeSearchBedrooms } from "./bedrooms-normalize";
 
 // Re-exportar para manter compatibilidade com consumidores existentes; a
 // implementação vive agora em src/lib/search-acceptance.ts (fonte única).
@@ -61,10 +62,8 @@ function parseFinalidade(v: unknown): "venda" | "arrendamento" | "indefinido" {
 // (classificação vive em ./search-acceptance — re-exports acima)
 
 function parseTipologia(v: unknown): string | null {
-  const t = s(v);
-  if (!t) return null;
-  const m = /t\s*([0-6])/i.exec(t);
-  return m ? `T${m[1]}` : t.toUpperCase();
+  // Delega no normalizador único; mantém assinatura antiga para o resto do ficheiro.
+  return normalizeSearchBedrooms({ tipologia: v }, "excel-import").tipologia;
 }
 
 function parseTipoImovel(v: unknown): string[] | null {
