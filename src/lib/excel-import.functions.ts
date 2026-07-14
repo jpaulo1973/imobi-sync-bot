@@ -397,21 +397,33 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
         continue;
       }
 
-      // Release 1.2.1 — classificar rigorosamente. Anúncios são descartados;
-      // casos ambíguos são importados mas sinalizados para revisão manual.
-      const textClass = classifyBuyerText(mensagem ?? descricao);
-      if (textClass === "anuncio") {
+      // Release Arrendamento — classificar reconhecendo dois fluxos válidos
+      // (Compra e Arrendamento). Anúncios continuam descartados; ambíguos com
+      // dados estruturados suficientes passam directamente sem revisão.
+      const structuredZone = zona ?? municipio ?? freguesia;
+      const hasStructured =
+        finalidade !== "indefinido" &&
+        !!tipoImovel &&
+        !!structuredZone &&
+        (budget.max != null || budget.min != null);
+      const decision = evaluateSearchAcceptance({
+        text: mensagem ?? descricao,
+        finalidade,
+        hasStructured,
+      });
+      if (decision.kind === "anuncio") {
         descartadas_anuncio++;
         linhas.push({
           linha: linhaNumero,
           comprador: nome,
           consultor: consultorLabel,
           resultado: "Descartada",
-          motivo: "Texto parece anúncio, não procura de comprador",
+          motivo: decision.reason,
         });
         continue;
       }
-      const flagAsReview = textClass === "ambiguo";
+      const flagAsReview = decision.kind === "revisao";
+      const reviewReason = decision.reason;
 
       const caracExtras: string[] = [...(caract ?? [])];
       if (elevador) caracExtras.push("elevador");
@@ -527,7 +539,7 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
                 .from("active_searches")
                 .update({
                   flagged_for_review: true,
-                  decision_reason: "Não parece procura de comprador — rever manualmente",
+                  decision_reason: reviewReason,
                 })
                 .eq("id", res.id);
             } catch (e) {
@@ -535,7 +547,7 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
             }
             splitOutcomes.push({
               kind: "flagged",
-              reason: "Texto ambíguo — enviada para Revisão",
+              reason: reviewReason,
             });
             sinalizadas_revisao++;
             continue;
