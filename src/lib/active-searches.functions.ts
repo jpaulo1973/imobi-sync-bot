@@ -453,6 +453,7 @@ async function insertNew(
       hora_origem: row.hora_origem ?? null,
       grupo_whatsapp: row.grupo_whatsapp ?? null,
       comunidade: row.comunidade ?? null,
+      location_ids: row.location_ids ?? [],
     })
     .select("id, expires_at")
     .single();
