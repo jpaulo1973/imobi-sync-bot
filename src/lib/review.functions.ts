@@ -159,7 +159,14 @@ export const deleteReviewSearch = createServerFn({ method: "POST" })
 
 const SplitInput = z.object({
   id: z.string().uuid(),
-  parts: z.array(CriteriaPatch).min(1).max(10),
+  parts: z
+    .array(
+      CriteriaPatch.extend({
+        location_ids: z.array(z.string().uuid()).optional(),
+      }),
+    )
+    .min(1)
+    .max(10),
 });
 
 export const splitReviewSearch = createServerFn({ method: "POST" })
