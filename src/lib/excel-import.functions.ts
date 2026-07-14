@@ -14,6 +14,7 @@ import {
   type BuyerTextClass,
   type RoleSignal,
 } from "./search-acceptance";
+import { normalizeSearchBedrooms } from "./bedrooms-normalize";
 
 // Re-exportar para manter compatibilidade com consumidores existentes; a
 // implementação vive agora em src/lib/search-acceptance.ts (fonte única).
@@ -61,10 +62,8 @@ function parseFinalidade(v: unknown): "venda" | "arrendamento" | "indefinido" {
 // (classificação vive em ./search-acceptance — re-exports acima)
 
 function parseTipologia(v: unknown): string | null {
-  const t = s(v);
-  if (!t) return null;
-  const m = /t\s*([0-6])/i.exec(t);
-  return m ? `T${m[1]}` : t.toUpperCase();
+  // Delega no normalizador único; mantém assinatura antiga para o resto do ficheiro.
+  return normalizeSearchBedrooms({ tipologia: v }, "excel-import").tipologia;
 }
 
 function parseTipoImovel(v: unknown): string[] | null {
@@ -332,11 +331,12 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
       if (elevador) caracExtras.push("elevador");
       if (garagem) caracExtras.push("garagem");
 
+      const baseBedrooms = normalizeSearchBedrooms({ tipologia }, "excel-import:baseCriteria");
       const baseCriteria = {
         nome,
         finalidade,
         tipo_imovel: tipoImovel,
-        tipologia,
+        tipologia: baseBedrooms.tipologia,
         zona,
         freguesia,
         municipio,
@@ -346,7 +346,7 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
         area_min: area,
         area_terreno_min: area_terreno,
         wc_min: wc,
-        quartos_min: tipologia ? Number(tipologia.replace(/\D/g, "")) || null : null,
+        quartos_min: baseBedrooms.quartos_min,
         caracteristicas: caracExtras.length ? caracExtras : null,
       };
 
@@ -381,7 +381,11 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
         const spZona = sp.zona ?? null;
         const spMunicipio = sp.municipio ?? null;
         const spFreguesia = sp.freguesia ?? null;
-        const spTipologia = sp.tipologia ?? null;
+        const spBedrooms = normalizeSearchBedrooms(
+          { tipologia: sp.tipologia, quartos_min: sp.quartos_min },
+          "excel-import:split",
+        );
+        const spTipologia = spBedrooms.tipologia;
         const criteria = {
           nome,
           finalidade: sp.finalidade ?? "indefinido",
@@ -396,9 +400,7 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
           area_min: sp.area_min ?? null,
           area_terreno_min: area_terreno,
           wc_min: wc,
-          quartos_min:
-            sp.quartos_min ??
-            (spTipologia ? Number(spTipologia.replace(/\D/g, "")) || null : null),
+          quartos_min: spBedrooms.quartos_min,
           caracteristicas: sp.caracteristicas ?? null,
         };
 

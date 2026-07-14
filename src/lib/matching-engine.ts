@@ -119,9 +119,31 @@ function num(v: number | string | null | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+// Defesa: só aceita T0..T20. Valores implausíveis (ex.: "T73" gravado por um
+// bug antigo do importador) são tratados como null — nunca 73 quartos.
+// A fonte de verdade da normalização vive em src/lib/bedrooms-normalize.ts;
+// aqui replicamos apenas o clamp para não criar dependência circular no motor
+// puro. Se o limite mudar, atualizar MAX_PLAUSIBLE_BEDROOMS lá.
+const MATCHING_MAX_BEDROOMS = 20;
 function tipologiaQuartos(t: string | null | undefined): number | null {
-  const m = /^t(\d+)/i.exec((t ?? "").trim());
-  return m ? Number(m[1]) : null;
+  const m = /^t\s*(\d{1,3})/i.exec((t ?? "").trim());
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n <= 0 || n > MATCHING_MAX_BEDROOMS) {
+    if (n > MATCHING_MAX_BEDROOMS) {
+      console.warn(`[matching-engine] tipologia implausível ignorada: ${JSON.stringify(t)}`);
+    }
+    return null;
+  }
+  return n;
+}
+function sanitizeQuartos(v: number | null | undefined, source: string): number | null {
+  if (v == null || !Number.isFinite(v) || v <= 0) return null;
+  if (v > MATCHING_MAX_BEDROOMS) {
+    console.warn(`[matching-engine] ${source} implausível ignorado: ${v}`);
+    return null;
+  }
+  return v;
 }
 
 function fail(key: MatchCategoryKey, label: string, detail: string, needsReview: NeedsReview | null = null): MatchScore {
@@ -415,8 +437,10 @@ function scoreTipologia(buyer: BuyerLike, property: PropertyLike): MatchCategory
       : "—";
     return cat("tipologia", "Tipo", true, label, weight, weight);
   }
-  const bQ = buyer.quartos_min ?? tipologiaQuartos(buyer.tipologia);
-  const pQ = property.quartos ?? tipologiaQuartos(property.tipologia);
+  const bQ = sanitizeQuartos(buyer.quartos_min ?? null, "buyer.quartos_min")
+    ?? tipologiaQuartos(buyer.tipologia);
+  const pQ = sanitizeQuartos(property.quartos ?? null, "property.quartos")
+    ?? tipologiaQuartos(property.tipologia);
   if (bQ == null) {
     return cat("tipologia", "Tipologia", true, property.tipologia ?? (pQ != null ? `${pQ} quartos` : "—"), weight, weight);
   }

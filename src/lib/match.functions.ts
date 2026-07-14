@@ -7,6 +7,7 @@ import {
   hasStructuredCriteria,
   type AcceptanceDecision,
 } from "./search-acceptance";
+import { normalizeSearchBedrooms } from "./bedrooms-normalize";
 
 const LeadSchema = z.object({
   finalidade: z.enum(["venda", "arrendamento", "indefinido"]).default("indefinido"),
@@ -99,6 +100,13 @@ Se não houver leads, devolve {"leads":[]}.`;
     // src/lib/search-acceptance.ts. Anúncios descartados, resto anotado.
     const acceptedLeads: Array<Lead & { acceptance: AcceptanceDecision }> = [];
     for (const lead of parsed.leads) {
+      const bed = normalizeSearchBedrooms(
+        { tipologia: lead.tipologia, quartos_min: lead.quartos },
+        "extractAndMatch",
+      );
+      lead.tipologia = bed.tipologia;
+      if (bed.quartos_min != null) lead.quartos = bed.quartos_min;
+      else if (lead.quartos != null && lead.quartos > 20) lead.quartos = null;
       const decision = evaluateSearchAcceptance({
         text: lead.mensagem_original ?? lead.resumo ?? null,
         finalidade: lead.finalidade,

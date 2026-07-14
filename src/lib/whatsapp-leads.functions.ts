@@ -9,6 +9,7 @@ import {
   hasStructuredCriteria,
   type AcceptanceDecision,
 } from "./search-acceptance";
+import { normalizeSearchBedrooms } from "./bedrooms-normalize";
 
 const QualifiedLeadSchema = z.object({
   nome: z.string().nullable().optional(),
@@ -171,19 +172,23 @@ export const createBuyersFromLeads = createServerFn({ method: "POST" })
         notasParts.push(`Características: ${l.caracteristicas.join(", ")}`);
       if (l.mensagem_original) notasParts.push(`Origem WhatsApp: "${l.mensagem_original}"`);
       if (l.contacto) notasParts.push(`Contacto/origem: ${l.contacto}`);
+      const bed = normalizeSearchBedrooms(
+        { tipologia: l.tipologia, quartos_min: l.quartos_min },
+        "whatsapp:createBuyers",
+      );
       return {
         user_id: userId,
         nome,
         telefone: normalizePhone(l.telefone) ?? null,
         email: l.email ?? null,
         finalidade,
-        tipologia: l.tipologia ?? null,
+        tipologia: bed.tipologia,
         zona: l.zona ?? null,
         tipo_imovel: l.tipo_imovel ?? null,
         budget_min: l.budget_min ?? null,
         budget_max: l.budget_max ?? null,
         area_min: l.area_min ?? null,
-        quartos_min: l.quartos_min ?? null,
+        quartos_min: bed.quartos_min,
         garagem_obrigatoria: (l.caracteristicas ?? []).some((c) => /garagem/i.test(c)),
         elevador_obrigatorio: (l.caracteristicas ?? []).some((c) => /elevador/i.test(c)),
         notas: notasParts.join("\n") || null,
@@ -208,15 +213,19 @@ function leadToBuyer(l: QualifiedLead) {
   const finalidade = l.finalidade === "indefinido" ? undefined : l.finalidade;
   const gar = (l.caracteristicas ?? []).some((c) => /garagem/i.test(c));
   const ele = (l.caracteristicas ?? []).some((c) => /elevador/i.test(c));
+  const bed = normalizeSearchBedrooms(
+    { tipologia: l.tipologia, quartos_min: l.quartos_min },
+    "whatsapp:leadToBuyer",
+  );
   return {
     finalidade,
     tipo_imovel: l.tipo_imovel ?? null,
-    tipologia: l.tipologia ?? null,
+    tipologia: bed.tipologia,
     zona: l.zona ?? null,
     budget_min: l.budget_min ?? null,
     budget_max: l.budget_max ?? null,
     area_min: l.area_min ?? null,
-    quartos_min: l.quartos_min ?? null,
+    quartos_min: bed.quartos_min,
     garagem_obrigatoria: gar,
     elevador_obrigatorio: ele,
   };
