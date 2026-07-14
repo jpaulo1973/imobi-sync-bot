@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { LocationSelector } from "@/components/entity-selector/LocationSelector";
 import {
   Dialog,
   DialogContent,
