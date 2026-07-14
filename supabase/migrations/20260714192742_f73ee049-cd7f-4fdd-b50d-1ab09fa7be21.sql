@@ -1,0 +1,1 @@
+DELETE FROM public.location_aliases WHERE alias_normalizado = 'teste fase2 xpto';
