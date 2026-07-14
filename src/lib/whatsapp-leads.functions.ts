@@ -87,6 +87,17 @@ const AnalysisResponse = z.object({
   leads: z.array(QualifiedLeadSchema),
 });
 
+// Schema tolerante ao nível da resposta: cada lead é validado individualmente.
+// Se um único lead falhar validação (ex.: `finalidade` fora do enum), esse
+// lead é descartado com telemetria — a resposta inteira NÃO é rejeitada.
+// Continua a lançar `WHATSAPP_PARSE_ERROR` apenas quando não sobrar nenhum
+// lead válido, quando `leads` não é array, ou quando o JSON de topo está
+// malformado.
+const AnalysisEnvelope = z.object({
+  total_capturas: z.number().default(0),
+  leads: z.array(z.unknown()),
+});
+
 // Erro dedicado a falhas de extração/parse da resposta do LLM.
 // Distingue explicitamente:
 //   - "IA não devolveu procuras" (leads: [] no JSON válido) ⇒ NÃO lança.
@@ -145,9 +156,10 @@ function parseLlmAnalysisResponse(
     );
   }
 
-  const zres = AnalysisResponse.safeParse(json);
-  if (!zres.success) {
-    const failed_fields = zres.error.issues.map((i) => ({
+  // 1) Validar o envelope de topo (total_capturas + leads como array).
+  const env = AnalysisEnvelope.safeParse(json);
+  if (!env.success) {
+    const failed_fields = env.error.issues.map((i) => ({
       path: i.path.join("."),
       message: i.message,
       code: i.code,
@@ -157,7 +169,7 @@ function parseLlmAnalysisResponse(
       error_type: "ZOD_VALIDATION" as const,
       raw_excerpt: rawExcerpt,
       failed_fields,
-      cause_message: zres.error.message,
+      cause_message: env.error.message,
     };
     console.error("[whatsapp-leads] LLM_PARSING_FAILURE", { source: ctx.source, ...detail });
     throw new WhatsappParseError(
@@ -166,9 +178,61 @@ function parseLlmAnalysisResponse(
     );
   }
 
-  const out = zres.data;
-  if (!out.total_capturas) out.total_capturas = ctx.total_capturas;
-  return out;
+  // 2) Validar cada lead individualmente. Descartar inválidos com telemetria
+  //    em vez de rejeitar a resposta inteira — 1 lead corrompido não pode
+  //    fazer perder os restantes.
+  const validLeads: QualifiedLead[] = [];
+  const droppedLeads: Array<{ index: number; failed_fields: Array<{ path: string; message: string; code: string }> }> = [];
+  for (let i = 0; i < env.data.leads.length; i++) {
+    const r = QualifiedLeadSchema.safeParse(env.data.leads[i]);
+    if (r.success) {
+      validLeads.push(r.data);
+    } else {
+      droppedLeads.push({
+        index: i,
+        failed_fields: r.error.issues.map((iss) => ({
+          path: iss.path.join("."),
+          message: iss.message,
+          code: iss.code,
+        })),
+      });
+    }
+  }
+
+  if (droppedLeads.length > 0) {
+    console.warn("[whatsapp-leads] LLM_PARTIAL_LEADS_DROPPED", {
+      source: ctx.source,
+      execution_id: ctx.execution_id,
+      total_received: env.data.leads.length,
+      dropped_count: droppedLeads.length,
+      kept_count: validLeads.length,
+      dropped: droppedLeads,
+    });
+  }
+
+  // 3) Se TODOS os leads foram descartados e havia leads na resposta,
+  //    tratamos como falha real de parsing (mostrar toast dedicado).
+  if (env.data.leads.length > 0 && validLeads.length === 0) {
+    const detail = {
+      execution_id: ctx.execution_id,
+      error_type: "ZOD_VALIDATION" as const,
+      raw_excerpt: rawExcerpt,
+      failed_fields: droppedLeads.flatMap((d) =>
+        d.failed_fields.map((f) => ({ ...f, path: `leads.${d.index}.${f.path}` })),
+      ),
+      cause_message: `Todos os ${env.data.leads.length} leads devolvidos pela IA falharam validação.`,
+    };
+    console.error("[whatsapp-leads] LLM_PARSING_FAILURE", { source: ctx.source, ...detail });
+    throw new WhatsappParseError(
+      "A IA devolveu dados que não cumprem o formato esperado.",
+      detail,
+    );
+  }
+
+  return {
+    total_capturas: env.data.total_capturas || ctx.total_capturas,
+    leads: validLeads,
+  };
 }
 
 const AnalyzeInput = z
@@ -195,7 +259,7 @@ INSTRUÇÕES:
 4. SEPARAÇÃO DE PROCURAS: se UMA mensagem contém várias procuras INDEPENDENTES (diferentes tipologias, zonas ou orçamentos), cria UM lead separado por cada procura. NUNCA mistures critérios entre procuras diferentes.
 4. Para CADA lead identificada extrai:
    - nome: nome do cliente/família se referido (ou null; não é o nome de quem envia a mensagem)
-   - finalidade: "venda" (comprar) | "arrendamento" (arrendar) | "indefinido"
+   - finalidade: OBRIGATÓRIO. Um de exatamente três valores: "venda" (comprar) | "arrendamento" (arrendar) | "indefinido". NUNCA null, NUNCA outro valor. Se não conseguires determinar, usa "indefinido".
    - tipo_imovel: array com "Apartamento","Moradia","Terreno","Loja","Escritório","Armazém","Prédio","Espaço comercial" (ou null)
    - tipologia: "T0","T1","T2","T3","T4","T5+" (ou null)
    - zona: cidade/concelho/zona/freguesia (ou null)
@@ -209,6 +273,7 @@ INSTRUÇÕES:
    - confianca: "alta" (pedido claro com finalidade+zona+outro critério), "media" (razoavelmente claro), "baixa" (pedido ambíguo ou dados insuficientes)
 5. Se não houver leads, devolve leads:[].
 6. Não inventes dados. Campo desconhecido = null.
+7. EXCEÇÃO à regra 6: o campo "finalidade" nunca pode ser null — usa "indefinido" quando desconhecido.
 
 RESPOSTA: APENAS JSON válido no formato:
 {"total_capturas": <número de imagens analisadas>, "leads": [ ... ]}`;
@@ -370,7 +435,9 @@ Interpreta a INTENÇÃO. Ignora cabeçalhos WhatsApp, emojis isolados, reações
 
 IMPORTANTE — SEPARAÇÃO DE PROCURAS: Se UMA única mensagem contém várias procuras INDEPENDENTES (por exemplo tipologias, zonas ou orçamentos diferentes na mesma frase — "procura T2 até 400k. Procura moradia em Cascais até 1M. Procura apartamento na Lourinhã"), cria UM lead separado por cada procura. NUNCA mistures zona, tipologia ou orçamento entre procuras diferentes.
 
-Para CADA pedido identificado extrai: nome (do consultor ou cliente que envia o pedido, quando existir), finalidade (venda|arrendamento|indefinido), tipo_imovel (array), tipologia, zona, budget_min, budget_max, area_min, quartos_min, caracteristicas (array), contacto, telefone (número em formato português, apenas dígitos com prefixo se aplicável), grupo_whatsapp (nome do grupo WhatsApp visível no cabeçalho da conversa quando existir), data_publicacao (data ISO da mensagem quando visível), resumo (1 frase), mensagem_original (excerto ≤300 char), confianca (alta|media|baixa). Não inventes dados: desconhecido = null.
+Para CADA pedido identificado extrai: nome (do consultor ou cliente que envia o pedido, quando existir), finalidade, tipo_imovel (array), tipologia, zona, budget_min, budget_max, area_min, quartos_min, caracteristicas (array), contacto, telefone (número em formato português, apenas dígitos com prefixo se aplicável), grupo_whatsapp (nome do grupo WhatsApp visível no cabeçalho da conversa quando existir), data_publicacao (data ISO da mensagem quando visível), resumo (1 frase), mensagem_original (excerto ≤300 char), confianca (alta|media|baixa). Não inventes dados: desconhecido = null.
+
+REGRA ESTRITA "finalidade": OBRIGATÓRIO. Um de exatamente três valores: "venda" | "arrendamento" | "indefinido". NUNCA null, NUNCA outro valor. Se não conseguires determinar, usa "indefinido". Esta é a única exceção à regra geral "desconhecido = null".
 
 RESPOSTA: APENAS JSON válido:
 {"total_capturas": <n>, "leads": [ ... ]}`;
