@@ -87,6 +87,17 @@ const AnalysisResponse = z.object({
   leads: z.array(QualifiedLeadSchema),
 });
 
+// Schema tolerante ao nível da resposta: cada lead é validado individualmente.
+// Se um único lead falhar validação (ex.: `finalidade` fora do enum), esse
+// lead é descartado com telemetria — a resposta inteira NÃO é rejeitada.
+// Continua a lançar `WHATSAPP_PARSE_ERROR` apenas quando não sobrar nenhum
+// lead válido, quando `leads` não é array, ou quando o JSON de topo está
+// malformado.
+const AnalysisEnvelope = z.object({
+  total_capturas: z.number().default(0),
+  leads: z.array(z.unknown()),
+});
+
 // Erro dedicado a falhas de extração/parse da resposta do LLM.
 // Distingue explicitamente:
 //   - "IA não devolveu procuras" (leads: [] no JSON válido) ⇒ NÃO lança.
