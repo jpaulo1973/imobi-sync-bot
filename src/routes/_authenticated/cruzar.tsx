@@ -127,6 +127,11 @@ function CruzarPage() {
       const msg = e instanceof Error ? e.message : "Erro desconhecido";
       if (msg.includes("CREDITS_EXHAUSTED")) toast.error("Créditos de IA esgotados.");
       else if (msg.includes("RATE_LIMITED")) toast.error("Demasiados pedidos, tenta novamente em breve.");
+      else if (msg.includes("WHATSAPP_PARSE_ERROR") || msg.includes("A IA devolveu")) {
+        toast.error(
+          "A IA respondeu mas não conseguimos interpretar o resultado. Tenta novamente ou cola o texto além da captura.",
+        );
+      }
       else toast.error(msg);
       // Erro: mantém o texto para o utilizador poder tentar de novo.
     } finally {
