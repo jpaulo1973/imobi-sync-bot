@@ -674,6 +674,19 @@ function ImoveisPage() {
                 </div>
               </div>
 
+              <div className="space-y-2">
+                <Label className="text-xs">Localização estruturada</Label>
+                <LocationSelector
+                  value={form.location_id ? [form.location_id] : []}
+                  onChange={(ids) => setForm({ ...form, location_id: ids[0] ?? null })}
+                  multiple={false}
+                  placeholder="Pesquisar concelho, freguesia ou zona…"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Fonte de verdade geográfica. Ligada à biblioteca central.
+                </p>
+              </div>
+
               <div className="grid grid-cols-2 gap-3 pt-2">
                 {(["garagem", "elevador", "jardim", "piscina"] as const).map((k) => (
                   <label key={k} className="flex items-center gap-2 text-sm">
