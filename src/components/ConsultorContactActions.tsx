@@ -8,7 +8,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { MessageCircle, User, Mail, Phone as PhoneIcon, Building2, Copy } from "lucide-react";
-import { toWhatsAppNumber } from "@/components/PhoneButton";
+import { toWhatsAppNumber, openWhatsApp } from "@/components/PhoneButton";
 import { toast } from "sonner";
 
 // Release 1.3 — Ações de contacto entre consultores.
@@ -48,24 +48,15 @@ export function ConsultorContactActions({ consultor, compact = false }: Props) {
   return (
     <div className="inline-flex items-center gap-1">
       <Button
-        asChild={!!wa}
         size={compact ? "icon" : "sm"}
         variant="outline"
         disabled={!wa}
         title={wa ? "Abrir WhatsApp" : "Consultor sem telemóvel registado"}
         aria-label="Abrir WhatsApp do consultor"
+        onClick={() => wa && openWhatsApp(consultor.telefone!)}
       >
-        {wa ? (
-          <a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer noopener">
-            <MessageCircle className={compact ? "w-4 h-4" : "w-4 h-4 mr-1"} />
-            {!compact && "WhatsApp"}
-          </a>
-        ) : (
-          <span>
-            <MessageCircle className={compact ? "w-4 h-4" : "w-4 h-4 mr-1"} />
-            {!compact && "Sem WhatsApp"}
-          </span>
-        )}
+        <MessageCircle className={compact ? "w-4 h-4" : "w-4 h-4 mr-1"} />
+        {!compact && (wa ? "WhatsApp" : "Sem WhatsApp")}
       </Button>
       <Button
         size={compact ? "icon" : "sm"}
