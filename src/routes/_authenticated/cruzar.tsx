@@ -403,14 +403,12 @@ function CruzarPage() {
                 <div className="flex flex-wrap items-center gap-1">
                   {r.lead.telefone && (
                     <>
-                      <Button asChild size="sm" variant="outline">
-                        <a
-                          href={`https://wa.me/${r.lead.telefone.replace(/[^\d+]/g, "").replace(/^\+/, "")}`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          <MessageCircle className="w-4 h-4 mr-1" /> WhatsApp
-                        </a>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openWhatsApp(r.lead.telefone!)}
+                      >
+                        <MessageCircle className="w-4 h-4 mr-1" /> WhatsApp
                       </Button>
                       <PhoneButton telefone={r.lead.telefone} />
                     </>
