@@ -117,6 +117,7 @@ type FormState = {
   concelho: string;
   freguesia: string;
   zona: string;
+  location_id: string | null;
   area_util_m2: string;
   area_bruta_m2: string;
   area_terreno_m2: string;
@@ -137,6 +138,7 @@ const empty: FormState = {
   concelho: "",
   freguesia: "",
   zona: "",
+  location_id: null,
   area_util_m2: "",
   area_bruta_m2: "",
   area_terreno_m2: "",
@@ -157,6 +159,7 @@ const fromProperty = (p: Property): FormState => ({
   concelho: p.concelho ?? "",
   freguesia: p.freguesia ?? "",
   zona: p.zona ?? "",
+  location_id: (p as any).location_id ?? null,
   area_util_m2: p.area_util_m2 != null ? String(p.area_util_m2) : "",
   area_bruta_m2: p.area_bruta_m2 != null ? String(p.area_bruta_m2) : "",
   area_terreno_m2:
@@ -406,6 +409,7 @@ function ImoveisPage() {
       concelho: form.concelho || null,
       freguesia: form.freguesia || null,
       zona: form.zona || form.freguesia || form.concelho || "Por preencher",
+      location_id: form.location_id,
       area_util_m2: form.area_util_m2 ? Number(form.area_util_m2) : null,
       area_m2: form.area_util_m2 ? Number(form.area_util_m2) : null,
       area_bruta_m2: form.area_bruta_m2 ? Number(form.area_bruta_m2) : null,
