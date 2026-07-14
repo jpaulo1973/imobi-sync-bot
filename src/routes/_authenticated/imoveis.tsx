@@ -653,27 +653,19 @@ function ImoveisPage() {
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              {(form.distrito || form.concelho || form.freguesia || form.zona) && (
                 <div className="space-y-2">
-                  {label("Distrito", "distrito")}
-                  <Input value={form.distrito} onChange={(e) => setForm({ ...form, distrito: e.target.value })} placeholder="Lisboa" />
+                  <Label className="text-xs">Texto original da localização</Label>
+                  <div className="text-sm bg-muted/50 rounded p-2 whitespace-pre-wrap break-words border">
+                    {[form.zona, form.freguesia, form.concelho, form.distrito]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Informativo (auditoria). Não utilizado pelo motor.
+                  </p>
                 </div>
-                <div className="space-y-2">
-                  {label("Concelho", "concelho")}
-                  <Input value={form.concelho} onChange={(e) => setForm({ ...form, concelho: e.target.value })} placeholder="Cascais" />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  {label("Freguesia", "freguesia")}
-                  <Input value={form.freguesia} onChange={(e) => setForm({ ...form, freguesia: e.target.value })} placeholder="Carcavelos" />
-                </div>
-                <div className="space-y-2">
-                  {label("Zona / bairro", "zona")}
-                  <Input value={form.zona} onChange={(e) => setForm({ ...form, zona: e.target.value })} placeholder="opcional" />
-                </div>
-              </div>
+              )}
 
               <div className="space-y-2">
                 <Label className="text-xs">Localização estruturada</Label>
@@ -684,7 +676,7 @@ function ImoveisPage() {
                   placeholder="Pesquisar concelho, freguesia ou zona…"
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Fonte de verdade geográfica. Ligada à biblioteca central.
+                  Única fonte de verdade geográfica. O motor utiliza exclusivamente este campo.
                 </p>
               </div>
 
