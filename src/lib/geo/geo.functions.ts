@@ -29,7 +29,29 @@ export const resolveLocationText = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => resolveSchema.parse(data))
   .handler(async ({ data }): Promise<ParseResult> => {
     const snap = await LocationRepository.getSnapshot();
-    return parseLocations(data.text, snap);
+    const result = parseLocations(data.text, snap);
+    // Registar utilização real dos aliases resolvidos automaticamente.
+    // times_used representa reutilizações efectivas do alias pelo parser —
+    // nunca é incrementado na criação/promoção (essa é uma acção humana).
+    if (result.aliases_used.length > 0) {
+      try {
+        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        const nowIso = new Date().toISOString();
+        await Promise.all(
+          result.aliases_used.map(async (aliasId) => {
+            const aliasRow = snap.aliases.find((a) => a.id === aliasId);
+            const next = (aliasRow?.times_used ?? 0) + 1;
+            await supabaseAdmin
+              .from("location_aliases")
+              .update({ times_used: next, last_used_at: nowIso })
+              .eq("id", aliasId);
+          }),
+        );
+      } catch {
+        // Contador é telemetria — não deve bloquear a resolução.
+      }
+    }
+    return result;
   });
 
 const byIdsSchema = z.object({ ids: z.array(z.string().uuid()).max(200) });
@@ -81,8 +103,6 @@ export const promoteAlias = createServerFn({ method: "POST" })
         .update({
           location_ids: validIds,
           aprovado: true,
-          times_used: (existing.times_used ?? 0) + 1,
-          last_used_at: new Date().toISOString(),
           origem: data.origem ?? "revisao",
         })
         .eq("id", existing.id);
@@ -93,8 +113,8 @@ export const promoteAlias = createServerFn({ method: "POST" })
         location_ids: validIds,
         aprovado: true,
         origem: data.origem ?? "revisao",
-        times_used: 1,
-        last_used_at: new Date().toISOString(),
+        times_used: 0,
+        last_used_at: null,
         created_by: context.userId,
       });
       if (error) throw new Error(error.message);
