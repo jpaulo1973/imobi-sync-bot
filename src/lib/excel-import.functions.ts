@@ -576,7 +576,7 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
 
     const { data: searches } = await supabase
       .from("active_searches")
-      .select("id, criteria")
+      .select("id, criteria, location_ids")
       .eq("user_id", userId)
       .eq("import_batch_id", batch_id);
 
