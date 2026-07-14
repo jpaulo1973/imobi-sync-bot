@@ -1,9 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { scoreMatch, type BuyerLike } from "./matching-engine";
+import { scoreMatch, buildGeoMatchIndex, type BuyerLike } from "./matching-engine";
 import { buildDedupKey, normalizePhone, scoreSimilarity, type SimilarityCriteria } from "./dedup";
-import { loadZoneContext } from "./functional-zones";
+import { LocationRepository } from "./geo";
 import { extractProximityCriteria } from "./search-splitter.server";
 
 const CriteriaSchema = z.object({
@@ -97,12 +97,21 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
     }
     // Release 1.2 — se a zona indicada não é reconhecida como administrativa
     // nem como zona funcional, marcar para Revisão (motivo zona_desconhecida).
+    // Fase 3 — usar exclusivamente o LocationRepository para resolver texto
+    // → location_ids. Se resolver, guardamos os IDs; se não, sinalizamos.
     try {
       const zonaText = data.criteria.zona ?? data.criteria.municipio ?? data.criteria.freguesia ?? null;
       if (zonaText) {
-        const zoneCtx = await loadZoneContext();
-        const resolved = (await import("./functional-zones")).resolveZone(zonaText, zoneCtx);
-        if (resolved.unknown) {
+        const snap = await LocationRepository.getSnapshot();
+        const { parseLocations } = await import("./geo");
+        const parseRes = parseLocations(zonaText, snap);
+        if (parseRes.resolved.length > 0) {
+          await supabase
+            .from("active_searches")
+            .update({ location_ids: parseRes.resolved })
+            .eq("id", res.id)
+            .eq("user_id", userId);
+        } else {
           await supabase
             .from("active_searches")
             .update({
@@ -132,18 +141,18 @@ async function recomputeForSearch(supabase: any, userId: string, searchId: strin
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: s } = await supabaseAdmin
     .from("active_searches")
-    .select("id, criteria")
+    .select("id, criteria, location_ids")
     .eq("id", searchId)
     .maybeSingle();
   if (!s) return 0;
   const { data: props } = await supabaseAdmin
     .from("properties")
     .select(
-      "id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
+      "id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade, location_id",
     )
     .eq("ativo", true);
-  const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria);
-  const zoneContext = await loadZoneContext();
+  const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria, (s as any).location_ids ?? []);
+  const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
   const { data: existing } = await supabaseAdmin
     .from("match_opportunities")
     .select("id, property_id, score, user_id")
@@ -153,7 +162,7 @@ async function recomputeForSearch(supabase: any, userId: string, searchId: strin
   );
   let created = 0;
   for (const p of props ?? []) {
-    const r = scoreMatch(buyer, p, { zoneContext });
+    const r = scoreMatch(buyer, p, { geoIndex });
     if (!r.compatible || r.score < 60) continue;
     const prev = existingMap.get(p.id);
     if (!prev) {
@@ -184,15 +193,15 @@ export async function recomputeForProperty(propertyId: string): Promise<number> 
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: p } = await supabaseAdmin
     .from("properties")
-    .select("id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade, ativo")
+    .select("id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade, location_id, ativo")
     .eq("id", propertyId)
     .maybeSingle();
   if (!p || !p.ativo) return 0;
   const nowIso = new Date().toISOString();
-  const zoneContext = await loadZoneContext();
+  const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
   const { data: searches } = await supabaseAdmin
     .from("active_searches")
-    .select("id, criteria")
+    .select("id, criteria, location_ids")
     .gt("expires_at", nowIso);
   const { data: existing } = await supabaseAdmin
     .from("match_opportunities")
@@ -203,8 +212,8 @@ export async function recomputeForProperty(propertyId: string): Promise<number> 
   );
   let created = 0;
   for (const s of searches ?? []) {
-    const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria);
-    const r = scoreMatch(buyer, p as any, { zoneContext });
+    const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria, (s as any).location_ids ?? []);
+    const r = scoreMatch(buyer, p as any, { geoIndex });
     if (!r.compatible || r.score < 60) continue;
     const prev = existingMap.get(s.id);
     if (!prev) {
@@ -636,7 +645,7 @@ export const deleteActiveSearch = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-function criteriaToBuyer(c: ActiveSearchCriteria): BuyerLike {
+function criteriaToBuyer(c: ActiveSearchCriteria, location_ids: string[] = []): BuyerLike {
   const finalidade = c.finalidade === "indefinido" ? undefined : c.finalidade;
   const gar = (c.caracteristicas ?? []).some((x) => /garagem/i.test(x));
   const ele = (c.caracteristicas ?? []).some((x) => /elevador/i.test(x));
@@ -644,9 +653,7 @@ function criteriaToBuyer(c: ActiveSearchCriteria): BuyerLike {
     finalidade,
     tipo_imovel: c.tipo_imovel ?? null,
     tipologia: c.tipologia ?? null,
-    zona: c.zona ?? null,
-    freguesia: c.freguesia ?? null,
-    municipio: c.municipio ?? null,
+    location_ids,
     budget_min: c.budget_min ?? null,
     budget_max: c.budget_max ?? null,
     area_min: c.area_min ?? null,
@@ -680,7 +687,7 @@ export const matchPropertyAgainstActiveSearches = createServerFn({ method: "POST
     const { data: prop, error: pErr } = await supabase
       .from("properties")
       .select(
-        "id, referencia, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
+        "id, referencia, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade, location_id",
       )
       .eq("id", data.propertyId)
       .eq("user_id", userId)
@@ -696,10 +703,10 @@ export const matchPropertyAgainstActiveSearches = createServerFn({ method: "POST
 
     const matches: ActiveSearchMatch[] = [];
     const persist: Array<{ search_id: string; score: number; reasons: string[]; categories: any }> = [];
-    const zoneContext = await loadZoneContext();
+    const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
     for (const s of searches ?? []) {
-      const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria);
-      const res = scoreMatch(buyer, prop, { zoneContext });
+      const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria, (s as any).location_ids ?? []);
+      const res = scoreMatch(buyer, prop, { geoIndex });
       if (res.compatible && res.score >= 60) {
         matches.push({
           search_id: s.id,
@@ -761,7 +768,7 @@ export const listOpportunities = createServerFn({ method: "GET" })
     const { data, error } = await supabase
       .from("match_opportunities")
       .select(
-        "id, score, reasons, viewed_at, created_at, updated_at, property_id, active_search_id, properties(id, referencia, tipo_imovel, tipologia, zona, freguesia, concelho, preco, finalidade), active_searches(id, contact_nome, contact_telefone, contact_grupo, resumo, criteria)",
+        "id, score, reasons, viewed_at, created_at, updated_at, property_id, active_search_id, properties(id, referencia, tipo_imovel, tipologia, zona, freguesia, concelho, preco, finalidade, location_id), active_searches(id, contact_nome, contact_telefone, contact_grupo, resumo, criteria, location_ids)",
       )
       .eq("user_id", userId)
       .order("viewed_at", { ascending: true, nullsFirst: true })
@@ -775,7 +782,7 @@ export const listOpportunities = createServerFn({ method: "GET" })
     const rows = data ?? [];
     const staleIds: string[] = [];
     const valid: typeof rows = [];
-    const zoneContext = await loadZoneContext();
+    const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
     for (const row of rows) {
       const p = (row as any).properties;
       const s = (row as any).active_searches;
@@ -783,7 +790,7 @@ export const listOpportunities = createServerFn({ method: "GET" })
         staleIds.push(row.id);
         continue;
       }
-      const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria);
+      const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria, (s as any).location_ids ?? []);
       // Aumentar com dados de área/preço vindos do imóvel completo
       const { data: fullProp } = await supabase
         .from("properties")
@@ -791,7 +798,7 @@ export const listOpportunities = createServerFn({ method: "GET" })
         .eq("id", p.id)
         .maybeSingle();
       const propFull = { ...p, ...(fullProp ?? {}) };
-      const res = scoreMatch(buyer, propFull, { zoneContext });
+      const res = scoreMatch(buyer, propFull, { geoIndex });
       if (!res.compatible || res.score < 60) {
         staleIds.push(row.id);
         continue;
@@ -842,7 +849,7 @@ export const recomputeOpportunitiesForSearch = createServerFn({ method: "POST" }
     const { supabase, userId } = context;
     const { data: s } = await supabase
       .from("active_searches")
-      .select("id, criteria")
+      .select("id, criteria, location_ids")
       .eq("id", data.searchId)
       .eq("user_id", userId)
       .maybeSingle();
@@ -851,12 +858,12 @@ export const recomputeOpportunitiesForSearch = createServerFn({ method: "POST" }
     const { data: props } = await supabase
       .from("properties")
       .select(
-        "id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade",
+        "id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade, location_id",
       )
       .eq("user_id", userId)
       .eq("ativo", true);
 
-    const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria);
+    const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria, (s as any).location_ids ?? []);
     const { data: existing } = await supabase
       .from("match_opportunities")
       .select("id, property_id, score")
@@ -867,9 +874,9 @@ export const recomputeOpportunitiesForSearch = createServerFn({ method: "POST" }
     );
 
     let created = 0;
-    const zoneContext = await loadZoneContext();
+    const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
     for (const p of props ?? []) {
-      const r = scoreMatch(buyer, p, { zoneContext });
+      const r = scoreMatch(buyer, p, { geoIndex });
       if (!r.compatible || r.score < 60) continue;
       const prev = existingMap.get(p.id);
       if (!prev) {
