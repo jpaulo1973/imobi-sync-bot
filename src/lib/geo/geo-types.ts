@@ -51,7 +51,7 @@ export interface ParsedSegment {
 /** Passo do audit trail — determinístico, reprodutível. */
 export interface ParseAuditStep {
   step: string;
-  detail?: unknown;
+  detail?: Record<string, unknown>;
 }
 
 /** Retorno canónico de `parseLocations()`. */
