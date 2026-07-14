@@ -2,6 +2,11 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { callLovableAI } from "./ai-gateway.server";
+import {
+  evaluateSearchAcceptance,
+  hasStructuredCriteria,
+  type AcceptanceDecision,
+} from "./search-acceptance";
 
 const LeadSchema = z.object({
   finalidade: z.enum(["venda", "arrendamento", "indefinido"]).default("indefinido"),
@@ -90,8 +95,27 @@ Se não houver leads, devolve {"leads":[]}.`;
       parsed = { leads: [] };
     }
 
+    // Aceitação centralizada — o LLM só extrai; a decisão vive em
+    // src/lib/search-acceptance.ts. Anúncios descartados, resto anotado.
+    const acceptedLeads: Array<Lead & { acceptance: AcceptanceDecision }> = [];
+    for (const lead of parsed.leads) {
+      const decision = evaluateSearchAcceptance({
+        text: lead.mensagem_original ?? lead.resumo ?? null,
+        finalidade: lead.finalidade,
+        hasStructured: hasStructuredCriteria({
+          finalidade: lead.finalidade,
+          tipologia: lead.tipologia,
+          zona: lead.zona,
+          budget_min: lead.preco_min ?? null,
+          budget_max: lead.preco_max ?? null,
+        }),
+      });
+      if (decision.kind === "anuncio") continue;
+      acceptedLeads.push({ ...lead, acceptance: decision });
+    }
+
     // 3. Score matches client-side (deterministic)
-    const matches = parsed.leads.map((lead) => {
+    const matches = acceptedLeads.map((lead) => {
       const ranked = (properties ?? [])
         .map((p) => {
           let score = 0;

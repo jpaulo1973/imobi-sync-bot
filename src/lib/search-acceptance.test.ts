@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateSearchAcceptance } from "./excel-import.functions";
+import { evaluateSearchAcceptance } from "./search-acceptance";
 
 describe("evaluateSearchAcceptance — fluxos Compra e Arrendamento", () => {
   it("aceita Compra + Comprador (texto explícito)", () => {
