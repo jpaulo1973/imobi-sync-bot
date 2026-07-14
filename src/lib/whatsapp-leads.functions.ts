@@ -10,6 +10,7 @@ import {
   type AcceptanceDecision,
 } from "./search-acceptance";
 import { normalizeSearchBedrooms } from "./bedrooms-normalize";
+import { inferFinalidadeFromText } from "./whatsapp-ingestion-normalize";
 
 const QualifiedLeadSchema = z.object({
   nome: z.string().nullable().optional(),
@@ -33,6 +34,22 @@ const QualifiedLeadSchema = z.object({
 
 export type QualifiedLead = z.infer<typeof QualifiedLeadSchema>;
 
+// Correção crítica ingestão WhatsApp: a IA por vezes devolve
+// finalidade="indefinido" mesmo quando o texto contém sinais claros
+// (ex.: "procuro apartamento até 600.000€", "até 2.000€/mês", "comprar",
+// "arrendar"). Antes de persistir ou correr o motor, aplicamos uma
+// inferência determinística a partir do texto e do orçamento. Só
+// alteramos quando o resultado é inequívoco.
+function enrichLeadFinalidade(lead: QualifiedLead): QualifiedLead {
+  if (lead.finalidade !== "indefinido") return lead;
+  const inferred = inferFinalidadeFromText(
+    lead.mensagem_original ?? lead.resumo ?? null,
+    { budget_max: lead.budget_max ?? null },
+  );
+  if (!inferred) return lead;
+  return { ...lead, finalidade: inferred };
+}
+
 // Lead enriquecido com a decisão do módulo central de aceitação. Nenhum
 // consumidor deve inferir aceitação a partir do LLM — usa `acceptance`.
 export type QualifiedLeadWithAcceptance = QualifiedLead & {
@@ -44,7 +61,8 @@ export type QualifiedLeadWithAcceptance = QualifiedLead & {
 // a aceitação vive em src/lib/search-acceptance.ts.
 function applyAcceptance(leads: QualifiedLead[]): QualifiedLeadWithAcceptance[] {
   const out: QualifiedLeadWithAcceptance[] = [];
-  for (const l of leads) {
+  for (const raw of leads) {
+    const l = enrichLeadFinalidade(raw);
     const decision = evaluateSearchAcceptance({
       text: l.mensagem_original ?? l.resumo ?? null,
       finalidade: l.finalidade,
