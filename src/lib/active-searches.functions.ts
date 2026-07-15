@@ -206,6 +206,126 @@ async function recomputeForSearch(supabase: any, userId: string, searchId: strin
 
 export { recomputeForSearch };
 
+/**
+ * Batch equivalente ao `recomputeForSearch`, mas processa várias procuras
+ * numa única passagem, reutilizando o `GeoSnapshot`/`GeoMatchIndex` e as
+ * queries de `properties`/`match_opportunities` carregadas apenas uma vez.
+ *
+ * Mantém exatamente o mesmo comportamento funcional (mesmas condições de
+ * aceitação, mesmos inserts/updates em `match_opportunities`) — o objetivo
+ * é apenas eliminar o gargalo N×(3 queries + rebuild geoIndex) das
+ * importações em lote.
+ */
+export async function recomputeForBatch(
+  _supabase: any,
+  _userId: string,
+  searchIds: string[],
+): Promise<{ created: number; matchesBySearch: Map<string, number> }> {
+  const matchesBySearch = new Map<string, number>();
+  if (!searchIds.length) return { created: 0, matchesBySearch };
+
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
+
+  const [searchesRes, propsRes, existingRes] = await Promise.all([
+    supabaseAdmin
+      .from("active_searches")
+      .select("id, criteria, location_ids")
+      .in("id", searchIds),
+    supabaseAdmin
+      .from("properties")
+      .select(
+        "id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade, location_id",
+      )
+      .eq("ativo", true),
+    supabaseAdmin
+      .from("match_opportunities")
+      .select("id, active_search_id, property_id, score, user_id")
+      .in("active_search_id", searchIds),
+  ]);
+
+  const searches = searchesRes.data ?? [];
+  const props = propsRes.data ?? [];
+  const existing = existingRes.data ?? [];
+
+  // existingMap: search_id -> (property_id -> row)
+  const existingMap = new Map<string, Map<string, { id: string; score: number; user_id: string }>>();
+  for (const e of existing as any[]) {
+    let m = existingMap.get(e.active_search_id);
+    if (!m) {
+      m = new Map();
+      existingMap.set(e.active_search_id, m);
+    }
+    m.set(e.property_id, { id: e.id, score: e.score, user_id: e.user_id });
+  }
+
+  const inserts: Array<{
+    user_id: string;
+    property_id: string;
+    active_search_id: string;
+    score: number;
+    reasons: string[];
+    categories: any;
+  }> = [];
+  const updates: Array<{ id: string; score: number; reasons: string[]; categories: any }> = [];
+
+  for (const s of searches as any[]) {
+    const buyer = criteriaToBuyer(
+      s.criteria as ActiveSearchCriteria,
+      (s.location_ids ?? []) as string[],
+    );
+    const perSearch = existingMap.get(s.id) ?? new Map();
+    let count = 0;
+    for (const p of props as any[]) {
+      const r = scoreMatch(buyer, p, { geoIndex });
+      if (!r.compatible || r.score < 60) continue;
+      count++;
+      const prev = perSearch.get(p.id);
+      if (!prev) {
+        inserts.push({
+          user_id: p.user_id,
+          property_id: p.id,
+          active_search_id: s.id,
+          score: r.score,
+          reasons: r.reasons,
+          categories: r.categories as any,
+        });
+      } else if (prev.score !== r.score) {
+        updates.push({
+          id: prev.id,
+          score: r.score,
+          reasons: r.reasons,
+          categories: r.categories as any,
+        });
+      }
+    }
+    matchesBySearch.set(s.id, count);
+  }
+
+  let created = 0;
+  if (inserts.length) {
+    // Chunk para evitar payloads gigantes.
+    const CHUNK = 500;
+    for (let i = 0; i < inserts.length; i += CHUNK) {
+      const slice = inserts.slice(i, i + CHUNK);
+      const { error } = await supabaseAdmin.from("match_opportunities").insert(slice);
+      if (error) {
+        console.error("[recomputeForBatch] insert failed", error);
+      } else {
+        created += slice.length;
+      }
+    }
+  }
+  for (const u of updates) {
+    await supabaseAdmin
+      .from("match_opportunities")
+      .update({ score: u.score, reasons: u.reasons, categories: u.categories, viewed_at: null })
+      .eq("id", u.id);
+  }
+
+  return { created, matchesBySearch };
+}
+
 // Release 1.2 — quando um imóvel é criado/atualizado, materializa
 // oportunidades cruzando com a Base Global de procuras (via admin).
 export async function recomputeForProperty(propertyId: string): Promise<number> {
