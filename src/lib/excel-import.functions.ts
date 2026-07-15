@@ -564,61 +564,36 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
     //    pela sync. Deixam apenas de estar ativas quando expirarem pelo TTL.
     const removidas = 0;
 
-    // 3) Match imediato — para as procuras deste batch
-    const { data: properties } = await supabase
-      .from("properties")
-      .select(
-        "id, referencia, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade, location_id",
-      )
-      .eq("user_id", userId)
-      .eq("ativo", true);
-
-    const { data: searches } = await supabase
+    // 3) Match imediato — processado em LOTE para todas as procuras deste
+    //    batch. O `recomputeForBatch` carrega snapshot/geoIndex/properties/
+    //    match_opportunities apenas uma vez, elimina a duplicação entre o
+    //    scoring "de aviso" e o `recomputeForSearch` per-procura, e mantém
+    //    o mesmo comportamento funcional (mesmas condições de aceitação e
+    //    mesma persistência em `match_opportunities`).
+    const { data: batchSearches } = await supabase
       .from("active_searches")
-      .select("id, criteria, location_ids")
+      .select("id")
       .eq("user_id", userId)
       .eq("import_batch_id", batch_id);
+    const searchIds = (batchSearches ?? []).map((r: any) => r.id as string);
 
     let matches = 0;
-    const { LocationRepository } = await import("./geo");
-    const { buildGeoMatchIndex } = await import("./matching-engine");
-    const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
-    for (const s of searches ?? []) {
-      const c = s.criteria as Record<string, any>;
-      const buyer: BuyerLike = {
-        finalidade: c.finalidade === "indefinido" ? undefined : c.finalidade,
-        tipo_imovel: c.tipo_imovel ?? null,
-        tipologia: c.tipologia ?? null,
-        location_ids: Array.isArray((s as any).location_ids)
-          ? ((s as any).location_ids as string[])
-          : [],
-        budget_min: c.budget_min ?? null,
-        budget_max: c.budget_max ?? null,
-        area_min: c.area_min ?? null,
-        quartos_min: c.quartos_min ?? null,
-        garagem_obrigatoria: (c.caracteristicas ?? []).some((x: string) => /garagem/i.test(x)),
-        elevador_obrigatorio: (c.caracteristicas ?? []).some((x: string) => /elevador/i.test(x)),
-      };
-      let has = false;
-      for (const p of properties ?? []) {
-        const r = scoreMatch(buyer, p, { geoIndex });
-        if (r.compatible && r.score >= 60) {
-          matches++;
-          has = true;
-        }
+    try {
+      const { matchesBySearch } = await recomputeForBatch(supabase, userId, searchIds);
+      const nowIso = new Date().toISOString();
+      const withMatches: string[] = [];
+      for (const [sid, n] of matchesBySearch) {
+        matches += n;
+        if (n > 0) withMatches.push(sid);
       }
-      if (has) {
+      if (withMatches.length) {
         await supabase
           .from("active_searches")
-          .update({ last_match_at: new Date().toISOString() })
-          .eq("id", s.id);
+          .update({ last_match_at: nowIso })
+          .in("id", withMatches);
       }
-      // Release 1.1: materializar oportunidades para cada procura importada.
-      try {
-        await recomputeForSearch(supabase, userId, s.id);
-      } catch (e) {
-        console.error("excel: recomputeForSearch failed", e);
-      }
+    } catch (e) {
+      console.error("excel: recomputeForBatch failed", e);
     }
 
     const somaFinal =
