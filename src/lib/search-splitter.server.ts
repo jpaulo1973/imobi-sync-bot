@@ -71,26 +71,54 @@ export function groundLocationsInText(sp: SplitSearch, rawText: string): SplitSe
 /**
  * Detecta se um texto pode conter várias procuras independentes. Evita
  * chamadas IA quando é claramente uma procura única.
+ *
+ * Objetivo: **minimizar falsos positivos**. O LLM só deve ser chamado
+ * quando há evidência forte de múltiplas procuras INDEPENDENTES no mesmo
+ * texto. Regras (basta uma dispara, exceto a combinatorial que exige 2+
+ * dimensões a variar):
+ *
+ *  A) Marcador explícito de segunda procura ("outra procura", "segunda
+ *     procura", "também procura", "outro comprador/cliente", "tenho
+ *     também um comprador para…"). Um único marcador basta.
+ *  B) Lista bullet/numerada com **2 ou mais** itens em linhas separadas.
+ *  C) Combinatorial: 2 ou mais dimensões independentes variam ao mesmo
+ *     tempo — tipologias distintas (≥2), budgets distintos (≥2), ou
+ *     intents distintos (≥2). Uma só dimensão a variar (ex.: "T2 ou T3")
+ *     NÃO justifica LLM.
+ *
+ * Textos muito curtos (<40 caracteres) e ausência total dos sinais acima
+ * devolvem false, sem chamada IA.
  */
 export function mayContainMultipleSearches(text: string | null | undefined): boolean {
   if (!text) return false;
+  if (text.length < 40) return false;
   const t = text.toLowerCase();
-  let signals = 0;
-  const intents = t.match(/procur[oa]|pretende\s+(comprar|arrendar|adquirir)|compra[dr]|arrendat[aá]rio|cliente\s+(pretende|procura|interess)|tenho\s+comprador/g);
-  if (intents && intents.length >= 2) signals += 2;
-  const budgets = t.match(/at[eé]\s*[\d.\s]{3,}\s*(€|eur|k|mil|000)?/g);
-  if (budgets && budgets.length >= 2) signals += 2;
-  // Múltiplas tipologias distintas na mesma frase (T2 e T3, T2 ou T4...)
+
+  // (A) Marcador explícito de múltiplas procuras — dispara sozinho.
+  if (
+    /(outra\s+procura|segunda\s+procura|tamb[eé]m\s+procur|outro\s+comprador|outro\s+cliente|tenho\s+(tamb[eé]m|ainda)\s+(um\s+|outro\s+)?(comprador|cliente))/.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+
+  // (B) Lista bullet/numerada com 2+ itens em linhas separadas.
+  const bulletLines = (text.match(/(?:^|\n)\s*(?:\d+[).]|[-*•])\s+\S/g) ?? []).length;
+  if (bulletLines >= 2) return true;
+
+  // (C) Combinatorial: 2+ dimensões independentes variam em simultâneo.
   const tipologias = new Set((t.match(/\bt[0-6]\b/g) ?? []).map((x) => x.toLowerCase()));
-  if (tipologias.size >= 2) signals += 2;
-  // Bullets/numerados
-  if (/(\n|^)\s*(\d+[).]|[-*•])\s+/g.test(t)) signals += 1;
-  // Múltiplas zonas com preposição "em" seguido de nome próprio
-  const enZonas = t.match(/\bem\s+[a-zçãáéíóú]{3,}/g);
-  if (enZonas && enZonas.length >= 2) signals += 1;
-  // Ligação explícita "outra procura" / "também"
-  if (/(outra\s+procura|tamb[eé]m\s+procur|segunda\s+procura)/.test(t)) signals += 2;
-  return signals >= 2;
+  const budgets = (t.match(/at[eé]\s*\d[\d.\s]{2,}\s*(?:€|eur|k|mil)/g) ?? []).length;
+  const intents = (
+    t.match(/procur[oa]\s|pretende\s+(?:comprar|arrendar|adquirir)|tenho\s+comprador\s+para|cliente\s+(?:pretende|procura|interess)/g) ?? []
+  ).length;
+
+  let dims = 0;
+  if (tipologias.size >= 2) dims++;
+  if (budgets >= 2) dims++;
+  if (intents >= 2) dims++;
+  return dims >= 2;
 }
 
 // -------------------------------------------------------------------------

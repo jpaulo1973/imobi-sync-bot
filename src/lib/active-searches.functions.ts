@@ -718,7 +718,46 @@ export async function upsertOne(
     );
   }
 
-  if (bestScore >= 80) {
+  // Arbitragem por IA — **último recurso**. Só é chamada quando as regras
+  // determinísticas não conseguem decidir. Aplica-se:
+  //  1) short-circuits determinísticos de "claramente diferente" (abaixo);
+  //  2) score < 85 → claramente distinto, não chama IA;
+  //  3) score ≥ 95 → coberto acima (flag sem IA);
+  //  4) só o intervalo 85..94, sem conflitos duros, vai para a IA.
+  if (bestScore >= 85) {
+    // Short-circuit: finalidades conhecidas e divergentes ⇒ necessidades
+    // diferentes; não faz sentido pedir arbitragem.
+    const finA = (best.criteria as any)?.finalidade;
+    const finB = (row.criteria as any)?.finalidade;
+    const finKnownA = finA && finA !== "indefinido";
+    const finKnownB = finB && finB !== "indefinido";
+    if (finKnownA && finKnownB && finA !== finB) {
+      return await insertNew(
+        supabase,
+        userId,
+        row,
+        bestScore,
+        `necessidade distinta (finalidade divergente ${finA} vs ${finB}) — sem arbitragem`,
+        "created",
+      );
+    }
+    // Short-circuit: tipologias conhecidas e diferentes ⇒ procuras distintas.
+    const tipA = (best.criteria as any)?.tipologia;
+    const tipB = (row.criteria as any)?.tipologia;
+    if (
+      tipA &&
+      tipB &&
+      String(tipA).toUpperCase().trim() !== String(tipB).toUpperCase().trim()
+    ) {
+      return await insertNew(
+        supabase,
+        userId,
+        row,
+        bestScore,
+        `necessidade distinta (tipologia divergente ${tipA} vs ${tipB}) — sem arbitragem`,
+        "created",
+      );
+    }
     const { aiArbitrateDedup } = await import("./dedup-ai.server");
     const ai = await aiArbitrateDedup({
       incoming: {
