@@ -2,9 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import * as XLSX from "xlsx";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { scoreMatch, type BuyerLike } from "./matching-engine";
 import { buildDedupKey } from "./dedup";
-import { upsertOne, recomputeForSearch, type UpsertRow } from "./active-searches.functions";
+import { upsertOne, recomputeForBatch, type UpsertRow } from "./active-searches.functions";
 import { splitBuyerSearches, mayContainMultipleSearches, type SplitSearch } from "./search-splitter.server";
 import {
   classifyBuyerText,
