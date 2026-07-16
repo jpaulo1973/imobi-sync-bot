@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { MessageSquare, ImagePlus, X, Sparkles, ArrowRight, UserPlus, MessageCircle, Phone, Copy, Radar } from "lucide-react";
+import { MessageSquare, ImagePlus, X, Sparkles, ArrowRight, UserPlus, MessageCircle, Radar } from "lucide-react";
 import { toast } from "sonner";
 import { PhoneButton, openWhatsApp } from "@/components/PhoneButton";
 
@@ -59,9 +59,6 @@ function CruzarPage() {
   const [totalCapturas, setTotalCapturas] = useState(0);
   const [totalProperties, setTotalProperties] = useState(0);
   const [creatingIdx, setCreatingIdx] = useState<number | null>(null);
-  const [savedRadarIdx, setSavedRadarIdx] = useState<Record<number, boolean>>({});
-  const [durationByIdx, setDurationByIdx] = useState<Record<number, number>>({});
-  const [savingRadarIdx, setSavingRadarIdx] = useState<number | null>(null);
   const [savingAll, setSavingAll] = useState(false);
   const matchFn = useServerFn(matchWhatsappConversations);
   const createFn = useServerFn(createBuyersFromLeads);
@@ -164,51 +161,45 @@ function CruzarPage() {
           ],
         },
       });
-      toast.success(res.inserted > 0 ? "Contacto guardado nos clientes." : "Nada foi guardado.");
+      if (res.inserted > 0) {
+        toast.success("Contacto guardado nos clientes.");
+      }
+      try {
+        await saveRadarFn({
+          data: {
+            criteria: {
+              nome: lead.nome ?? null,
+              finalidade: lead.finalidade,
+              tipo_imovel: lead.tipo_imovel ?? null,
+              tipologia: lead.tipologia ?? null,
+              zona: lead.zona ?? null,
+              budget_min: lead.budget_min ?? null,
+              budget_max: lead.budget_max ?? null,
+              area_min: lead.area_min ?? null,
+              quartos_min: lead.quartos_min ?? null,
+              caracteristicas: lead.caracteristicas ?? null,
+            },
+            resumo: lead.resumo,
+            texto_original: lead.mensagem_original ?? null,
+            contact_nome: lead.nome ?? null,
+            contact_telefone: lead.telefone ?? lead.contacto ?? null,
+            contact_grupo: lead.grupo_whatsapp ?? null,
+            data_publicacao: lead.data_publicacao ?? null,
+            duration_days: 30,
+            consultor_nome: lead.contacto ?? null,
+            data_origem: lead.data_publicacao ?? null,
+            grupo_whatsapp: lead.grupo_whatsapp ?? null,
+            origem: "whatsapp",
+          },
+        });
+        toast.success("Procura guardada no Radar durante 30 dias.");
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Erro ao guardar procura no Radar.");
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao guardar contacto.");
     } finally {
       setCreatingIdx(null);
-    }
-  };
-
-  const saveToRadar = async (idx: number, lead: QualifiedLead) => {
-    const days = durationByIdx[idx] ?? 14;
-    setSavingRadarIdx(idx);
-    try {
-      await saveRadarFn({
-        data: {
-          criteria: {
-            nome: lead.nome ?? null,
-            finalidade: lead.finalidade,
-            tipo_imovel: lead.tipo_imovel ?? null,
-            tipologia: lead.tipologia ?? null,
-            zona: lead.zona ?? null,
-            budget_min: lead.budget_min ?? null,
-            budget_max: lead.budget_max ?? null,
-            area_min: lead.area_min ?? null,
-            quartos_min: lead.quartos_min ?? null,
-            caracteristicas: lead.caracteristicas ?? null,
-          },
-          resumo: lead.resumo,
-          texto_original: lead.mensagem_original ?? null,
-          contact_nome: lead.nome ?? null,
-          contact_telefone: lead.telefone ?? lead.contacto ?? null,
-          contact_grupo: lead.grupo_whatsapp ?? null,
-          data_publicacao: lead.data_publicacao ?? null,
-          duration_days: days,
-          consultor_nome: lead.contacto ?? null,
-          data_origem: lead.data_publicacao ?? null,
-          grupo_whatsapp: lead.grupo_whatsapp ?? null,
-          origem: "whatsapp",
-        },
-      });
-      setSavedRadarIdx((m) => ({ ...m, [idx]: true }));
-      toast.success(`Procura ativa durante ${days} dias.`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erro ao ativar procura.");
-    } finally {
-      setSavingRadarIdx(null);
     }
   };
 
@@ -219,7 +210,6 @@ function CruzarPage() {
     let ok = 0;
     let fail = 0;
     for (let i = 0; i < results.length; i++) {
-      if (savedRadarIdx[i]) continue;
       try {
         await saveRadarFn({
           data: {
@@ -241,21 +231,20 @@ function CruzarPage() {
             contact_telefone: results[i].lead.telefone ?? results[i].lead.contacto ?? null,
             contact_grupo: results[i].lead.grupo_whatsapp ?? null,
             data_publicacao: results[i].lead.data_publicacao ?? null,
-            duration_days: durationByIdx[i] ?? 14,
+            duration_days: 30,
             consultor_nome: results[i].lead.contacto ?? null,
             data_origem: results[i].lead.data_publicacao ?? null,
             grupo_whatsapp: results[i].lead.grupo_whatsapp ?? null,
             origem: "whatsapp",
           },
         });
-        setSavedRadarIdx((m) => ({ ...m, [i]: true }));
         ok++;
       } catch {
         fail++;
       }
     }
     setSavingAll(false);
-    if (ok > 0) toast.success(`${ok} procura(s) guardada(s) no Radar.${fail ? ` ${fail} falha(s).` : ""}`);
+    if (ok > 0) toast.success(`${ok} procura(s) guardada(s) no Radar durante 30 dias.${fail ? ` ${fail} falha(s).` : ""}`);
     else if (fail > 0) toast.error(`Falha ao guardar ${fail} procura(s).`);
   };
 
@@ -423,7 +412,7 @@ function CruzarPage() {
                     size="sm"
                     onClick={() => saveAsLead(i, r.lead)}
                     disabled={creatingIdx === i}
-                    title="Guardar como cliente (opcional)"
+                    title="Guardar cliente e ativar procura no Radar por 30 dias"
                   >
                     <UserPlus className="w-4 h-4 mr-2" />
                     {creatingIdx === i ? "A guardar..." : "Guardar cliente"}
@@ -432,51 +421,10 @@ function CruzarPage() {
               </div>
 
               {r.matches.length === 0 ? (
-                <div className="rounded-md border border-dashed p-4 space-y-3">
+                <div className="rounded-md border border-dashed p-4">
                   <p className="text-sm text-muted-foreground">
                     Não foram encontrados imóveis compatíveis na carteira atual.
                   </p>
-                  {savedRadarIdx[i] ? (
-                    <div className="flex items-center gap-2 text-sm text-emerald-700">
-                      <Radar className="w-4 h-4" />
-                      Procura ativa no Radar. Serás notificado quando entrar um imóvel compatível.
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium">
-                        Manter esta procura ativa e comparar automaticamente com novos imóveis?
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <select
-                          className="h-9 rounded-md border bg-background px-2 text-sm"
-                          value={durationByIdx[i] ?? 14}
-                          onChange={(e) =>
-                            setDurationByIdx((m) => ({ ...m, [i]: Number(e.target.value) }))
-                          }
-                        >
-                          <option value={7}>7 dias</option>
-                          <option value={14}>14 dias (recomendado)</option>
-                          <option value={21}>21 dias</option>
-                          <option value={30}>30 dias</option>
-                        </select>
-                        <Button
-                          size="sm"
-                          onClick={() => saveToRadar(i, r.lead)}
-                          disabled={savingRadarIdx === i}
-                        >
-                          <Radar className="w-4 h-4 mr-2" />
-                          {savingRadarIdx === i ? "A ativar..." : "Sim, manter ativa"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setSavedRadarIdx((m) => ({ ...m, [i]: true }))}
-                        >
-                          Não
-                        </Button>
-                      </div>
-                    </div>
-                  )}
                 </div>
               ) : (
                 <div className="space-y-2">
