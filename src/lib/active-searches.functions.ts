@@ -699,23 +699,27 @@ export async function upsertOne(
 
   // 3) Regras de negócio + IA
   //
-  // Correções Pós-1.3 Melhoria 5: o auto-merge silencioso passa a estar
-  // reservado EXCLUSIVAMENTE ao curto-circuito determinístico
-  // (isExactDuplicate) acima. Qualquer alteração real — mesmo com score
-  // determinístico muito alto — nunca deve ser fundida silenciosamente:
-  // se os dados não são identicamente iguais, o registo tem de ficar
-  // visível ao administrador (Revisão) ou ser criado à parte. Antes,
-  // scoreSimilarity>=95 podia fundir apesar de zona/preço mudarem —
-  // exatamente o comportamento que o utilizador reportou.
+  // Correção deduplicação (Sprint WhatsApp re-importação):
+  // Quando o score determinístico é ≥95, o candidato é praticamente idêntico
+  // — a divergência residual deve-se tipicamente a variações não-determinísticas
+  // do LLM em `splitBuyerSearches`, enriquecimentos posteriores da criteria,
+  // ou fusões anteriores que acumularam campos extras no registo existente.
+  // Nestes casos o comportamento correto é FUNDIR no registo existente
+  // (atualizando informação nova) e sinalizar para revisão para manter
+  // visibilidade administrativa. Criar um NOVO registo flagged, como fazia
+  // antes, produzia duplicados a cada nova importação da mesma mensagem —
+  // exatamente o bug reportado.
   if (bestScore >= 95) {
-    return await insertNew(
+    const res = await mergeInto(
       supabase,
       userId,
+      best.id,
+      best,
       row,
       bestScore,
-      `possível duplicado (${bestScore}%) — dados divergentes: ${reasonSummary}`,
-      "flagged",
+      `duplicado quase-exato (${bestScore}%) — fundido: ${reasonSummary}`,
     );
+    return res;
   }
 
   // Arbitragem por IA — **último recurso**. Só é chamada quando as regras
