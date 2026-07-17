@@ -18,8 +18,10 @@ export type Database = {
         Row: {
           audit_geo: Json | null
           comunidade: string | null
+          consultor_email: string | null
           consultor_nome: string | null
           consultor_telefone: string | null
+          consultor_whatsapp: string | null
           contact_email: string | null
           contact_grupo: string | null
           contact_nome: string | null
@@ -53,8 +55,10 @@ export type Database = {
         Insert: {
           audit_geo?: Json | null
           comunidade?: string | null
+          consultor_email?: string | null
           consultor_nome?: string | null
           consultor_telefone?: string | null
+          consultor_whatsapp?: string | null
           contact_email?: string | null
           contact_grupo?: string | null
           contact_nome?: string | null
@@ -88,8 +92,10 @@ export type Database = {
         Update: {
           audit_geo?: Json | null
           comunidade?: string | null
+          consultor_email?: string | null
           consultor_nome?: string | null
           consultor_telefone?: string | null
+          consultor_whatsapp?: string | null
           contact_email?: string | null
           contact_grupo?: string | null
           contact_nome?: string | null

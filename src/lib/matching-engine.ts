@@ -163,12 +163,38 @@ export type ReviewReason =
 
 export type NeedsReview = { reviewReason: ReviewReason; reason: string };
 
+// Release 1.2 — Auditoria do Motor Match.
+// Cada rejeição de comprador↔imóvel devolve um `rejectReason` estruturado
+// que alimenta o breakdown "0 compatíveis de N analisados: X localização…".
+export type RejectReason =
+  | "FINALIDADE"
+  | "TIPO_IMOVEL"
+  | "INVESTIDOR_BULK"
+  | "LOCALIZACAO"
+  | "AREA"
+  | "CARACTERISTICAS"
+  | "ORCAMENTO"
+  | "TIPOLOGIA";
+
+export const REJECT_REASON_LABELS: Record<RejectReason, string> = {
+  FINALIDADE: "finalidade",
+  TIPO_IMOVEL: "tipo de imóvel",
+  INVESTIDOR_BULK: "investidor/bulk",
+  LOCALIZACAO: "localização",
+  AREA: "área",
+  CARACTERISTICAS: "características",
+  ORCAMENTO: "orçamento",
+  TIPOLOGIA: "tipologia",
+};
+
 export type MatchScore = {
   score: number; // 0-100
   compatible: boolean;
   needsReview: NeedsReview | null;
   categories: MatchCategoryResult[];
   reasons: string[];
+  /** Presente sempre que `compatible === false`. */
+  rejectReason: RejectReason | null;
 };
 
 export type MatchOptions = {
@@ -229,20 +255,32 @@ function sanitizeQuartos(v: number | null | undefined, source: string): number |
   return v;
 }
 
-function fail(key: MatchCategoryKey, label: string, detail: string, needsReview: NeedsReview | null = null): MatchScore {
+function fail(
+  key: MatchCategoryKey,
+  label: string,
+  detail: string,
+  rejectReason: RejectReason,
+  needsReview: NeedsReview | null = null,
+): MatchScore {
   return {
     score: 0,
     compatible: false,
     needsReview,
     categories: [{ key, label, ok: false, detail, score: 0, weight: 0 }],
     reasons: [],
+    rejectReason,
   };
 }
 
 // ---------- Hard Filters (configurable registry) ----------
 
 export type HardFilterOk = { ok: true; category: MatchCategoryResult };
-export type HardFilterFail = { ok: false; category: MatchCategoryResult; needsReview?: NeedsReview };
+export type HardFilterFail = {
+  ok: false;
+  category: MatchCategoryResult;
+  needsReview?: NeedsReview;
+  rejectReason: RejectReason;
+};
 export type HardFilterResult = HardFilterOk | HardFilterFail;
 
 export type HardFilter = {
@@ -255,14 +293,14 @@ function finalidadeFilter(buyer: BuyerLike, property: PropertyLike): HardFilterR
   const b = (buyer.finalidade ?? "").toString().toLowerCase();
   const p = (property.finalidade ?? "").toString().toLowerCase();
   if (!b || b === "indefinido") {
-    return { ok: false, category: cat("finalidade", "Finalidade", false, "Finalidade da procura não indicada") };
+    return { ok: false, rejectReason: "FINALIDADE", category: cat("finalidade", "Finalidade", false, "Finalidade da procura não indicada") };
   }
   if (!p) {
-    return { ok: false, category: cat("finalidade", "Finalidade", false, "Finalidade do imóvel não indicada") };
+    return { ok: false, rejectReason: "FINALIDADE", category: cat("finalidade", "Finalidade", false, "Finalidade do imóvel não indicada") };
   }
   const buyerAcceptsBoth = b === "ambos" || b === "venda_arrendamento";
   if (!buyerAcceptsBoth && b !== p) {
-    return { ok: false, category: cat("finalidade", "Finalidade", false, `Finalidade incompatível (procura ${b}, imóvel ${p})`) };
+    return { ok: false, rejectReason: "FINALIDADE", category: cat("finalidade", "Finalidade", false, `Finalidade incompatível (procura ${b}, imóvel ${p})`) };
   }
   return { ok: true, category: cat("finalidade", "Finalidade", true, property.finalidade ?? "—") };
 }
@@ -283,13 +321,13 @@ function tipoFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResult 
     if (isTerrainType) {
       return { ok: true, category: cat("tipo", "Tipo", true, property.tipo_imovel ?? "—") };
     }
-    return { ok: false, category: cat("tipo", "Tipo", false, "Tipo de imóvel não indicado na procura") };
+    return { ok: false, rejectReason: "TIPO_IMOVEL", category: cat("tipo", "Tipo", false, "Tipo de imóvel não indicado na procura") };
   }
   if (!pTipo) {
-    return { ok: false, category: cat("tipo", "Tipo", false, "Tipo do imóvel não declarado") };
+    return { ok: false, rejectReason: "TIPO_IMOVEL", category: cat("tipo", "Tipo", false, "Tipo do imóvel não declarado") };
   }
   if (!buyerTipos.includes(pTipo)) {
-    return { ok: false, category: cat("tipo", "Tipo", false, `Tipo ${property.tipo_imovel} fora do pedido`) };
+    return { ok: false, rejectReason: "TIPO_IMOVEL", category: cat("tipo", "Tipo", false, `Tipo ${property.tipo_imovel} fora do pedido`) };
   }
   return { ok: true, category: cat("tipo", "Tipo", true, property.tipo_imovel!) };
 }
@@ -310,6 +348,7 @@ function localizacaoFilter(
   if (buyerIds.length === 0) {
     return {
       ok: false,
+      rejectReason: "LOCALIZACAO",
       category: cat("localizacao", "Localização", false, "Localização não indicada na procura"),
     };
   }
@@ -320,6 +359,7 @@ function localizacaoFilter(
   if (!propertyId) {
     return {
       ok: false,
+      rejectReason: "LOCALIZACAO",
       needsReview: {
         reviewReason: "freguesia_em_falta",
         reason: "Localização do imóvel em falta",
@@ -347,6 +387,7 @@ function localizacaoFilter(
   if (!geoIndex) {
     return {
       ok: false,
+      rejectReason: "LOCALIZACAO",
       category: cat("localizacao", "Localização", false, "Localização fora da área pretendida"),
     };
   }
@@ -444,6 +485,7 @@ function localizacaoFilter(
 
   return {
     ok: false,
+    rejectReason: "LOCALIZACAO",
     category: cat("localizacao", "Localização", false, "Localização fora da área pretendida"),
   };
 }
@@ -464,12 +506,13 @@ function areaMinFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResu
   if (pArea == null) {
     return {
       ok: false,
+      rejectReason: "AREA",
       needsReview: { reviewReason: "area_em_falta", reason: "Área do imóvel em falta" },
       category: cat("area", "Área", false, "Imóvel sem área declarada — revisão manual"),
     };
   }
   if (pArea < areaMin) {
-    return { ok: false, category: cat("area", "Área", false, `${pArea} m² < ${areaMin} m² pedidos`) };
+    return { ok: false, rejectReason: "AREA", category: cat("area", "Área", false, `${pArea} m² < ${areaMin} m² pedidos`) };
   }
   return { ok: true, category: cat("area", "Área", true, `${pArea} m² (≥ ${areaMin})`) };
 }
@@ -481,11 +524,11 @@ function precoMaxFilter(buyer: BuyerLike, property: PropertyLike, tolerance: num
     return { ok: true, category: cat("preco", "Preço", true, "Sem orçamento") };
   }
   if (price == null) {
-    return { ok: false, category: cat("preco", "Preço", false, "Imóvel sem preço definido") };
+    return { ok: false, rejectReason: "ORCAMENTO", category: cat("preco", "Preço", false, "Imóvel sem preço definido") };
   }
   const cap = budgetMax * (1 + Math.max(0, tolerance));
   if (price > cap) {
-    return { ok: false, category: cat("preco", "Preço", false, `Acima do orçamento (${Math.round(((price - budgetMax) / budgetMax) * 100)}%)`) };
+    return { ok: false, rejectReason: "ORCAMENTO", category: cat("preco", "Preço", false, `Acima do orçamento (${Math.round(((price - budgetMax) / budgetMax) * 100)}%)`) };
   }
   return { ok: true, category: cat("preco", "Preço", true, "Dentro do orçamento") };
 }
@@ -506,7 +549,7 @@ function featuresFilter(buyer: BuyerLike, property: PropertyLike): HardFilterRes
     }
   }
   if (missing.length > 0) {
-    return { ok: false, category: cat("extras", "Características", false, `Falta: ${missing.join(", ")}`) };
+    return { ok: false, rejectReason: "CARACTERISTICAS", category: cat("extras", "Características", false, `Falta: ${missing.join(", ")}`) };
   }
   return { ok: true, category: cat("extras", "Características", true, "Requisitos obrigatórios cumpridos") };
 }
@@ -546,6 +589,7 @@ function investorBulkFilter(buyer: BuyerLike, property: PropertyLike): HardFilte
   }
   return {
     ok: false,
+    rejectReason: "INVESTIDOR_BULK",
     category: cat(
       "tipo",
       "Tipo",
@@ -676,14 +720,14 @@ export function scoreMatch(
   for (const f of HARD_FILTERS) {
     const r = f.run(buyer, property, geoIndex);
     if (!r.ok) {
-      return fail(r.category.key, r.category.label, r.category.detail, r.needsReview ?? null);
+      return fail(r.category.key, r.category.label, r.category.detail, r.rejectReason, r.needsReview ?? null);
     }
     passed.push(r.category);
   }
   // Filtro de preço (usa tolerância configurável)
   const precoR = precoMaxFilter(buyer, property, tolerance);
   if (!precoR.ok) {
-    return fail(precoR.category.key, precoR.category.label, precoR.category.detail, precoR.needsReview ?? null);
+    return fail(precoR.category.key, precoR.category.label, precoR.category.detail, precoR.rejectReason, precoR.needsReview ?? null);
   }
   passed.push(precoR.category);
 
@@ -692,7 +736,7 @@ export function scoreMatch(
   if (!tip.ok) {
     // Ainda que a tipologia seja hard-ish (não apresentar T2 quando pediu T3),
     // tratamos como falha eliminatória de compatibilidade.
-    return fail("tipologia", "Tipologia", tip.detail);
+    return fail("tipologia", "Tipologia", tip.detail, "TIPOLOGIA");
   }
   const preco = scorePreco(buyer, property);
   const area = scoreArea(buyer, property);
@@ -720,5 +764,5 @@ export function scoreMatch(
     reasons.push("Critério de proximidade ainda não validado");
   }
 
-  return { score, compatible: true, needsReview: null, categories, reasons };
+  return { score, compatible: true, needsReview: null, categories, reasons, rejectReason: null };
 }

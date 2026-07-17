@@ -212,6 +212,8 @@ function ImoveisPage() {
   const [totalBuyers, setTotalBuyers] = useState(0);
   const [totalGlobal, setTotalGlobal] = useState(0);
   const [hiddenCount, setHiddenCount] = useState(0);
+  const [analyzedCount, setAnalyzedCount] = useState(0);
+  const [rejections, setRejections] = useState<Record<string, number>>({});
   const [showDismissed, setShowDismissed] = useState(false);
   const updateStateFn = useServerFn(updateMatchState);
 
@@ -290,6 +292,8 @@ function ImoveisPage() {
               setTotalBuyers(res.totalBuyers);
               setTotalGlobal(res.totalGlobal);
               setHiddenCount(res.hiddenCount ?? 0);
+              setAnalyzedCount((res as any).analyzed ?? 0);
+              setRejections(((res as any).rejections ?? {}) as Record<string, number>);
             })
             .catch(() => {});
         }
@@ -334,6 +338,8 @@ function ImoveisPage() {
       setTotalBuyers(res.totalBuyers);
       setTotalGlobal(res.totalGlobal);
       setHiddenCount(res.hiddenCount ?? 0);
+      setAnalyzedCount((res as any).analyzed ?? 0);
+      setRejections(((res as any).rejections ?? {}) as Record<string, number>);
       setMatchCounts((prev) => ({ ...prev, [p.id]: res.opportunities.length }));
       // fundo: recomputa persistidas (Radar) sem bloquear a UI
       void recomputeFn({ data: { propertyId: p.id } }).catch(() => {});
@@ -843,14 +849,33 @@ function ImoveisPage() {
           {matchLoading ? (
             <p className="text-sm text-muted-foreground py-6 text-center">A analisar compradores...</p>
           ) : matches.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-6 text-center">
-              Nenhuma oportunidade compatível ({totalBuyers} cliente(s) · {totalGlobal} procura(s) na Base Global).
-              {hiddenCount > 0 && (
-                <>
-                  {" "}· {hiddenCount} dispensado(s).
-                </>
-              )}
-            </p>
+            <div className="text-sm text-muted-foreground py-6 text-center space-y-1">
+              <p>Nenhuma oportunidade compatível.</p>
+              <p className="text-xs">
+                Analisados {analyzedCount || totalBuyers + totalGlobal}
+                {" "}({totalBuyers} cliente(s) + {totalGlobal} procura(s) na Base Global).
+                {hiddenCount > 0 && ` ${hiddenCount} dispensado(s).`}
+              </p>
+              {(() => {
+                const labels: Record<string, string> = {
+                  LOCALIZACAO: "localização",
+                  ORCAMENTO: "orçamento",
+                  TIPOLOGIA: "tipologia",
+                  TIPO_IMOVEL: "tipo de imóvel",
+                  FINALIDADE: "finalidade",
+                  AREA: "área",
+                  CARACTERISTICAS: "características",
+                  INVESTIDOR_BULK: "investidor/bulk",
+                };
+                const parts = Object.entries(rejections)
+                  .filter(([, n]) => n > 0)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([k, n]) => `${n} ${labels[k] ?? k.toLowerCase()}`);
+                return parts.length > 0 ? (
+                  <p className="text-xs">Motivos: {parts.join(", ")}.</p>
+                ) : null;
+              })()}
+            </div>
           ) : (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2 flex-wrap">

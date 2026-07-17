@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { scoreMatch, buildGeoMatchIndex, type BuyerLike, type MatchCategoryResult } from "./matching-engine";
+import { scoreMatch, buildGeoMatchIndex, type BuyerLike, type MatchCategoryResult, type RejectReason } from "./matching-engine";
 import { LocationRepository } from "./geo";
 import {
   loadConsultorMeta,
@@ -78,16 +78,31 @@ export const runBuyerOpportunities = createServerFn({ method: "POST" })
 
     // 4) Correr motor + Hard Filters 1.2.1.
     const matches: BuyerPropertyMatch[] = [];
+    let analyzed = 0;
+    const rejections: Record<RejectReason, number> = {
+      FINALIDADE: 0, TIPO_IMOVEL: 0, INVESTIDOR_BULK: 0, LOCALIZACAO: 0,
+      AREA: 0, CARACTERISTICAS: 0, ORCAMENTO: 0, TIPOLOGIA: 0,
+    };
     for (const p of properties ?? []) {
+      analyzed++;
       const r = scoreMatch(buyerLike, p as any, { geoIndex });
-      if (!r.compatible || r.score < 60) continue;
+      if (!r.compatible) {
+        if (r.rejectReason) rejections[r.rejectReason]++;
+        continue;
+      }
+      if (r.score < 60) continue;
       const isOwner = (p as any).user_id === userId;
       const consultor = !isOwner ? consultorMap.get((p as any).user_id) ?? null : null;
       const dto = sanitizePropertyForViewer(p, userId, consultor);
       matches.push({ ...dto, score: r.score, reasons: r.reasons, categories: r.categories });
     }
     matches.sort((a, b) => b.score - a.score);
-    return { matches: matches.slice(0, 100), totalGlobal: (properties ?? []).length };
+    return {
+      matches: matches.slice(0, 100),
+      totalGlobal: (properties ?? []).length,
+      analyzed,
+      rejections,
+    };
   });
 
 /**
