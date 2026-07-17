@@ -293,14 +293,14 @@ function finalidadeFilter(buyer: BuyerLike, property: PropertyLike): HardFilterR
   const b = (buyer.finalidade ?? "").toString().toLowerCase();
   const p = (property.finalidade ?? "").toString().toLowerCase();
   if (!b || b === "indefinido") {
-    return { ok: false, category: cat("finalidade", "Finalidade", false, "Finalidade da procura não indicada") };
+    return { ok: false, rejectReason: "FINALIDADE", category: cat("finalidade", "Finalidade", false, "Finalidade da procura não indicada") };
   }
   if (!p) {
-    return { ok: false, category: cat("finalidade", "Finalidade", false, "Finalidade do imóvel não indicada") };
+    return { ok: false, rejectReason: "FINALIDADE", category: cat("finalidade", "Finalidade", false, "Finalidade do imóvel não indicada") };
   }
   const buyerAcceptsBoth = b === "ambos" || b === "venda_arrendamento";
   if (!buyerAcceptsBoth && b !== p) {
-    return { ok: false, category: cat("finalidade", "Finalidade", false, `Finalidade incompatível (procura ${b}, imóvel ${p})`) };
+    return { ok: false, rejectReason: "FINALIDADE", category: cat("finalidade", "Finalidade", false, `Finalidade incompatível (procura ${b}, imóvel ${p})`) };
   }
   return { ok: true, category: cat("finalidade", "Finalidade", true, property.finalidade ?? "—") };
 }
