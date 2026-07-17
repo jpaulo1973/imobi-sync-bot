@@ -431,12 +431,18 @@ function BuyerOpportunitiesDrawer({
   const runFn = useServerFn(runBuyerOpportunities);
   const [matches, setMatches] = useState<BuyerPropertyMatch[]>([]);
   const [loading, setLoading] = useState(false);
+  const [analyzed, setAnalyzed] = useState(0);
+  const [rejections, setRejections] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!buyerId) return;
     setLoading(true);
     runFn({ data: { buyerId } })
-      .then((r) => setMatches(r.matches))
+      .then((r) => {
+        setMatches(r.matches);
+        setAnalyzed((r as any).analyzed ?? 0);
+        setRejections(((r as any).rejections ?? {}) as Record<string, number>);
+      })
       .catch((e) => toast.error(e instanceof Error ? e.message : "Erro"))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -458,8 +464,28 @@ function BuyerOpportunitiesDrawer({
           {loading ? (
             <p className="text-sm text-muted-foreground">A carregar…</p>
           ) : matches.length === 0 ? (
-            <Card className="p-4 text-sm text-muted-foreground text-center">
-              Sem imóveis compatíveis no momento.
+            <Card className="p-4 text-sm text-muted-foreground text-center space-y-1">
+              <p>Sem imóveis compatíveis no momento.</p>
+              {analyzed > 0 && <p className="text-xs">Analisados {analyzed} imóveis.</p>}
+              {(() => {
+                const labels: Record<string, string> = {
+                  LOCALIZACAO: "localização",
+                  ORCAMENTO: "orçamento",
+                  TIPOLOGIA: "tipologia",
+                  TIPO_IMOVEL: "tipo de imóvel",
+                  FINALIDADE: "finalidade",
+                  AREA: "área",
+                  CARACTERISTICAS: "características",
+                  INVESTIDOR_BULK: "investidor/bulk",
+                };
+                const parts = Object.entries(rejections)
+                  .filter(([, n]) => n > 0)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([k, n]) => `${n} ${labels[k] ?? k.toLowerCase()}`);
+                return parts.length > 0 ? (
+                  <p className="text-xs">Motivos: {parts.join(", ")}.</p>
+                ) : null;
+              })()}
             </Card>
           ) : (
             matches.map((m) => (
