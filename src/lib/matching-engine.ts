@@ -163,12 +163,38 @@ export type ReviewReason =
 
 export type NeedsReview = { reviewReason: ReviewReason; reason: string };
 
+// Release 1.2 — Auditoria do Motor Match.
+// Cada rejeição de comprador↔imóvel devolve um `rejectReason` estruturado
+// que alimenta o breakdown "0 compatíveis de N analisados: X localização…".
+export type RejectReason =
+  | "FINALIDADE"
+  | "TIPO_IMOVEL"
+  | "INVESTIDOR_BULK"
+  | "LOCALIZACAO"
+  | "AREA"
+  | "CARACTERISTICAS"
+  | "ORCAMENTO"
+  | "TIPOLOGIA";
+
+export const REJECT_REASON_LABELS: Record<RejectReason, string> = {
+  FINALIDADE: "finalidade",
+  TIPO_IMOVEL: "tipo de imóvel",
+  INVESTIDOR_BULK: "investidor/bulk",
+  LOCALIZACAO: "localização",
+  AREA: "área",
+  CARACTERISTICAS: "características",
+  ORCAMENTO: "orçamento",
+  TIPOLOGIA: "tipologia",
+};
+
 export type MatchScore = {
   score: number; // 0-100
   compatible: boolean;
   needsReview: NeedsReview | null;
   categories: MatchCategoryResult[];
   reasons: string[];
+  /** Presente sempre que `compatible === false`. */
+  rejectReason: RejectReason | null;
 };
 
 export type MatchOptions = {
@@ -229,20 +255,32 @@ function sanitizeQuartos(v: number | null | undefined, source: string): number |
   return v;
 }
 
-function fail(key: MatchCategoryKey, label: string, detail: string, needsReview: NeedsReview | null = null): MatchScore {
+function fail(
+  key: MatchCategoryKey,
+  label: string,
+  detail: string,
+  rejectReason: RejectReason,
+  needsReview: NeedsReview | null = null,
+): MatchScore {
   return {
     score: 0,
     compatible: false,
     needsReview,
     categories: [{ key, label, ok: false, detail, score: 0, weight: 0 }],
     reasons: [],
+    rejectReason,
   };
 }
 
 // ---------- Hard Filters (configurable registry) ----------
 
 export type HardFilterOk = { ok: true; category: MatchCategoryResult };
-export type HardFilterFail = { ok: false; category: MatchCategoryResult; needsReview?: NeedsReview };
+export type HardFilterFail = {
+  ok: false;
+  category: MatchCategoryResult;
+  needsReview?: NeedsReview;
+  rejectReason: RejectReason;
+};
 export type HardFilterResult = HardFilterOk | HardFilterFail;
 
 export type HardFilter = {
