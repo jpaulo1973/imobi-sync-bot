@@ -720,14 +720,14 @@ export function scoreMatch(
   for (const f of HARD_FILTERS) {
     const r = f.run(buyer, property, geoIndex);
     if (!r.ok) {
-      return fail(r.category.key, r.category.label, r.category.detail, r.needsReview ?? null);
+      return fail(r.category.key, r.category.label, r.category.detail, r.rejectReason, r.needsReview ?? null);
     }
     passed.push(r.category);
   }
   // Filtro de preço (usa tolerância configurável)
   const precoR = precoMaxFilter(buyer, property, tolerance);
   if (!precoR.ok) {
-    return fail(precoR.category.key, precoR.category.label, precoR.category.detail, precoR.needsReview ?? null);
+    return fail(precoR.category.key, precoR.category.label, precoR.category.detail, precoR.rejectReason, precoR.needsReview ?? null);
   }
   passed.push(precoR.category);
 
@@ -736,7 +736,7 @@ export function scoreMatch(
   if (!tip.ok) {
     // Ainda que a tipologia seja hard-ish (não apresentar T2 quando pediu T3),
     // tratamos como falha eliminatória de compatibilidade.
-    return fail("tipologia", "Tipologia", tip.detail);
+    return fail("tipologia", "Tipologia", tip.detail, "TIPOLOGIA");
   }
   const preco = scorePreco(buyer, property);
   const area = scoreArea(buyer, property);
@@ -764,5 +764,5 @@ export function scoreMatch(
     reasons.push("Critério de proximidade ainda não validado");
   }
 
-  return { score, compatible: true, needsReview: null, categories, reasons };
+  return { score, compatible: true, needsReview: null, categories, reasons, rejectReason: null };
 }
