@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { scoreMatch, type BuyerLike, type MatchCategoryResult } from "./matching-engine";
-import { buildGeoMatchIndex } from "./matching-engine";
+import { buildGeoMatchIndex, type RejectReason } from "./matching-engine";
 import { LocationRepository } from "./geo";
 import { loadConsultorMeta, loadConsultorDirectory, resolveConsultor } from "./opportunity-privacy";
 
@@ -139,10 +139,19 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
 
     const opps: Opportunity[] = [];
     let hiddenCount = 0;
+    let analyzed = 0;
+    const rejections: Record<RejectReason, number> = {
+      FINALIDADE: 0, TIPO_IMOVEL: 0, INVESTIDOR_BULK: 0, LOCALIZACAO: 0,
+      AREA: 0, CARACTERISTICAS: 0, ORCAMENTO: 0, TIPOLOGIA: 0,
+    };
 
     for (const b of buyers ?? []) {
+      analyzed++;
       const s = scoreMatch(b as BuyerLike, property as any, { geoIndex });
-      if (!s.compatible) continue;
+      if (!s.compatible) {
+        if (s.rejectReason) rejections[s.rejectReason]++;
+        continue;
+      }
       const state = stateMap.get(`cliente-${b.id}`) ?? "novo";
       if (state === "nao_interessado" && !data.includeDismissed) {
         hiddenCount++;
@@ -180,11 +189,15 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
     }
 
     for (const q of searches ?? []) {
+      analyzed++;
       const buyer = criteriaToBuyer(q.criteria, (q as any).location_ids ?? []);
       buyer.resumo = q.resumo ?? null;
       buyer.texto_original = (q as any).texto_original ?? null;
       const s = scoreMatch(buyer, property as any, { geoIndex });
-      if (!s.compatible) continue;
+      if (!s.compatible) {
+        if (s.rejectReason) rejections[s.rejectReason]++;
+        continue;
+      }
       const c = (q.criteria ?? {}) as any;
       const origem = (q.origem as OpportunitySource) ?? "excel";
       const isOwner = q.user_id === userId;
@@ -271,6 +284,8 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
       totalBuyers: (buyers ?? []).length,
       totalGlobal: (searches ?? []).length,
       hiddenCount,
+      analyzed,
+      rejections,
     };
   });
 
