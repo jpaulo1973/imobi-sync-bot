@@ -56,7 +56,7 @@ export const listPendingReview = createServerFn({ method: "GET" })
     const { data, error } = await supabase
       .from("active_searches")
       .select(
-        "id, user_id, criteria, location_ids, resumo, texto_original, contact_nome, contact_telefone, contact_email, contact_grupo, consultor_nome, consultor_telefone, comunidade, grupo_whatsapp, origem, decision_reason, similarity_score, created_at, data_origem",
+        "id, user_id, criteria, location_ids, resumo, texto_original, contact_nome, contact_telefone, contact_email, contact_grupo, consultor_nome, consultor_telefone, consultor_whatsapp, consultor_email, comunidade, grupo_whatsapp, origem, decision_reason, similarity_score, created_at, data_origem",
       )
       .eq("flagged_for_review", true)
       .order("created_at", { ascending: false })
@@ -150,6 +150,42 @@ export const deleteReviewSearch = createServerFn({ method: "POST" })
     const { supabase, userId } = context;
     await assertAdmin(supabase, userId);
     const { error } = await supabase.from("active_searches").delete().eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+// Release 1.2 — Nova Revisão: apenas contactos do consultor são editáveis.
+// Nome, telefone, WhatsApp e email do consultor podem ser adicionados ou
+// corrigidos antes de reintegrar a procura. Todos os restantes campos são
+// resolvidos automaticamente pelo motor.
+const ConsultorPatch = z.object({
+  id: z.string().uuid(),
+  consultor_nome: z.string().trim().nullable().optional(),
+  consultor_telefone: z.string().trim().nullable().optional(),
+  consultor_whatsapp: z.string().trim().nullable().optional(),
+  consultor_email: z.string().trim().email().nullable().optional(),
+  resolve: z.boolean().default(true),
+});
+
+export const updateReviewConsultor = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => ConsultorPatch.parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    await assertAdmin(supabase, userId);
+    const patch: Record<string, unknown> = {};
+    if (data.consultor_nome !== undefined) patch.consultor_nome = data.consultor_nome || null;
+    if (data.consultor_telefone !== undefined) patch.consultor_telefone = data.consultor_telefone || null;
+    if (data.consultor_whatsapp !== undefined) patch.consultor_whatsapp = data.consultor_whatsapp || null;
+    if (data.consultor_email !== undefined) patch.consultor_email = data.consultor_email || null;
+    if (data.resolve) {
+      patch.flagged_for_review = false;
+      patch.decision_reason = "Contactos do consultor revistos manualmente";
+    }
+    const { error } = await supabase
+      .from("active_searches")
+      .update(patch as any)
+      .eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
