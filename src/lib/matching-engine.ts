@@ -321,13 +321,13 @@ function tipoFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResult 
     if (isTerrainType) {
       return { ok: true, category: cat("tipo", "Tipo", true, property.tipo_imovel ?? "—") };
     }
-    return { ok: false, category: cat("tipo", "Tipo", false, "Tipo de imóvel não indicado na procura") };
+    return { ok: false, rejectReason: "TIPO_IMOVEL", category: cat("tipo", "Tipo", false, "Tipo de imóvel não indicado na procura") };
   }
   if (!pTipo) {
-    return { ok: false, category: cat("tipo", "Tipo", false, "Tipo do imóvel não declarado") };
+    return { ok: false, rejectReason: "TIPO_IMOVEL", category: cat("tipo", "Tipo", false, "Tipo do imóvel não declarado") };
   }
   if (!buyerTipos.includes(pTipo)) {
-    return { ok: false, category: cat("tipo", "Tipo", false, `Tipo ${property.tipo_imovel} fora do pedido`) };
+    return { ok: false, rejectReason: "TIPO_IMOVEL", category: cat("tipo", "Tipo", false, `Tipo ${property.tipo_imovel} fora do pedido`) };
   }
   return { ok: true, category: cat("tipo", "Tipo", true, property.tipo_imovel!) };
 }
@@ -348,6 +348,7 @@ function localizacaoFilter(
   if (buyerIds.length === 0) {
     return {
       ok: false,
+      rejectReason: "LOCALIZACAO",
       category: cat("localizacao", "Localização", false, "Localização não indicada na procura"),
     };
   }
@@ -358,6 +359,7 @@ function localizacaoFilter(
   if (!propertyId) {
     return {
       ok: false,
+      rejectReason: "LOCALIZACAO",
       needsReview: {
         reviewReason: "freguesia_em_falta",
         reason: "Localização do imóvel em falta",
@@ -385,6 +387,7 @@ function localizacaoFilter(
   if (!geoIndex) {
     return {
       ok: false,
+      rejectReason: "LOCALIZACAO",
       category: cat("localizacao", "Localização", false, "Localização fora da área pretendida"),
     };
   }
@@ -482,6 +485,7 @@ function localizacaoFilter(
 
   return {
     ok: false,
+    rejectReason: "LOCALIZACAO",
     category: cat("localizacao", "Localização", false, "Localização fora da área pretendida"),
   };
 }
@@ -502,12 +506,13 @@ function areaMinFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResu
   if (pArea == null) {
     return {
       ok: false,
+      rejectReason: "AREA",
       needsReview: { reviewReason: "area_em_falta", reason: "Área do imóvel em falta" },
       category: cat("area", "Área", false, "Imóvel sem área declarada — revisão manual"),
     };
   }
   if (pArea < areaMin) {
-    return { ok: false, category: cat("area", "Área", false, `${pArea} m² < ${areaMin} m² pedidos`) };
+    return { ok: false, rejectReason: "AREA", category: cat("area", "Área", false, `${pArea} m² < ${areaMin} m² pedidos`) };
   }
   return { ok: true, category: cat("area", "Área", true, `${pArea} m² (≥ ${areaMin})`) };
 }
@@ -519,11 +524,11 @@ function precoMaxFilter(buyer: BuyerLike, property: PropertyLike, tolerance: num
     return { ok: true, category: cat("preco", "Preço", true, "Sem orçamento") };
   }
   if (price == null) {
-    return { ok: false, category: cat("preco", "Preço", false, "Imóvel sem preço definido") };
+    return { ok: false, rejectReason: "ORCAMENTO", category: cat("preco", "Preço", false, "Imóvel sem preço definido") };
   }
   const cap = budgetMax * (1 + Math.max(0, tolerance));
   if (price > cap) {
-    return { ok: false, category: cat("preco", "Preço", false, `Acima do orçamento (${Math.round(((price - budgetMax) / budgetMax) * 100)}%)`) };
+    return { ok: false, rejectReason: "ORCAMENTO", category: cat("preco", "Preço", false, `Acima do orçamento (${Math.round(((price - budgetMax) / budgetMax) * 100)}%)`) };
   }
   return { ok: true, category: cat("preco", "Preço", true, "Dentro do orçamento") };
 }
@@ -544,7 +549,7 @@ function featuresFilter(buyer: BuyerLike, property: PropertyLike): HardFilterRes
     }
   }
   if (missing.length > 0) {
-    return { ok: false, category: cat("extras", "Características", false, `Falta: ${missing.join(", ")}`) };
+    return { ok: false, rejectReason: "CARACTERISTICAS", category: cat("extras", "Características", false, `Falta: ${missing.join(", ")}`) };
   }
   return { ok: true, category: cat("extras", "Características", true, "Requisitos obrigatórios cumpridos") };
 }
@@ -584,6 +589,7 @@ function investorBulkFilter(buyer: BuyerLike, property: PropertyLike): HardFilte
   }
   return {
     ok: false,
+    rejectReason: "INVESTIDOR_BULK",
     category: cat(
       "tipo",
       "Tipo",
