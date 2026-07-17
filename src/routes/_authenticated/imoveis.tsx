@@ -212,6 +212,8 @@ function ImoveisPage() {
   const [totalBuyers, setTotalBuyers] = useState(0);
   const [totalGlobal, setTotalGlobal] = useState(0);
   const [hiddenCount, setHiddenCount] = useState(0);
+  const [analyzedCount, setAnalyzedCount] = useState(0);
+  const [rejections, setRejections] = useState<Record<string, number>>({});
   const [showDismissed, setShowDismissed] = useState(false);
   const updateStateFn = useServerFn(updateMatchState);
 
@@ -290,6 +292,8 @@ function ImoveisPage() {
               setTotalBuyers(res.totalBuyers);
               setTotalGlobal(res.totalGlobal);
               setHiddenCount(res.hiddenCount ?? 0);
+              setAnalyzedCount((res as any).analyzed ?? 0);
+              setRejections(((res as any).rejections ?? {}) as Record<string, number>);
             })
             .catch(() => {});
         }
@@ -334,6 +338,8 @@ function ImoveisPage() {
       setTotalBuyers(res.totalBuyers);
       setTotalGlobal(res.totalGlobal);
       setHiddenCount(res.hiddenCount ?? 0);
+      setAnalyzedCount((res as any).analyzed ?? 0);
+      setRejections(((res as any).rejections ?? {}) as Record<string, number>);
       setMatchCounts((prev) => ({ ...prev, [p.id]: res.opportunities.length }));
       // fundo: recomputa persistidas (Radar) sem bloquear a UI
       void recomputeFn({ data: { propertyId: p.id } }).catch(() => {});
