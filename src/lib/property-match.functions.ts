@@ -1,8 +1,16 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { scoreMatch, type BuyerLike, type MatchCategoryResult } from "./matching-engine";
-import { buildGeoMatchIndex, type RejectReason } from "./matching-engine";
+import {
+  scoreMatch,
+  evaluateExhaustive,
+  buildGeoMatchIndex,
+  type BuyerLike,
+  type MatchCategoryResult,
+  type AuditCategoryResult,
+  type ShortCircuit,
+  type RejectReason,
+} from "./matching-engine";
 import { LocationRepository } from "./geo";
 import { loadConsultorMeta, loadConsultorDirectory, resolveConsultor } from "./opportunity-privacy";
 
