@@ -24,6 +24,8 @@ export type GeoMatchIndex = {
   childrenOf: (id: string) => string[];
   adjacentOf: (id: string) => string[];
   functionalMembersOf: (id: string) => string[];
+  /** Nome legível da localização (para auditoria). */
+  nameOf: (id: string) => string | null;
 };
 
 export function buildGeoMatchIndex(snap: GeoSnapshot): GeoMatchIndex {
@@ -93,6 +95,7 @@ export function buildGeoMatchIndex(snap: GeoSnapshot): GeoMatchIndex {
     childrenOf: collectDescendants,
     adjacentOf: (id) => [...(snap.adjacentOf.get(id) ?? [])],
     functionalMembersOf: collectFunctionalMembers,
+    nameOf: (id) => snap.byId.get(id)?.nome ?? null,
   };
 }
 
