@@ -1,8 +1,16 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { scoreMatch, type BuyerLike, type MatchCategoryResult } from "./matching-engine";
-import { buildGeoMatchIndex, type RejectReason } from "./matching-engine";
+import {
+  scoreMatch,
+  evaluateExhaustive,
+  buildGeoMatchIndex,
+  type BuyerLike,
+  type MatchCategoryResult,
+  type AuditCategoryResult,
+  type ShortCircuit,
+  type RejectReason,
+} from "./matching-engine";
 import { LocationRepository } from "./geo";
 import { loadConsultorMeta, loadConsultorDirectory, resolveConsultor } from "./opportunity-privacy";
 
@@ -406,4 +414,200 @@ export const countPropertyMatches = createServerFn({ method: "POST" })
       counts[p.id] = n;
     }
     return { counts, totalBuyers: (buyers ?? []).length };
+  });
+
+// ---------------------------------------------------------------------------
+// Sprint 1.2.1 — Auditoria Completa do Motor Match (lado do imóvel)
+//
+// Corre `evaluateExhaustive` para todos os buyer_clients + active_searches
+// visíveis ao motor em produção. Aplica exactamente o mesmo Privacy Layer
+// de `runPropertyOpportunities`. Devolve o percurso completo da decisão
+// por candidato.
+// ---------------------------------------------------------------------------
+
+export type AuditCandidate = {
+  key: string;
+  source: OpportunitySource;
+  source_label: string;
+  buyer_source: "cliente" | "search";
+  buyer_ref: string;
+  isOwner: boolean;
+  label: string; // nome do comprador (owner) OU "Consultor: X" (externo)
+  compatible: boolean;
+  score: number;
+  rejectReason: RejectReason | null;
+  shortCircuitAt: ShortCircuit | null;
+  passedCount: number;
+  failedCount: number;
+  categories: AuditCategoryResult[];
+  // Contexto adicional para diagnóstico rápido.
+  resumo: string | null;
+  data_origem: string | null;
+  hora_origem: string | null;
+  grupo_whatsapp: string | null;
+  comunidade: string | null;
+  consultor_nome: string | null;
+};
+
+export const auditPropertyMatches = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) =>
+    z.object({ propertyId: z.string().uuid() }).parse(data),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+
+    const { data: property, error: pErr } = await supabase
+      .from("properties")
+      .select("*")
+      .eq("id", data.propertyId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (pErr) throw new Error(pErr.message);
+    if (!property) throw new Error("Imóvel não encontrado.");
+
+    const { data: buyers } = await supabase
+      .from("buyer_clients")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("ativo", true);
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const nowIso = new Date().toISOString();
+    const { data: searches } = await supabaseAdmin
+      .from("active_searches")
+      .select("*")
+      .gt("expires_at", nowIso);
+
+    const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
+
+    const otherUserIds = Array.from(
+      new Set(
+        (searches ?? [])
+          .filter((q: any) => q.user_id && q.user_id !== userId)
+          .map((q: any) => q.user_id as string),
+      ),
+    );
+    const [consultorMap, consultorDirectory] = await Promise.all([
+      loadConsultorMeta(otherUserIds),
+      loadConsultorDirectory(),
+    ]);
+
+    const candidates: AuditCandidate[] = [];
+
+    for (const b of buyers ?? []) {
+      const r = evaluateExhaustive(b as BuyerLike, property as any, { geoIndex });
+      candidates.push({
+        key: `cliente-${b.id}`,
+        source: "cliente",
+        source_label: "Cliente próprio",
+        buyer_source: "cliente",
+        buyer_ref: b.id,
+        isOwner: true,
+        label: b.nome ?? "—",
+        compatible: r.compatible,
+        score: r.score,
+        rejectReason: r.rejectReason,
+        shortCircuitAt: r.shortCircuitAt,
+        passedCount: r.passedCount,
+        failedCount: r.failedCount,
+        categories: r.categories,
+        resumo: b.notas ?? null,
+        data_origem: null,
+        hora_origem: null,
+        grupo_whatsapp: null,
+        comunidade: null,
+        consultor_nome: null,
+      });
+    }
+
+    for (const q of searches ?? []) {
+      const c = (q.criteria ?? {}) as any;
+      const buyer: BuyerLike = {
+        finalidade: c?.finalidade === "indefinido" ? undefined : c?.finalidade,
+        tipo_imovel: c?.tipo_imovel ?? null,
+        tipologia: c?.tipologia ?? null,
+        location_ids: (q as any).location_ids ?? [],
+        budget_min: c?.budget_min ?? null,
+        budget_max: c?.budget_max ?? null,
+        area_min: c?.area_min ?? null,
+        quartos_min: c?.quartos_min ?? null,
+        garagem_obrigatoria: ((c?.caracteristicas ?? []) as string[]).some((x) => /garagem/i.test(x)),
+        elevador_obrigatorio: ((c?.caracteristicas ?? []) as string[]).some((x) => /elevador/i.test(x)),
+        proximity: c?.proximity ?? null,
+        caracteristicas: Array.isArray(c?.caracteristicas) ? c.caracteristicas : null,
+        resumo: q.resumo ?? null,
+        texto_original: (q as any).texto_original ?? null,
+      };
+      const r = evaluateExhaustive(buyer, property as any, { geoIndex });
+      const isOwner = q.user_id === userId;
+      const origem = (q.origem as OpportunitySource) ?? "excel";
+      const source_label =
+        origem === "excel" ? "Base Global — Excel"
+        : origem === "whatsapp" ? "Base Global — WhatsApp"
+        : origem === "texto" ? "Base Global — Texto"
+        : origem === "captura" ? "Base Global — Captura"
+        : "Base Global";
+      const recNome = typeof q.consultor_nome === "string" && q.consultor_nome.trim()
+        ? q.consultor_nome.trim() : null;
+      const recTel = typeof q.consultor_telefone === "string" && q.consultor_telefone.trim()
+        ? q.consultor_telefone.trim() : null;
+      const isExcel = (q.origem ?? "").toString().toLowerCase() === "excel";
+      const fallbackNome = isExcel && typeof q.contact_nome === "string" && q.contact_nome.trim()
+        ? q.contact_nome.trim() : null;
+      const resolved = resolveConsultor(
+        consultorDirectory,
+        recNome ?? fallbackNome,
+        recTel,
+        null,
+      );
+      // Consultor externo (não-owner) → label com nome do consultor.
+      const uploaderMeta = !isOwner ? consultorMap.get(q.user_id) ?? null : null;
+      void uploaderMeta;
+      const label = isOwner
+        ? (q.contact_nome ?? c?.nome ?? "—")
+        : (resolved.nome ? `Consultor: ${resolved.nome}` : "Consultor externo");
+      candidates.push({
+        key: `search-${q.id}`,
+        source: origem,
+        source_label,
+        buyer_source: "search",
+        buyer_ref: q.id,
+        isOwner,
+        label,
+        compatible: r.compatible,
+        score: r.score,
+        rejectReason: r.rejectReason,
+        shortCircuitAt: r.shortCircuitAt,
+        passedCount: r.passedCount,
+        failedCount: r.failedCount,
+        categories: r.categories,
+        resumo: q.resumo ?? null,
+        data_origem: q.data_origem ?? null,
+        hora_origem: q.hora_origem ?? null,
+        grupo_whatsapp: q.grupo_whatsapp ?? q.contact_grupo ?? null,
+        comunidade: q.comunidade ?? null,
+        consultor_nome: resolved.nome,
+      });
+    }
+
+    // Ordenação: compatíveis (score desc) → rejeitados (mais PASS primeiro) → resto.
+    candidates.sort((a, b) => {
+      if (a.compatible !== b.compatible) return a.compatible ? -1 : 1;
+      if (a.compatible) return b.score - a.score;
+      if (b.passedCount !== a.passedCount) return b.passedCount - a.passedCount;
+      return b.score - a.score;
+    });
+
+    const compat = candidates.filter((c) => c.compatible).length;
+    return {
+      candidates,
+      totals: {
+        total: candidates.length,
+        compatible: compat,
+        rejected: candidates.length - compat,
+        buyers: (buyers ?? []).length,
+        searches: (searches ?? []).length,
+      },
+    };
   });

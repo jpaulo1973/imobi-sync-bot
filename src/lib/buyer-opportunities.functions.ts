@@ -1,7 +1,16 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { scoreMatch, buildGeoMatchIndex, type BuyerLike, type MatchCategoryResult, type RejectReason } from "./matching-engine";
+import {
+  scoreMatch,
+  evaluateExhaustive,
+  buildGeoMatchIndex,
+  type BuyerLike,
+  type MatchCategoryResult,
+  type AuditCategoryResult,
+  type ShortCircuit,
+  type RejectReason,
+} from "./matching-engine";
 import { LocationRepository } from "./geo";
 import {
   loadConsultorMeta,
@@ -133,4 +142,111 @@ export const countBuyerOpportunities = createServerFn({ method: "POST" })
       counts[b.id] = n;
     }
     return { counts, totalGlobal: (properties ?? []).length };
+  });
+
+// ---------------------------------------------------------------------------
+// Sprint 1.2.1 — Auditoria Completa do Motor Match (lado do comprador)
+// ---------------------------------------------------------------------------
+
+export type BuyerAuditCandidate = {
+  key: string; // property.id
+  property_id: string;
+  isOwner: boolean;
+  label: string;
+  referencia: string | null;
+  tipo_imovel: string | null;
+  tipologia: string | null;
+  preco: number | null;
+  compatible: boolean;
+  score: number;
+  rejectReason: RejectReason | null;
+  shortCircuitAt: ShortCircuit | null;
+  passedCount: number;
+  failedCount: number;
+  categories: AuditCategoryResult[];
+  consultor_nome: string | null;
+  consultor_telefone: string | null;
+  consultor_email: string | null;
+  consultor_agency: string | null;
+};
+
+export const auditBuyerMatches = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => z.object({ buyerId: z.string().uuid() }).parse(data))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+
+    const { data: buyer, error: bErr } = await supabase
+      .from("buyer_clients")
+      .select("*")
+      .eq("id", data.buyerId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (bErr) throw new Error(bErr.message);
+    if (!buyer) throw new Error("Comprador não encontrado.");
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: properties } = await supabaseAdmin
+      .from("properties")
+      .select("*")
+      .eq("ativo", true);
+
+    const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
+    const buyerLike = buyerToBuyerLike(buyer);
+
+    const otherUserIds = Array.from(
+      new Set(
+        (properties ?? [])
+          .filter((p: any) => p.user_id && p.user_id !== userId)
+          .map((p: any) => p.user_id as string),
+      ),
+    );
+    const consultorMap = await loadConsultorMeta(otherUserIds);
+
+    const candidates: BuyerAuditCandidate[] = [];
+    for (const p of properties ?? []) {
+      const r = evaluateExhaustive(buyerLike, p as any, { geoIndex });
+      const isOwner = (p as any).user_id === userId;
+      const consultor = !isOwner ? consultorMap.get((p as any).user_id) ?? null : null;
+      const dto = sanitizePropertyForViewer(p, userId, consultor);
+      candidates.push({
+        key: p.id,
+        property_id: p.id,
+        isOwner,
+        label: `${dto.tipologia ? dto.tipologia + " · " : ""}${dto.freguesia ?? dto.concelho ?? dto.zona ?? "Imóvel"}`,
+        referencia: dto.referencia ?? null,
+        tipo_imovel: dto.tipo_imovel ?? null,
+        tipologia: dto.tipologia ?? null,
+        preco: dto.preco != null ? Number(dto.preco) : null,
+        compatible: r.compatible,
+        score: r.score,
+        rejectReason: r.rejectReason,
+        shortCircuitAt: r.shortCircuitAt,
+        passedCount: r.passedCount,
+        failedCount: r.failedCount,
+        categories: r.categories,
+        consultor_nome: dto.consultor_nome ?? null,
+        consultor_telefone: dto.consultor_telefone ?? null,
+        consultor_email: dto.consultor_email ?? null,
+        consultor_agency: (dto as any).consultor_agency ?? null,
+      });
+    }
+
+    candidates.sort((a, b) => {
+      if (a.compatible !== b.compatible) return a.compatible ? -1 : 1;
+      if (a.compatible) return b.score - a.score;
+      if (b.passedCount !== a.passedCount) return b.passedCount - a.passedCount;
+      return b.score - a.score;
+    });
+
+    const compat = candidates.filter((c) => c.compatible).length;
+    return {
+      candidates,
+      totals: {
+        total: candidates.length,
+        compatible: compat,
+        rejected: candidates.length - compat,
+        properties: (properties ?? []).length,
+      },
+    };
   });
