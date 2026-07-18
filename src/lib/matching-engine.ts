@@ -769,3 +769,286 @@ export function scoreMatch(
 
   return { score, compatible: true, needsReview: null, categories, reasons, rejectReason: null };
 }
+
+// ---------------------------------------------------------------------------
+// Sprint 1.2.1 — Auditoria Completa (evaluateExhaustive)
+//
+// Corre TODOS os filtros (hard + preço + soft) sem short-circuit, produzindo
+// evidência filtro-a-filtro (procura, imóvel, regra, PASS/FAIL). Nunca
+// substitui `scoreMatch` — este é usado sob demanda pela UI de Auditoria.
+// ---------------------------------------------------------------------------
+
+export type AuditCategoryResult = MatchCategoryResult & {
+  expected: string | null;
+  actual: string | null;
+  rule: string | null;
+};
+
+export type ShortCircuit = {
+  key: MatchCategoryKey;
+  label: string;
+  rejectReason: RejectReason;
+  detail: string;
+};
+
+export type AuditResult = {
+  compatible: boolean;
+  score: number;
+  rejectReason: RejectReason | null;
+  /** Filtro que travaria o motor em modo normal (short-circuit). Null se compatible. */
+  shortCircuitAt: ShortCircuit | null;
+  /** Todas as categorias avaliadas, na ordem: finalidade, tipo, investor_bulk, localização, área, extras, preço, tipologia. */
+  categories: AuditCategoryResult[];
+  reasons: string[];
+  needsReview: NeedsReview | null;
+  passedCount: number;
+  failedCount: number;
+};
+
+// Formatadores utilitários — usados só na auditoria (sem impacto no motor).
+function fmtMoney(v: number | string | null | undefined): string {
+  const n = num(v);
+  if (n == null) return "—";
+  try {
+    return new Intl.NumberFormat("pt-PT", {
+      style: "currency", currency: "EUR", maximumFractionDigits: 0,
+    }).format(n);
+  } catch {
+    return `${Math.round(n)} €`;
+  }
+}
+function fmtM2(v: number | string | null | undefined): string {
+  const n = num(v);
+  return n == null ? "—" : `${Math.round(n)} m²`;
+}
+function fmtArr(v: string[] | null | undefined): string {
+  if (!Array.isArray(v) || v.length === 0) return "—";
+  return v.join(", ");
+}
+function fmtBool(v: boolean | null | undefined): string {
+  return v === true ? "sim" : v === false ? "não" : "—";
+}
+function fmtLocIds(ids: string[] | null | undefined, geoIndex: GeoMatchIndex | null): string {
+  if (!Array.isArray(ids) || ids.length === 0) return "—";
+  const names = ids.map((id) => geoIndex?.nameOf(id) ?? id.slice(0, 8)).filter(Boolean);
+  return names.join(", ");
+}
+function fmtLocId(id: string | null | undefined, geoIndex: GeoMatchIndex | null): string {
+  if (!id) return "—";
+  return geoIndex?.nameOf(id) ?? id.slice(0, 8);
+}
+
+/**
+ * Devolve {expected, actual, rule} legíveis para uma categoria auditada.
+ * Pura: só depende de buyer/property/geoIndex.
+ */
+export function deriveExpectedActual(
+  key: MatchCategoryKey,
+  buyer: BuyerLike,
+  property: PropertyLike,
+  geoIndex: GeoMatchIndex | null,
+): { expected: string; actual: string; rule: string } {
+  switch (key) {
+    case "finalidade":
+      return {
+        expected: (buyer.finalidade ?? "—").toString(),
+        actual: (property.finalidade ?? "—").toString(),
+        rule: "Procura = Imóvel (ou procura ambos)",
+      };
+    case "tipo":
+      return {
+        expected: fmtArr(buyer.tipo_imovel ?? null),
+        actual: (property.tipo_imovel ?? "—").toString(),
+        rule: "Imóvel ∈ tipos pretendidos (exceção: rústico permite tipo vazio)",
+      };
+    case "tipologia": {
+      const bQ = sanitizeQuartos(buyer.quartos_min ?? null, "buyer.quartos_min")
+        ?? tipologiaQuartos(buyer.tipologia);
+      const pQ = sanitizeQuartos(property.quartos ?? null, "property.quartos")
+        ?? tipologiaQuartos(property.tipologia);
+      return {
+        expected: buyer.tipologia
+          ? String(buyer.tipologia)
+          : bQ != null ? `T${bQ}+` : "—",
+        actual: property.tipologia
+          ? String(property.tipologia)
+          : pQ != null ? `T${pQ}` : "—",
+        rule: "Imóvel ≥ Procura (tolerante se procura indefinida)",
+      };
+    }
+    case "preco": {
+      const bmin = buyer.budget_min != null ? fmtMoney(buyer.budget_min) : null;
+      const bmax = buyer.budget_max != null ? fmtMoney(buyer.budget_max) : null;
+      const exp = bmin && bmax
+        ? `${bmin} – ${bmax}`
+        : bmax ? `até ${bmax}`
+        : bmin ? `desde ${bmin}` : "sem limite";
+      return {
+        expected: exp,
+        actual: fmtMoney(property.preco),
+        rule: "Preço ≤ orçamento máximo × 1,10",
+      };
+    }
+    case "area": {
+      const tipo = (property.tipo_imovel ?? "").toString().toLowerCase();
+      const isTerrain = tipo === "terreno" || tipo === "quinta" || tipo === "herdade";
+      const pArea = isTerrain
+        ? num(property.area_terreno_m2) ?? num(property.area_util_m2) ?? num(property.area_m2)
+        : num(property.area_util_m2) ?? num(property.area_m2);
+      return {
+        expected: buyer.area_min != null ? `≥ ${fmtM2(buyer.area_min)}` : "sem mínimo",
+        actual: fmtM2(pArea),
+        rule: isTerrain ? "Área do terreno ≥ mínimo" : "Área útil ≥ mínimo",
+      };
+    }
+    case "localizacao":
+      return {
+        expected: fmtLocIds(buyer.location_ids ?? null, geoIndex),
+        actual: fmtLocId(property.location_id ?? null, geoIndex),
+        rule: "Match directo → hierarquia → zona funcional → adjacência",
+      };
+    case "extras": {
+      const req: string[] = [];
+      if (buyer.garagem_obrigatoria) req.push("garagem");
+      if (buyer.elevador_obrigatorio) req.push("elevador");
+      const has: string[] = [];
+      if (property.garagem) has.push("garagem");
+      if (property.elevador) has.push("elevador");
+      if (property.jardim) has.push("jardim");
+      if (property.piscina) has.push("piscina");
+      return {
+        expected: req.length ? `obrigatório: ${req.join(", ")}` : "sem requisitos",
+        actual: has.length ? has.join(", ") : "—",
+        rule: "Requisitos obrigatórios do comprador cumpridos pelo imóvel",
+      };
+    }
+  }
+  // Fallback (para exhaustiveness)
+  return { expected: "—", actual: "—", rule: "" };
+}
+
+function toAudit(
+  cat: MatchCategoryResult,
+  buyer: BuyerLike,
+  property: PropertyLike,
+  geoIndex: GeoMatchIndex | null,
+): AuditCategoryResult {
+  const d = deriveExpectedActual(cat.key, buyer, property, geoIndex);
+  return { ...cat, expected: d.expected, actual: d.actual, rule: d.rule };
+}
+
+/**
+ * Sprint 1.2.1 — Auditoria Completa.
+ *
+ * Ordem exaustiva: HARD_FILTERS → preço → tipologia (soft-hard) → soft (área/extras).
+ * NUNCA interrompe. Devolve `shortCircuitAt` com o filtro que teria travado
+ * o motor em modo normal, para comparação directa.
+ */
+export function evaluateExhaustive(
+  buyer: BuyerLike,
+  property: PropertyLike,
+  options: MatchOptions = {},
+): AuditResult {
+  const tolerance = options.priceTolerance ?? 0.1;
+  const geoIndex = options.geoIndex ?? null;
+
+  const audit: AuditCategoryResult[] = [];
+  let shortCircuitAt: ShortCircuit | null = null;
+  let firstRejectReason: RejectReason | null = null;
+  let hardCompatible = true;
+  let needsReview: NeedsReview | null = null;
+
+  const record = (
+    res: HardFilterResult,
+    _stage: "hard" | "preco" | "tipologia",
+  ) => {
+    const c = toAudit(res.category, buyer, property, geoIndex);
+    audit.push(c);
+    if (!res.ok) {
+      hardCompatible = false;
+      if (!shortCircuitAt) {
+        shortCircuitAt = {
+          key: res.category.key,
+          label: res.category.label,
+          rejectReason: res.rejectReason,
+          detail: res.category.detail,
+        };
+        firstRejectReason = res.rejectReason;
+        if (res.needsReview && !needsReview) needsReview = res.needsReview;
+      }
+    }
+  };
+
+  // 1) Hard filters registados (ordem estrita)
+  for (const f of HARD_FILTERS) {
+    record(f.run(buyer, property, geoIndex), "hard");
+  }
+  // 2) Preço (hard, com tolerância)
+  record(precoMaxFilter(buyer, property, tolerance), "preco");
+
+  // 3) Tipologia — é hard-ish (falha se imóvel inferior ao pedido).
+  //    scoreMatch trata-o como falha eliminatória; replicamos essa semântica
+  //    aqui, mas sem short-circuit — a categoria continua a ser reportada.
+  const tipCat = scoreTipologia(buyer, property);
+  const tipAudit: AuditCategoryResult = toAudit(tipCat, buyer, property, geoIndex);
+  audit.push(tipAudit);
+  if (!tipCat.ok) {
+    hardCompatible = false;
+    if (!shortCircuitAt) {
+      shortCircuitAt = {
+        key: "tipologia",
+        label: "Tipologia",
+        rejectReason: "TIPOLOGIA",
+        detail: tipCat.detail,
+      };
+      firstRejectReason = "TIPOLOGIA";
+    }
+  }
+
+  // 4) Soft scores adicionais (área/extras) — só afetam score final.
+  //    Estas categorias já podem ter sido acrescentadas como hard;
+  //    substituímos pelas versões com peso soft para o score.
+  const softPreco = scorePreco(buyer, property);
+  const softArea = scoreArea(buyer, property);
+  const softExtras = scoreExtras(buyer, property);
+
+  // Substitui as versões hard das categorias soft-scoring pelas versões com peso.
+  const finalCategories: AuditCategoryResult[] = audit.map((c) => {
+    if (c.key === "preco") return { ...toAudit(softPreco, buyer, property, geoIndex), ok: c.ok };
+    if (c.key === "area") return { ...toAudit(softArea, buyer, property, geoIndex), ok: c.ok };
+    if (c.key === "extras") return { ...toAudit(softExtras, buyer, property, geoIndex), ok: c.ok };
+    return c;
+  });
+
+  const compatible = hardCompatible;
+  let score = 0;
+  if (compatible) {
+    const locScore = finalCategories.find((c) => c.key === "localizacao")?.score ?? 0;
+    score = Math.max(
+      0,
+      Math.min(
+        100,
+        Math.round(locScore + tipAudit.score + softPreco.score + softArea.score + softExtras.score),
+      ),
+    );
+  }
+
+  const reasons = compatible
+    ? finalCategories.filter((c) => c.ok && c.detail).map((c) => c.detail)
+    : [];
+
+  const passedCount = finalCategories.filter((c) => c.ok).length;
+  const failedCount = finalCategories.length - passedCount;
+
+  return {
+    compatible,
+    score,
+    rejectReason: compatible ? null : firstRejectReason,
+    shortCircuitAt,
+    categories: finalCategories,
+    reasons,
+    needsReview,
+    passedCount,
+    failedCount,
+  };
+}
