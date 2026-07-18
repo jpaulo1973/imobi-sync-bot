@@ -48,6 +48,8 @@ import { recomputeOpportunitiesForProperty } from "@/lib/active-searches.functio
 import {
   runPropertyOpportunities,
   countPropertyOpportunities,
+  auditPropertyMatches,
+  type AuditCandidate,
   type Opportunity,
 } from "@/lib/property-match.functions";
 import { updateMatchState } from "@/lib/match-states.functions";
