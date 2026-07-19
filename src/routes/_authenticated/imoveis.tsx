@@ -55,6 +55,7 @@ import {
 import { updateMatchState } from "@/lib/match-states.functions";
 import { ConsultorContactActions } from "@/components/ConsultorContactActions";
 import type { MatchCategoryResult } from "@/lib/matching-engine";
+import { MatchAuditPanel, type AuditRowData } from "@/components/MatchAuditPanel";
 
 type Property = Tables<"properties">;
 type MatchResult = Opportunity;
@@ -218,6 +219,23 @@ function ImoveisPage() {
   const [rejections, setRejections] = useState<Record<string, number>>({});
   const [showDismissed, setShowDismissed] = useState(false);
   const updateStateFn = useServerFn(updateMatchState);
+  // Sprint 1.2.1 — Modo Auditoria
+  const [auditMode, setAuditMode] = useState(false);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditCandidates, setAuditCandidates] = useState<AuditCandidate[]>([]);
+  const auditFn = useServerFn(auditPropertyMatches);
+
+  const loadAudit = async (propertyId: string) => {
+    setAuditLoading(true);
+    try {
+      const r = await auditFn({ data: { propertyId } });
+      setAuditCandidates(r.candidates);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao correr auditoria");
+    } finally {
+      setAuditLoading(false);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
