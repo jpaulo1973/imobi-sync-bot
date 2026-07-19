@@ -432,14 +432,20 @@ function BuyerOpportunitiesDrawer({
   onClose: () => void;
 }) {
   const runFn = useServerFn(runBuyerOpportunities);
+  const auditFn = useServerFn(auditBuyerMatches);
   const [matches, setMatches] = useState<BuyerPropertyMatch[]>([]);
   const [loading, setLoading] = useState(false);
   const [analyzed, setAnalyzed] = useState(0);
   const [rejections, setRejections] = useState<Record<string, number>>({});
+  const [auditMode, setAuditMode] = useState(false);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditCandidates, setAuditCandidates] = useState<BuyerAuditCandidate[]>([]);
 
   useEffect(() => {
     if (!buyerId) return;
     setLoading(true);
+    setAuditMode(false);
+    setAuditCandidates([]);
     runFn({ data: { buyerId } })
       .then((r) => {
         setMatches(r.matches);
@@ -450,6 +456,19 @@ function BuyerOpportunitiesDrawer({
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buyerId]);
+
+  const loadAudit = async () => {
+    if (!buyerId) return;
+    setAuditLoading(true);
+    try {
+      const r = await auditFn({ data: { buyerId } });
+      setAuditCandidates(r.candidates);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao correr auditoria");
+    } finally {
+      setAuditLoading(false);
+    }
+  };
 
   return (
     <Sheet open={!!buyerId} onOpenChange={(o) => !o && onClose()}>
