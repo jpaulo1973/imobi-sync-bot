@@ -55,6 +55,7 @@ import {
 import { updateMatchState } from "@/lib/match-states.functions";
 import { ConsultorContactActions } from "@/components/ConsultorContactActions";
 import type { MatchCategoryResult } from "@/lib/matching-engine";
+import { MatchAuditPanel, type AuditRowData } from "@/components/MatchAuditPanel";
 
 type Property = Tables<"properties">;
 type MatchResult = Opportunity;
@@ -218,6 +219,23 @@ function ImoveisPage() {
   const [rejections, setRejections] = useState<Record<string, number>>({});
   const [showDismissed, setShowDismissed] = useState(false);
   const updateStateFn = useServerFn(updateMatchState);
+  // Sprint 1.2.1 — Modo Auditoria
+  const [auditMode, setAuditMode] = useState(false);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditCandidates, setAuditCandidates] = useState<AuditCandidate[]>([]);
+  const auditFn = useServerFn(auditPropertyMatches);
+
+  const loadAudit = async (propertyId: string) => {
+    setAuditLoading(true);
+    try {
+      const r = await auditFn({ data: { propertyId } });
+      setAuditCandidates(r.candidates);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao correr auditoria");
+    } finally {
+      setAuditLoading(false);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -334,6 +352,8 @@ function ImoveisPage() {
     setMatchOpen(true);
     setMatchLoading(true);
     setMatches([]);
+    setAuditMode(false);
+    setAuditCandidates([]);
     try {
       const res = await oppsFn({ data: { propertyId: p.id, includeDismissed: showDismissed } });
       setMatches(res.opportunities);
@@ -848,7 +868,61 @@ function ImoveisPage() {
             </DialogDescription>
           </DialogHeader>
 
-          {matchLoading ? (
+          <div className="flex items-center gap-2 border rounded-md p-2 bg-muted/30">
+            <div className="text-xs">
+              <div className="font-medium">Modo Auditoria</div>
+              <div className="text-muted-foreground text-[11px]">
+                Vê PASS/FAIL por filtro para cada comprador/procura — inclui rejeitados.
+              </div>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant={auditMode ? "default" : "outline"}
+              className="ml-auto h-7 text-xs"
+              onClick={async () => {
+                const next = !auditMode;
+                setAuditMode(next);
+                if (next && matchProperty && auditCandidates.length === 0) {
+                  await loadAudit(matchProperty.id);
+                }
+              }}
+            >
+              {auditMode ? "Ativo" : "Ativar"}
+            </Button>
+          </div>
+
+          {auditMode ? (
+            auditLoading ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">A correr auditoria completa…</p>
+            ) : (
+              <MatchAuditPanel
+                candidates={auditCandidates.map<AuditRowData>((c) => ({
+                  key: c.key,
+                  label: c.label,
+                  sourceLabel: c.source_label,
+                  compatible: c.compatible,
+                  score: c.score,
+                  rejectReason: c.rejectReason,
+                  shortCircuitAt: c.shortCircuitAt,
+                  passedCount: c.passedCount,
+                  failedCount: c.failedCount,
+                  categories: c.categories,
+                  extraMeta: [
+                    c.resumo,
+                    c.data_origem,
+                    c.grupo_whatsapp ? `Grupo: ${c.grupo_whatsapp}` : null,
+                  ].filter(Boolean).join(" · ") || null,
+                }))}
+                totals={{
+                  total: auditCandidates.length,
+                  compatible: auditCandidates.filter((x) => x.compatible).length,
+                  rejected: auditCandidates.filter((x) => !x.compatible).length,
+                }}
+                emptyLabel="Sem compradores nem procuras para auditar."
+              />
+            )
+          ) : matchLoading ? (
             <p className="text-sm text-muted-foreground py-6 text-center">A analisar compradores...</p>
           ) : matches.length === 0 ? (
             <div className="text-sm text-muted-foreground py-6 text-center space-y-1">
