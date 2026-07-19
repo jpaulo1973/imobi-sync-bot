@@ -352,6 +352,8 @@ function ImoveisPage() {
     setMatchOpen(true);
     setMatchLoading(true);
     setMatches([]);
+    setAuditMode(false);
+    setAuditCandidates([]);
     try {
       const res = await oppsFn({ data: { propertyId: p.id, includeDismissed: showDismissed } });
       setMatches(res.opportunities);
