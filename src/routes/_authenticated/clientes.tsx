@@ -19,6 +19,8 @@ import { useServerFn } from "@tanstack/react-start";
 import {
   runBuyerOpportunities,
   countBuyerOpportunities,
+  auditBuyerMatches,
+  type BuyerAuditCandidate,
   type BuyerPropertyMatch,
 } from "@/lib/buyer-opportunities.functions";
 import {
@@ -30,6 +32,7 @@ import {
 } from "@/components/ui/sheet";
 import { ConsultorContactActions } from "@/components/ConsultorContactActions";
 import { normalizePhone } from "@/lib/dedup";
+import { MatchAuditPanel, type AuditRowData } from "@/components/MatchAuditPanel";
 
 type Buyer = Tables<"buyer_clients">;
 
