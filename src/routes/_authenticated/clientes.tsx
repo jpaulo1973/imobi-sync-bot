@@ -483,7 +483,59 @@ function BuyerOpportunitiesDrawer({
           </SheetDescription>
         </SheetHeader>
         <div className="mt-4 space-y-3">
-          {loading ? (
+          <div className="flex items-center gap-2 border rounded-md p-2 bg-muted/30">
+            <div className="text-xs">
+              <div className="font-medium">Modo Auditoria</div>
+              <div className="text-muted-foreground text-[11px]">
+                Percurso completo do motor por imóvel — inclui rejeitados.
+              </div>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant={auditMode ? "default" : "outline"}
+              className="ml-auto h-7 text-xs"
+              onClick={async () => {
+                const next = !auditMode;
+                setAuditMode(next);
+                if (next && auditCandidates.length === 0) await loadAudit();
+              }}
+            >
+              {auditMode ? "Ativo" : "Ativar"}
+            </Button>
+          </div>
+          {auditMode ? (
+            auditLoading ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">A correr auditoria completa…</p>
+            ) : (
+              <MatchAuditPanel
+                candidates={auditCandidates.map<AuditRowData>((c) => ({
+                  key: c.key,
+                  label: c.label,
+                  sourceLabel: c.isOwner ? "Meu imóvel" : "Base Global",
+                  compatible: c.compatible,
+                  score: c.score,
+                  rejectReason: c.rejectReason,
+                  shortCircuitAt: c.shortCircuitAt,
+                  passedCount: c.passedCount,
+                  failedCount: c.failedCount,
+                  categories: c.categories,
+                  extraMeta: [
+                    c.referencia ? `Ref: ${c.referencia}` : null,
+                    c.tipo_imovel,
+                    c.preco ? euros(c.preco) : null,
+                    c.consultor_nome ? `Angariação: ${c.consultor_nome}` : null,
+                  ].filter(Boolean).join(" · ") || null,
+                }))}
+                totals={{
+                  total: auditCandidates.length,
+                  compatible: auditCandidates.filter((x) => x.compatible).length,
+                  rejected: auditCandidates.filter((x) => !x.compatible).length,
+                }}
+                emptyLabel="Sem imóveis na Base Global para auditar."
+              />
+            )
+          ) : loading ? (
             <p className="text-sm text-muted-foreground">A carregar…</p>
           ) : matches.length === 0 ? (
             <Card className="p-4 text-sm text-muted-foreground text-center space-y-1">
