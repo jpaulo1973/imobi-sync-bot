@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,6 @@ import { Separator } from "@/components/ui/separator";
 import { Check, X, ChevronDown, ChevronRight, Zap, Filter, ArrowUpDown } from "lucide-react";
 import type { AuditCategoryResult, RejectReason, ShortCircuit } from "@/lib/matching-engine";
 import { REJECT_REASON_LABELS } from "@/lib/matching-engine";
-import { useMemo } from "react";
 
 export type AuditRowData = {
   key: string;
