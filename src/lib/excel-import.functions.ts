@@ -14,6 +14,8 @@ import {
   type RoleSignal,
 } from "./search-acceptance";
 import { normalizeSearchBedrooms } from "./bedrooms-normalize";
+import { LocationRepository } from "./geo/location-repository";
+import { parseLocations } from "./geo";
 
 // Re-exportar para manter compatibilidade com consumidores existentes; a
 // implementação vive agora em src/lib/search-acceptance.ts (fonte única).
@@ -214,6 +216,11 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
 
     const batch_id = `xlsx_${Date.now()}`;
     const expires = new Date(Date.now() + DURATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+    // Sprint 1.2.2 — snapshot da biblioteca geográfica carregado UMA vez
+    // por importação. O parser TS é a única fonte de verdade para
+    // location_ids; nunca duplicamos a lógica aqui.
+    const geoSnap = await LocationRepository.getSnapshot();
 
     // Índice case-insensitive de colunas
     const col = (row: Record<string, unknown>, ...names: string[]): unknown => {
