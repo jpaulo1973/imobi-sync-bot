@@ -54,7 +54,7 @@ export const backfillGeoFromText = createServerFn({ method: "POST" })
     let propsResolved = 0;
     let propsUnresolved = 0;
     const unresolvedPropTexts: string[] = [];
-    const propUpdates: Array<Promise<unknown>> = [];
+    const propUpdates: Array<() => Promise<unknown>> = [];
 
     for (const p of (props ?? []) as Array<{ id: string; distrito: string | null; concelho: string | null; freguesia: string | null; zona: string | null }>) {
       const candidates = [p.freguesia, p.concelho, p.zona, p.distrito]
@@ -67,11 +67,11 @@ export const backfillGeoFromText = createServerFn({ method: "POST" })
       }
       if (matched) {
         propsResolved++;
-        propUpdates.push(
-          supabaseAdmin
+        propUpdates.push(() =>
+          Promise.resolve(supabaseAdmin
             .from("properties")
             .update({ location_id: matched, geo_library_version: snap.version })
-            .eq("id", p.id),
+            .eq("id", p.id)),
         );
       } else {
         propsUnresolved++;
@@ -90,7 +90,7 @@ export const backfillGeoFromText = createServerFn({ method: "POST" })
     let searchesResolved = 0;
     let searchesUnresolved = 0;
     const unresolvedSearchTexts: string[] = [];
-    const searchUpdates: Array<Promise<unknown>> = [];
+    const searchUpdates: Array<() => Promise<unknown>> = [];
 
     for (const s of (searches ?? []) as Array<{ id: string; criteria: any; location_ids: string[] | null }>) {
       const current = (s.location_ids ?? []) as string[];
@@ -109,11 +109,11 @@ export const backfillGeoFromText = createServerFn({ method: "POST" })
       }
       if (acc.size > 0) {
         searchesResolved++;
-        searchUpdates.push(
-          supabaseAdmin
+        searchUpdates.push(() =>
+          Promise.resolve(supabaseAdmin
             .from("active_searches")
             .update({ location_ids: [...acc] })
-            .eq("id", s.id),
+            .eq("id", s.id)),
         );
       } else if (candidates.length > 0) {
         searchesUnresolved++;
@@ -139,16 +139,15 @@ export const backfillGeoFromText = createServerFn({ method: "POST" })
     };
   });
 
-async function runChunks(promises: Array<Promise<unknown>>, size: number): Promise<void> {
-  for (let i = 0; i < promises.length; i += size) {
-    await Promise.all(promises.slice(i, i + size));
+async function runChunks(makers: Array<() => Promise<unknown>>, size: number): Promise<void> {
+  for (let i = 0; i < makers.length; i += size) {
+    await Promise.all(makers.slice(i, i + size).map((fn) => fn()));
   }
 }
 
 export type RecomputeAllResult = {
   searches_processed: number;
   opportunities_created: number;
-  opportunities_updated: number;
 };
 
 export const recomputeAllMatches = createServerFn({ method: "POST" })
@@ -175,7 +174,6 @@ export const recomputeAllMatches = createServerFn({ method: "POST" })
     }
 
     let created = 0;
-    let updated = 0;
     let processed = 0;
     const CHUNK = 200;
     for (const [uid, ids] of byUser) {
@@ -183,9 +181,8 @@ export const recomputeAllMatches = createServerFn({ method: "POST" })
         const slice = ids.slice(i, i + CHUNK);
         const res = await recomputeForBatch(supabaseAdmin as any, uid, slice);
         created += res.created ?? 0;
-        updated += res.updated ?? 0;
         processed += slice.length;
       }
     }
-    return { searches_processed: processed, opportunities_created: created, opportunities_updated: updated };
+    return { searches_processed: processed, opportunities_created: created };
   });
