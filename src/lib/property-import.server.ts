@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { callLovableAI } from "./ai-gateway.server";
+import { LocationRepository } from "./geo/location-repository";
+import { parseLocations } from "./geo";
 
 export const EssentialPropertySchema = z.object({
   referencia: z.string().nullable().optional(),
@@ -48,6 +50,8 @@ type PropertyInsert = {
   elevador: boolean | null;
   jardim: boolean | null;
   piscina: boolean | null;
+  location_id?: string | null;
+  geo_library_version?: number | null;
 };
 
 async function firecrawlScrape(url: string): Promise<{ markdown?: string; html?: string }> {
@@ -238,6 +242,38 @@ export function buildPropertyInsert(parsed: ParsedProperty): {
   };
 }
 
+/**
+ * Sprint 1.2.2 — resolve o `location_id` canónico a partir dos campos
+ * textuais extraídos pela IA, usando exclusivamente o parser único
+ * (`parseLocations` sobre o snapshot do `LocationRepository`). Não
+ * duplica lógica geográfica nem heurísticas próprias.
+ *
+ * Tenta do mais específico ao menos específico e devolve o primeiro
+ * `location_id` resolvido. Se nada resolver, devolve `null` e o texto
+ * tentado — o caller decide se sinaliza para revisão.
+ */
+export async function resolveLocationIdFromParsed(parsed: ParsedProperty): Promise<{
+  location_id: string | null;
+  geo_library_version: number;
+  unresolved_text: string | null;
+}> {
+  const snap = await LocationRepository.getSnapshot();
+  const candidates = [parsed.freguesia, parsed.concelho, parsed.zona, parsed.distrito]
+    .map((v) => (v ?? "").trim())
+    .filter((v) => v.length > 0);
+  for (const text of candidates) {
+    const res = parseLocations(text, snap);
+    if (res.resolved.length > 0) {
+      return { location_id: res.resolved[0], geo_library_version: snap.version, unresolved_text: null };
+    }
+  }
+  return {
+    location_id: null,
+    geo_library_version: snap.version,
+    unresolved_text: candidates[0] ?? null,
+  };
+}
+
 export async function extractPropertyFromUrl(url: string) {
   const scrape = await firecrawlScrape(url);
   const publisherHtml = await fetchPublisherHtml(url);
@@ -311,5 +347,19 @@ Responde APENAS com JSON válido.`;
     throw new Error("A IA não conseguiu interpretar o anúncio. Adicione manualmente.");
   }
 
-  return buildPropertyInsert(mergeStructuredAreas(parsed, publisherHtml ?? scrape.html));
+  const merged = mergeStructuredAreas(parsed, publisherHtml ?? scrape.html);
+  const built = buildPropertyInsert(merged);
+  // Sprint 1.2.2: resolver location_id via parser único antes de devolver.
+  const geo = await resolveLocationIdFromParsed(merged);
+  const missing_fields = geo.location_id
+    ? built.missing_fields
+    : [...built.missing_fields, "location_id"];
+  return {
+    values: {
+      ...built.values,
+      location_id: geo.location_id,
+      geo_library_version: geo.geo_library_version,
+    },
+    missing_fields,
+  };
 }

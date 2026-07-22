@@ -14,6 +14,8 @@ import {
   type RoleSignal,
 } from "./search-acceptance";
 import { normalizeSearchBedrooms } from "./bedrooms-normalize";
+import { LocationRepository } from "./geo/location-repository";
+import { parseLocations } from "./geo";
 
 // Re-exportar para manter compatibilidade com consumidores existentes; a
 // implementação vive agora em src/lib/search-acceptance.ts (fonte única).
@@ -215,6 +217,11 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
     const batch_id = `xlsx_${Date.now()}`;
     const expires = new Date(Date.now() + DURATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
+    // Sprint 1.2.2 — snapshot da biblioteca geográfica carregado UMA vez
+    // por importação. O parser TS é a única fonte de verdade para
+    // location_ids; nunca duplicamos a lógica aqui.
+    const geoSnap = await LocationRepository.getSnapshot();
+
     // Índice case-insensitive de colunas
     const col = (row: Record<string, unknown>, ...names: string[]): unknown => {
       for (const nm of names) {
@@ -412,6 +419,26 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
           zona: spZona ?? spMunicipio ?? spFreguesia,
         });
 
+        // Sprint 1.2.2 — resolver location_ids via parser único, do mais
+        // específico ao menos específico. Nunca duplicar heurísticas aqui.
+        const geoCandidates = [spFreguesia, spZona, spMunicipio, distrito]
+          .map((v) => (v ?? "").trim())
+          .filter((v) => v.length > 0);
+        const resolvedLocationIds: string[] = [];
+        let firstUnresolvedGeoText: string | null = null;
+        for (const text of geoCandidates) {
+          const r = parseLocations(text, geoSnap);
+          if (r.resolved.length > 0) {
+            for (const id of r.resolved) if (!resolvedLocationIds.includes(id)) resolvedLocationIds.push(id);
+            break;
+          }
+          if (firstUnresolvedGeoText == null) firstUnresolvedGeoText = text;
+        }
+        const geoFlag =
+          resolvedLocationIds.length === 0 && firstUnresolvedGeoText
+            ? { flagged: true, reason: `Zona por interpretar: "${firstUnresolvedGeoText}"` }
+            : null;
+
         const row: UpsertRow = {
           dedup_key,
           criteria,
@@ -431,11 +458,27 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
           hora_origem: horaOrigem,
           grupo_whatsapp: grupoWhatsapp,
           comunidade,
+          location_ids: resolvedLocationIds,
         };
 
         try {
           const res = await upsertOne(supabase, userId, row);
           upsertedIds.push(res.id);
+          // Sprint 1.2.2 — se a zona não resolveu, promove flag de revisão
+          // (não sobrepõe uma flag prévia mais grave já emitida acima).
+          if (geoFlag && !flagAsReview) {
+            try {
+              await supabase
+                .from("active_searches")
+                .update({ flagged_for_review: true, decision_reason: geoFlag.reason })
+                .eq("id", res.id);
+            } catch (e) {
+              console.error("flag geo unresolved failed", e);
+            }
+            splitOutcomes.push({ kind: "flagged", reason: geoFlag.reason });
+            sinalizadas_revisao++;
+            continue;
+          }
           if (flagAsReview) {
             // Sinaliza para revisão manual sem impedir o fluxo.
             try {
