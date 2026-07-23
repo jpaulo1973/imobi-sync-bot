@@ -83,6 +83,58 @@ function criteriaToBuyer(c: any, location_ids: string[] = []): BuyerLike {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Sprint 1.2.3 — Deduplicação de oportunidades
+//
+// Regra funcional: para a mesma combinação (Property, Buyer) só existe uma
+// oportunidade apresentada; caso existam múltiplos resultados para a mesma
+// combinação, manter apenas a oportunidade com maior Match Score.
+//
+// Como o mesmo comprador pode surgir simultaneamente em `buyer_clients` e
+// em várias `active_searches` (importações WhatsApp/Excel repetidas), a
+// deduplicação é feita por *identidade do comprador* — telefone normalizado
+// ou, em fallback, nome normalizado — e não apenas por buyer_ref.
+// ---------------------------------------------------------------------------
+function normDedupPhone(v: unknown): string {
+  if (v == null) return "";
+  let s = String(v).replace(/\D+/g, "");
+  if (s.startsWith("00")) s = s.slice(2);
+  if (s.startsWith("351") && s.length > 9) s = s.slice(-9);
+  return s.length >= 9 ? s : "";
+}
+function normDedupName(v: unknown): string {
+  if (typeof v !== "string") return "";
+  return v
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+function buyerIdentityKey(o: {
+  buyer_source: "cliente" | "search";
+  buyer_ref: string;
+  telefone?: string | null;
+  nome?: string | null;
+}): string {
+  const phone = normDedupPhone(o.telefone);
+  if (phone) return `phone:${phone}`;
+  const name = normDedupName(o.nome);
+  if (name) return `name:${name}`;
+  return `${o.buyer_source}:${o.buyer_ref}`;
+}
+function dedupOpportunities<T extends { score: number; buyer_source: "cliente" | "search"; buyer_ref: string; telefone?: string | null; nome?: string | null }>(
+  list: T[],
+): T[] {
+  const best = new Map<string, T>();
+  for (const o of list) {
+    const k = buyerIdentityKey(o);
+    const prev = best.get(k);
+    if (!prev || o.score > prev.score) best.set(k, o);
+  }
+  return Array.from(best.values());
+}
+
 export const runPropertyOpportunities = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
@@ -287,8 +339,11 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
 
     opps.sort((a, b) => b.score - a.score);
 
+    const deduped = dedupOpportunities(opps);
+    deduped.sort((a, b) => b.score - a.score);
+
     return {
-      opportunities: opps.slice(0, 100),
+      opportunities: deduped.slice(0, 100),
       totalBuyers: (buyers ?? []).length,
       totalGlobal: (searches ?? []).length,
       hiddenCount,
