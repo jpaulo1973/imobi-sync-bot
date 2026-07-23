@@ -735,18 +735,18 @@ export const listConsultoresSemTelefone = createServerFn({ method: "GET" })
       // Se o directory conseguiu resolver um telefone válido, considera OK.
       if ((normalizePhone(resolved.telefone) ?? "").length >= 9) continue;
       const key = normKey(resolved.nome ?? perNome) || `sem-nome:${r.id}`;
-      const g =
+      const g: G =
         groups.get(key) ??
-        {
+        ({
           key,
           nome: resolved.nome ?? perNome ?? null,
           email: resolved.email ?? null,
           agency: resolved.agency ?? null,
           telefone_bruto: perTel ?? null,
-          search_ids: [],
+          search_ids: [] as string[],
           procuras_afetadas: 0,
-          amostras: [],
-        };
+          amostras: [] as G["amostras"],
+        } as G);
       g.search_ids.push(r.id);
       g.procuras_afetadas++;
       if (!g.nome && (resolved.nome || perNome)) g.nome = resolved.nome ?? perNome ?? null;
