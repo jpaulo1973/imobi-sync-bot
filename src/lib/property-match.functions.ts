@@ -395,30 +395,46 @@ export const countPropertyOpportunities = createServerFn({ method: "POST" })
     }
     const counts: Record<string, number> = {};
     for (const p of properties ?? []) {
-      let n = 0;
+      // Sprint 1.2.3 — contar identidades únicas por (property, buyer),
+      // não linhas cruas. Aceita apenas o melhor score por identidade.
+      const bestByIdentity = new Map<string, number>();
+      const bump = (id: string, sc: number) => {
+        const prev = bestByIdentity.get(id);
+        if (prev == null || sc > prev) bestByIdentity.set(id, sc);
+      };
       for (const b of buyers ?? []) {
-        if (
-          scoreMatch(b as BuyerLike, p as any, { geoIndex }).compatible &&
-          !dismissed.has(`${p.id}|cliente-${b.id}`)
-        )
-          n++;
+        if (dismissed.has(`${p.id}|cliente-${b.id}`)) continue;
+        const r = scoreMatch(b as BuyerLike, p as any, { geoIndex });
+        if (!r.compatible) continue;
+        bump(
+          buyerIdentityKey((b as any).telefone, (b as any).nome, `cliente:${b.id}`),
+          r.score,
+        );
       }
       for (const q of searches ?? []) {
-        if (
-          scoreMatch(
-            {
-              ...criteriaToBuyer(q.criteria, (q as any).location_ids ?? []),
-              resumo: (q as any).resumo ?? null,
-              texto_original: (q as any).texto_original ?? null,
-            },
-            p as any,
-            { geoIndex },
-          ).compatible &&
-          !dismissed.has(`${p.id}|search-${q.id}`)
-        )
-          n++;
+        if (dismissed.has(`${p.id}|search-${q.id}`)) continue;
+        const r = scoreMatch(
+          {
+            ...criteriaToBuyer(q.criteria, (q as any).location_ids ?? []),
+            resumo: (q as any).resumo ?? null,
+            texto_original: (q as any).texto_original ?? null,
+          },
+          p as any,
+          { geoIndex },
+        );
+        if (!r.compatible) continue;
+        const c = (q.criteria ?? {}) as any;
+        const rawPhone =
+          (typeof (q as any).contact_telefone === "string" && (q as any).contact_telefone.trim()) ||
+          (typeof c?.telefone === "string" && c.telefone.trim()) ||
+          null;
+        const rawName =
+          (typeof (q as any).contact_nome === "string" && (q as any).contact_nome.trim()) ||
+          (typeof c?.nome === "string" && c.nome.trim()) ||
+          null;
+        bump(buyerIdentityKey(rawPhone, rawName, `search:${q.id}`), r.score);
       }
-      counts[p.id] = n;
+      counts[p.id] = bestByIdentity.size;
     }
     return {
       counts,
