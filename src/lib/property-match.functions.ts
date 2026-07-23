@@ -83,6 +83,56 @@ function criteriaToBuyer(c: any, location_ids: string[] = []): BuyerLike {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Sprint 1.2.3 — Deduplicação de oportunidades
+//
+// Regra funcional: para a mesma combinação (Property, Buyer) só existe uma
+// oportunidade apresentada; caso existam múltiplos resultados para a mesma
+// combinação, manter apenas a oportunidade com maior Match Score.
+//
+// Como o mesmo comprador pode surgir simultaneamente em `buyer_clients` e
+// em várias `active_searches` (importações WhatsApp/Excel repetidas), a
+// deduplicação é feita por *identidade do comprador* — telefone normalizado
+// ou, em fallback, nome normalizado — e não apenas por buyer_ref.
+// ---------------------------------------------------------------------------
+function normDedupPhone(v: unknown): string {
+  if (v == null) return "";
+  let s = String(v).replace(/\D+/g, "");
+  if (s.startsWith("00")) s = s.slice(2);
+  if (s.startsWith("351") && s.length > 9) s = s.slice(-9);
+  return s.length >= 9 ? s : "";
+}
+function normDedupName(v: unknown): string {
+  if (typeof v !== "string") return "";
+  return v
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+function buyerIdentityKey(
+  telefone: string | null | undefined,
+  nome: string | null | undefined,
+  fallback: string,
+): string {
+  const phone = normDedupPhone(telefone);
+  if (phone) return `phone:${phone}`;
+  const name = normDedupName(nome);
+  if (name) return `name:${name}`;
+  return fallback;
+}
+function dedupByIdentity<T extends { score: number }>(
+  items: Array<{ identity: string; opp: T }>,
+): T[] {
+  const best = new Map<string, { identity: string; opp: T }>();
+  for (const it of items) {
+    const prev = best.get(it.identity);
+    if (!prev || it.opp.score > prev.opp.score) best.set(it.identity, it);
+  }
+  return Array.from(best.values()).map((v) => v.opp);
+}
+
 export const runPropertyOpportunities = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
@@ -145,7 +195,7 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
       stateMap.set(`${(s as any).buyer_source}-${(s as any).buyer_ref}`, (s as any).state);
     }
 
-    const opps: Opportunity[] = [];
+    const opps: Array<{ identity: string; opp: Opportunity }> = [];
     let hiddenCount = 0;
     let analyzed = 0;
     const rejections: Record<RejectReason, number> = {
@@ -165,7 +215,7 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
         hiddenCount++;
         continue;
       }
-      opps.push({
+      const opp: Opportunity = {
         key: `cliente-${b.id}`,
         source: "cliente",
         score: s.score,
@@ -193,6 +243,10 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
         buyer_ref: b.id,
         state,
         isOwner: true,
+      };
+      opps.push({
+        identity: buyerIdentityKey(b.telefone, b.nome, `cliente:${b.id}`),
+        opp,
       });
     }
 
@@ -253,7 +307,7 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
         recTelefone ?? fallbackTelefone,
         null,
       );
-      opps.push({
+      const opp: Opportunity = {
         key: `search-${q.id}`,
         source: origem,
         score: s.score,
@@ -282,13 +336,29 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
         buyer_ref: q.id,
         state,
         isOwner,
+      };
+      // Identidade do comprador para dedup: usar SEMPRE os dados brutos do
+      // registo, mesmo quando a Privacy Layer os mascara para outros
+      // consultores. Sem isto, procuras externas não deduplicavam entre si.
+      const rawBuyerPhone =
+        (typeof q.contact_telefone === "string" && q.contact_telefone.trim()) ||
+        (typeof (c as any)?.telefone === "string" && (c as any).telefone.trim()) ||
+        null;
+      const rawBuyerName =
+        (typeof q.contact_nome === "string" && q.contact_nome.trim()) ||
+        (typeof (c as any)?.nome === "string" && (c as any).nome.trim()) ||
+        null;
+      opps.push({
+        identity: buyerIdentityKey(rawBuyerPhone, rawBuyerName, `search:${q.id}`),
+        opp,
       });
     }
 
-    opps.sort((a, b) => b.score - a.score);
+    const deduped = dedupByIdentity(opps);
+    deduped.sort((a, b) => b.score - a.score);
 
     return {
-      opportunities: opps.slice(0, 100),
+      opportunities: deduped.slice(0, 100),
       totalBuyers: (buyers ?? []).length,
       totalGlobal: (searches ?? []).length,
       hiddenCount,
@@ -309,7 +379,9 @@ export const countPropertyOpportunities = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: searches } = await supabaseAdmin
       .from("active_searches")
-      .select("id, criteria, origem, expires_at, resumo, texto_original, location_ids")
+      .select(
+        "id, criteria, origem, expires_at, resumo, texto_original, location_ids, contact_nome, contact_telefone",
+      )
       .gt("expires_at", new Date().toISOString());
 
     const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
@@ -325,30 +397,46 @@ export const countPropertyOpportunities = createServerFn({ method: "POST" })
     }
     const counts: Record<string, number> = {};
     for (const p of properties ?? []) {
-      let n = 0;
+      // Sprint 1.2.3 — contar identidades únicas por (property, buyer),
+      // não linhas cruas. Aceita apenas o melhor score por identidade.
+      const bestByIdentity = new Map<string, number>();
+      const bump = (id: string, sc: number) => {
+        const prev = bestByIdentity.get(id);
+        if (prev == null || sc > prev) bestByIdentity.set(id, sc);
+      };
       for (const b of buyers ?? []) {
-        if (
-          scoreMatch(b as BuyerLike, p as any, { geoIndex }).compatible &&
-          !dismissed.has(`${p.id}|cliente-${b.id}`)
-        )
-          n++;
+        if (dismissed.has(`${p.id}|cliente-${b.id}`)) continue;
+        const r = scoreMatch(b as BuyerLike, p as any, { geoIndex });
+        if (!r.compatible) continue;
+        bump(
+          buyerIdentityKey((b as any).telefone, (b as any).nome, `cliente:${b.id}`),
+          r.score,
+        );
       }
       for (const q of searches ?? []) {
-        if (
-          scoreMatch(
-            {
-              ...criteriaToBuyer(q.criteria, (q as any).location_ids ?? []),
-              resumo: (q as any).resumo ?? null,
-              texto_original: (q as any).texto_original ?? null,
-            },
-            p as any,
-            { geoIndex },
-          ).compatible &&
-          !dismissed.has(`${p.id}|search-${q.id}`)
-        )
-          n++;
+        if (dismissed.has(`${p.id}|search-${q.id}`)) continue;
+        const r = scoreMatch(
+          {
+            ...criteriaToBuyer(q.criteria, (q as any).location_ids ?? []),
+            resumo: (q as any).resumo ?? null,
+            texto_original: (q as any).texto_original ?? null,
+          },
+          p as any,
+          { geoIndex },
+        );
+        if (!r.compatible) continue;
+        const c = (q.criteria ?? {}) as any;
+        const rawPhone =
+          (typeof (q as any).contact_telefone === "string" && (q as any).contact_telefone.trim()) ||
+          (typeof c?.telefone === "string" && c.telefone.trim()) ||
+          null;
+        const rawName =
+          (typeof (q as any).contact_nome === "string" && (q as any).contact_nome.trim()) ||
+          (typeof c?.nome === "string" && c.nome.trim()) ||
+          null;
+        bump(buyerIdentityKey(rawPhone, rawName, `search:${q.id}`), r.score);
       }
-      counts[p.id] = n;
+      counts[p.id] = bestByIdentity.size;
     }
     return {
       counts,

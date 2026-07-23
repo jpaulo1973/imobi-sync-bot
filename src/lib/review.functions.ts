@@ -685,3 +685,115 @@ export const listIncompleteConsultores = createServerFn({ method: "GET" })
     result.sort((a, b) => b.procuras_afetadas - a.procuras_afetadas);
     return { consultores: result };
   });
+
+// ---------------------------------------------------------------------------
+// Sprint 1.2.3 — Revisão focada em contactos sem telefone válido
+//
+// A página Revisão passa a apresentar apenas consultores/contactos cujo
+// telefone é NULL, vazio, só espaços ou inválido após normalização (PT).
+// Cada grupo agrega as active_searches afetadas para permitir gravação
+// do novo telefone em cascata e remoção imediata da lista após correção.
+// ---------------------------------------------------------------------------
+
+export type ConsultorSemTelefone = {
+  key: string;
+  nome: string | null;
+  email: string | null;
+  agency: string | null;
+  telefone_bruto: string | null;
+  search_ids: string[];
+  procuras_afetadas: number;
+  amostras: Array<{ id: string; texto: string | null; origem: string | null; created_at: string }>;
+};
+
+export const listConsultoresSemTelefone = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<{ consultores: ConsultorSemTelefone[] }> => {
+    const { supabase, userId } = context;
+    await assertAdmin(supabase, userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const nowIso = new Date().toISOString();
+    const { data: rows, error } = await supabaseAdmin
+      .from("active_searches")
+      .select(
+        "id, consultor_nome, consultor_telefone, consultor_email, contact_nome, contact_telefone, texto_original, origem, created_at",
+      )
+      .gt("expires_at", nowIso)
+      .order("created_at", { ascending: false })
+      .limit(5000);
+    if (error) throw new Error(error.message);
+
+    const directory = await loadConsultorDirectory();
+    type G = ConsultorSemTelefone;
+    const groups = new Map<string, G>();
+    for (const r of rows ?? []) {
+      const perNome = (r as any).consultor_nome ?? (r as any).contact_nome ?? null;
+      const perTel = (r as any).consultor_telefone ?? (r as any).contact_telefone ?? null;
+      // Só entra na Revisão se o telefone efetivo for inválido.
+      if ((normalizePhone(perTel) ?? "").length >= 9) continue;
+      const resolved = resolveConsultor(directory, perNome, perTel, null);
+      // Se o directory conseguiu resolver um telefone válido, considera OK.
+      if ((normalizePhone(resolved.telefone) ?? "").length >= 9) continue;
+      const key = normKey(resolved.nome ?? perNome) || `sem-nome:${r.id}`;
+      const g: G =
+        groups.get(key) ??
+        ({
+          key,
+          nome: resolved.nome ?? perNome ?? null,
+          email: resolved.email ?? null,
+          agency: resolved.agency ?? null,
+          telefone_bruto: perTel ?? null,
+          search_ids: [] as string[],
+          procuras_afetadas: 0,
+          amostras: [] as G["amostras"],
+        } as G);
+      g.search_ids.push(r.id);
+      g.procuras_afetadas++;
+      if (!g.nome && (resolved.nome || perNome)) g.nome = resolved.nome ?? perNome ?? null;
+      if (!g.email && resolved.email) g.email = resolved.email;
+      if (!g.agency && resolved.agency) g.agency = resolved.agency;
+      if (!g.telefone_bruto && perTel) g.telefone_bruto = perTel;
+      if (g.amostras.length < 3) {
+        g.amostras.push({
+          id: r.id,
+          texto: (r as any).texto_original ?? null,
+          origem: (r as any).origem ?? null,
+          created_at: (r as any).created_at,
+        });
+      }
+      groups.set(key, g);
+    }
+    const consultores = Array.from(groups.values()).sort(
+      (a, b) => b.procuras_afetadas - a.procuras_afetadas,
+    );
+    return { consultores };
+  });
+
+export const setConsultorTelefone = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z
+      .object({
+        search_ids: z.array(z.string().uuid()).min(1),
+        telefone: z.string().trim().min(6),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    await assertAdmin(supabase, userId);
+    const norm = normalizePhone(data.telefone);
+    if (!norm || norm.length < 9) {
+      throw new Error("Número de telefone inválido. Introduza pelo menos 9 dígitos.");
+    }
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin
+      .from("active_searches")
+      .update({
+        consultor_telefone: data.telefone.trim(),
+        flagged_for_review: false,
+      })
+      .in("id", data.search_ids);
+    if (error) throw new Error(error.message);
+    return { ok: true, updated: data.search_ids.length };
+  });
