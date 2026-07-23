@@ -111,28 +111,26 @@ function normDedupName(v: unknown): string {
     .replace(/\s+/g, " ")
     .trim();
 }
-function buyerIdentityKey(o: {
-  buyer_source: "cliente" | "search";
-  buyer_ref: string;
-  telefone?: string | null;
-  nome?: string | null;
-}): string {
-  const phone = normDedupPhone(o.telefone);
+function buyerIdentityKey(
+  telefone: string | null | undefined,
+  nome: string | null | undefined,
+  fallback: string,
+): string {
+  const phone = normDedupPhone(telefone);
   if (phone) return `phone:${phone}`;
-  const name = normDedupName(o.nome);
+  const name = normDedupName(nome);
   if (name) return `name:${name}`;
-  return `${o.buyer_source}:${o.buyer_ref}`;
+  return fallback;
 }
-function dedupOpportunities<T extends { score: number; buyer_source: "cliente" | "search"; buyer_ref: string; telefone?: string | null; nome?: string | null }>(
-  list: T[],
+function dedupByIdentity<T extends { score: number }>(
+  items: Array<{ identity: string; opp: T }>,
 ): T[] {
-  const best = new Map<string, T>();
-  for (const o of list) {
-    const k = buyerIdentityKey(o);
-    const prev = best.get(k);
-    if (!prev || o.score > prev.score) best.set(k, o);
+  const best = new Map<string, { identity: string; opp: T }>();
+  for (const it of items) {
+    const prev = best.get(it.identity);
+    if (!prev || it.opp.score > prev.opp.score) best.set(it.identity, it);
   }
-  return Array.from(best.values());
+  return Array.from(best.values()).map((v) => v.opp);
 }
 
 export const runPropertyOpportunities = createServerFn({ method: "POST" })
@@ -197,7 +195,7 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
       stateMap.set(`${(s as any).buyer_source}-${(s as any).buyer_ref}`, (s as any).state);
     }
 
-    const opps: Opportunity[] = [];
+    const opps: Array<{ identity: string; opp: Opportunity }> = [];
     let hiddenCount = 0;
     let analyzed = 0;
     const rejections: Record<RejectReason, number> = {
@@ -217,7 +215,7 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
         hiddenCount++;
         continue;
       }
-      opps.push({
+      const opp: Opportunity = {
         key: `cliente-${b.id}`,
         source: "cliente",
         score: s.score,
@@ -245,6 +243,10 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
         buyer_ref: b.id,
         state,
         isOwner: true,
+      };
+      opps.push({
+        identity: buyerIdentityKey(b.telefone, b.nome, `cliente:${b.id}`),
+        opp,
       });
     }
 
@@ -305,7 +307,7 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
         recTelefone ?? fallbackTelefone,
         null,
       );
-      opps.push({
+      const opp: Opportunity = {
         key: `search-${q.id}`,
         source: origem,
         score: s.score,
@@ -334,12 +336,25 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
         buyer_ref: q.id,
         state,
         isOwner,
+      };
+      // Identidade do comprador para dedup: usar SEMPRE os dados brutos do
+      // registo, mesmo quando a Privacy Layer os mascara para outros
+      // consultores. Sem isto, procuras externas não deduplicavam entre si.
+      const rawBuyerPhone =
+        (typeof q.contact_telefone === "string" && q.contact_telefone.trim()) ||
+        (typeof (c as any)?.telefone === "string" && (c as any).telefone.trim()) ||
+        null;
+      const rawBuyerName =
+        (typeof q.contact_nome === "string" && q.contact_nome.trim()) ||
+        (typeof (c as any)?.nome === "string" && (c as any).nome.trim()) ||
+        null;
+      opps.push({
+        identity: buyerIdentityKey(rawBuyerPhone, rawBuyerName, `search:${q.id}`),
+        opp,
       });
     }
 
-    opps.sort((a, b) => b.score - a.score);
-
-    const deduped = dedupOpportunities(opps);
+    const deduped = dedupByIdentity(opps);
     deduped.sort((a, b) => b.score - a.score);
 
     return {
