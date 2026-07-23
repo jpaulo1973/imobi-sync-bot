@@ -2,50 +2,50 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
-  listPendingReview,
-  updateReviewConsultor,
-  deleteReviewSearch,
+  listConsultoresSemTelefone,
+  setConsultorTelefone,
+  type ConsultorSemTelefone,
 } from "@/lib/review.functions";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Save, Trash2 } from "lucide-react";
+import { AlertTriangle, Phone, Save } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/revisao")({
   head: () => ({
     meta: [
-      { title: "Revisão — Property Match" },
+      { title: "Revisão — Contactos sem telefone — Property Match" },
       {
         name: "description",
         content:
-          "Fila de exceções: casos novos que precisam de completar contactos do consultor.",
+          "Consultores e contactos sem número de telefone válido. Corrija o número aqui e o registo sai automaticamente da lista.",
       },
     ],
   }),
   component: RevisaoPage,
 });
 
-type Item = Awaited<ReturnType<typeof listPendingReview>>["items"][number];
-
 function RevisaoPage() {
-  const listFn = useServerFn(listPendingReview);
-  const [items, setItems] = useState<Item[]>([]);
+  const listFn = useServerFn(listConsultoresSemTelefone);
+  const [items, setItems] = useState<ConsultorSemTelefone[]>([]);
   const [loading, setLoading] = useState(true);
 
   const reload = () => {
     setLoading(true);
     listFn()
-      .then((r) => setItems(r.items as Item[]))
+      .then((r) => setItems(r.consultores))
       .catch((e) => toast.error(e instanceof Error ? e.message : "Erro"))
       .finally(() => setLoading(false));
   };
   useEffect(() => {
     reload();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const removeLocal = (key: string) =>
+    setItems((cur) => cur.filter((c) => c.key !== key));
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
@@ -54,10 +54,10 @@ function RevisaoPage() {
           <AlertTriangle className="w-5 h-5" />
         </div>
         <div className="flex-1 min-w-[240px]">
-          <h1 className="text-3xl font-bold tracking-tight">Revisão</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Revisão — Contactos sem telefone</h1>
           <p className="text-muted-foreground mt-1">
-            Fila de exceções. Apenas contactos do consultor são editáveis; todos os outros
-            campos são resolvidos automaticamente pelo sistema.
+            Consultores/contactos sem número de telefone válido. Introduza o
+            número aqui: assim que for guardado, o registo sai desta lista.
           </p>
         </div>
       </div>
@@ -66,39 +66,39 @@ function RevisaoPage() {
         <p className="text-sm text-muted-foreground">A carregar…</p>
       ) : items.length === 0 ? (
         <Card className="p-6 text-center text-muted-foreground">
-          Sem casos pendentes de revisão.
+          Sem contactos por corrigir. Todos os consultores têm telefone válido.
         </Card>
       ) : (
-        items.map((it) => <ConsultorCard key={it.id} item={it} onDone={reload} />)
+        items.map((it) => (
+          <ContactoCard key={it.key} item={it} onSaved={() => removeLocal(it.key)} />
+        ))
       )}
     </div>
   );
 }
 
-function ConsultorCard({ item, onDone }: { item: Item; onDone: () => void }) {
-  const updateFn = useServerFn(updateReviewConsultor);
-  const deleteFn = useServerFn(deleteReviewSearch);
-  const [nome, setNome] = useState((item as any).consultor_nome ?? "");
-  const [telefone, setTelefone] = useState((item as any).consultor_telefone ?? "");
-  const [whatsapp, setWhatsapp] = useState((item as any).consultor_whatsapp ?? "");
-  const [email, setEmail] = useState((item as any).consultor_email ?? "");
+function ContactoCard({
+  item,
+  onSaved,
+}: {
+  item: ConsultorSemTelefone;
+  onSaved: () => void;
+}) {
+  const saveFn = useServerFn(setConsultorTelefone);
+  const [telefone, setTelefone] = useState("");
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
+    const t = telefone.trim();
+    if (!t) {
+      toast.error("Introduza um número de telefone.");
+      return;
+    }
     setSaving(true);
     try {
-      await updateFn({
-        data: {
-          id: item.id,
-          consultor_nome: nome.trim() || null,
-          consultor_telefone: telefone.trim() || null,
-          consultor_whatsapp: whatsapp.trim() || null,
-          consultor_email: email.trim() || null,
-          resolve: true,
-        },
-      });
-      toast.success("Contactos guardados e caso reintegrado.");
-      onDone();
+      await saveFn({ data: { search_ids: item.search_ids, telefone: t } });
+      toast.success(`Telefone guardado em ${item.procuras_afetadas} procura(s).`);
+      onSaved();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao guardar");
     } finally {
@@ -106,87 +106,58 @@ function ConsultorCard({ item, onDone }: { item: Item; onDone: () => void }) {
     }
   };
 
-  const remove = async () => {
-    if (!confirm("Eliminar esta procura?")) return;
-    try {
-      await deleteFn({ data: { id: item.id } });
-      toast.success("Procura eliminada.");
-      onDone();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erro");
-    }
-  };
-
   return (
     <Card className="p-5 space-y-4">
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <Badge variant="outline">{item.origem.toUpperCase()}</Badge>
-        {item.comunidade && <Badge variant="secondary">{item.comunidade}</Badge>}
-        {item.grupo_whatsapp && <Badge variant="secondary">Grupo: {item.grupo_whatsapp}</Badge>}
+        <Badge variant="outline">
+          <Phone className="w-3 h-3 mr-1" /> Sem telefone
+        </Badge>
+        <span className="font-medium">{item.nome ?? "(sem nome)"}</span>
+        {item.agency && <Badge variant="secondary">{item.agency}</Badge>}
         <span className="text-muted-foreground ml-auto">
-          {new Date(item.created_at).toLocaleString("pt-PT")}
+          {item.procuras_afetadas} procura(s) afetada(s)
         </span>
       </div>
 
-      {item.decision_reason && (
-        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-          <strong>Motivo:</strong> {item.decision_reason}
+      {item.telefone_bruto && (
+        <p className="text-xs text-muted-foreground">
+          Valor atual: <span className="font-mono">{item.telefone_bruto}</span> (inválido)
         </p>
       )}
 
-      {item.texto_original && (
-        <div>
-          <Label className="text-xs">Texto original (informativo)</Label>
-          <p className="text-sm bg-muted/50 rounded p-2 whitespace-pre-wrap max-h-40 overflow-auto">
-            {item.texto_original}
-          </p>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div>
-          <Label className="text-xs">Nome do consultor</Label>
-          <Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome" />
-        </div>
-        <div>
-          <Label className="text-xs">Telefone</Label>
+      <div className="flex flex-col md:flex-row gap-2 items-stretch md:items-end">
+        <div className="flex-1">
+          <Label className="text-xs">Novo telefone</Label>
           <Input
             value={telefone}
             onChange={(e) => setTelefone(e.target.value)}
             placeholder="+351 ..."
             inputMode="tel"
+            autoComplete="tel"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void save();
+            }}
           />
         </div>
-        <div>
-          <Label className="text-xs">WhatsApp</Label>
-          <Input
-            value={whatsapp}
-            onChange={(e) => setWhatsapp(e.target.value)}
-            placeholder="+351 ..."
-            inputMode="tel"
-          />
-        </div>
-        <div>
-          <Label className="text-xs">Email (opcional)</Label>
-          <Input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="consultor@agencia.pt"
-            inputMode="email"
-            type="email"
-          />
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2 pt-2 border-t">
         <Button size="sm" onClick={save} disabled={saving}>
           <Save className="w-4 h-4 mr-1" />
-          {saving ? "A guardar…" : "Guardar contactos e reintegrar"}
-        </Button>
-        <Button size="sm" variant="destructive" className="ml-auto" onClick={remove}>
-          <Trash2 className="w-4 h-4 mr-1" /> Eliminar
+          {saving ? "A guardar…" : "Guardar"}
         </Button>
       </div>
+
+      {item.amostras[0]?.texto && (
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer">Ver contexto ({item.amostras.length})</summary>
+          <div className="mt-2 space-y-2">
+            {item.amostras.map((a) => (
+              <div key={a.id} className="bg-muted/50 rounded p-2 whitespace-pre-wrap">
+                {a.origem && <Badge variant="outline" className="mr-1">{a.origem}</Badge>}
+                {a.texto?.slice(0, 240)}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
     </Card>
   );
 }
