@@ -201,63 +201,188 @@ export type ExcelImportResult = {
   }>;
 };
 
-export const importSearchesFromExcel = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => Input.parse(data))
-  .handler(async ({ data, context }): Promise<ExcelImportResult> => {
-    const { supabase, userId } = context;
+// ---------------------------------------------------------------------------
+// Release 1.2.4 — Deteção automática da linha de cabeçalhos
+// ---------------------------------------------------------------------------
+//
+// Alguns exports (ex.: RECLUB) colocam a linha de cabeçalhos na 3ª/4ª linha
+// do ficheiro, com títulos/datas nas linhas acima. Percorremos até 20 linhas
+// e escolhemos a que contém o maior número de cabeçalhos reconhecidos. Se
+// nenhuma linha tiver pelo menos 2 cabeçalhos reconhecidos, assumimos linha 0
+// (comportamento anterior).
 
-    // 1) Ler o Excel
-    const b64 = data.fileBase64.includes(",") ? data.fileBase64.split(",")[1] : data.fileBase64;
-    const buf = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    const wb = XLSX.read(buf, { type: "array", cellDates: false });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null });
+const HEADER_KEYWORDS = [
+  "nome",
+  "whatsapp",
+  "telefone",
+  "telemovel",
+  "telemóvel",
+  "email",
+  "e-mail",
+  "tipo_operacao",
+  "operacao",
+  "operação",
+  "tipo_imovel",
+  "tipo",
+  "tipologia",
+  "budget",
+  "orcamento",
+  "orçamento",
+  "localizacao",
+  "localização",
+  "zona",
+  "freguesia",
+  "municipio",
+  "município",
+  "concelho",
+  "distrito",
+  "area",
+  "área",
+  "wc",
+  "elevador",
+  "garagem",
+  "descricao",
+  "descrição",
+  "mensagem",
+  "mensagem_original",
+  "data",
+  "hora",
+  "consultor",
+  "agente",
+  "comunidade",
+  "grupo",
+];
 
-    const batch_id = `xlsx_${Date.now()}`;
-    const expires = new Date(Date.now() + DURATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+const normHeader = (v: unknown): string =>
+  (v == null ? "" : String(v))
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
 
-    // Sprint 1.2.2 — snapshot da biblioteca geográfica carregado UMA vez
-    // por importação. O parser TS é a única fonte de verdade para
-    // location_ids; nunca duplicamos a lógica aqui.
-    const geoSnap = await LocationRepository.getSnapshot();
+function detectHeaderRow(matrix: unknown[][]): { headerIndex: number; headers: string[] } {
+  const limit = Math.min(matrix.length, 20);
+  let bestIndex = 0;
+  let bestScore = 0;
+  for (let i = 0; i < limit; i++) {
+    const row = matrix[i] ?? [];
+    let score = 0;
+    for (const cell of row) {
+      const nc = normHeader(cell);
+      if (!nc) continue;
+      if (HEADER_KEYWORDS.includes(nc)) score++;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestIndex = i;
+    }
+  }
+  // Exige pelo menos 2 cabeçalhos reconhecidos para aceitar deteção; caso
+  // contrário assume que a linha 0 é o cabeçalho (comportamento anterior).
+  if (bestScore < 2) bestIndex = 0;
+  const headerRow = matrix[bestIndex] ?? [];
+  const headers = headerRow.map((c) => (c == null ? "" : String(c)));
+  return { headerIndex: bestIndex, headers };
+}
 
-    // Índice case-insensitive de colunas
-    const col = (row: Record<string, unknown>, ...names: string[]): unknown => {
-      for (const nm of names) {
-        for (const k of Object.keys(row)) {
-          if (k.toLowerCase() === nm.toLowerCase()) return row[k];
-        }
-      }
-      return null;
-    };
+/** Uma linha já normalizada, pronta para atravessar o wire nos chunks. */
+export type PreparedExcelRow = {
+  linha: number;
+  data: Record<string, string | number | boolean | null>;
+};
 
-    let novas = 0;
-    let atualizadas = 0;
-    let duplicados_exatos_fundidos = 0;
-    let mantidas_separadas = 0;
-    let sinalizadas_revisao = 0;
-    let ignoradas_sem_contacto = 0;
-    let descartadas_anuncio = 0;
-    let erros = 0;
-    const upsertedIds: string[] = [];
-    const linhas: ExcelImportResult["linhas"] = [];
+function parseWorkbookRows(fileBase64: string): {
+  rows: PreparedExcelRow[];
+  headerIndex: number;
+  headers: string[];
+} {
+  const b64 = fileBase64.includes(",") ? fileBase64.split(",")[1] : fileBase64;
+  const buf = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const wb = XLSX.read(buf, { type: "array", cellDates: false });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+    header: 1,
+    defval: null,
+    blankrows: false,
+  });
+  const { headerIndex, headers } = detectHeaderRow(matrix);
+  const out: PreparedExcelRow[] = [];
+  for (let i = headerIndex + 1; i < matrix.length; i++) {
+    const arr = matrix[i] ?? [];
+    const obj: Record<string, string | number | boolean | null> = {};
+    let hasValue = false;
+    for (let c = 0; c < headers.length; c++) {
+      const key = headers[c];
+      if (!key) continue;
+      const cell = arr[c];
+      let val: string | number | boolean | null;
+      if (cell == null) val = null;
+      else if (typeof cell === "string" || typeof cell === "number" || typeof cell === "boolean") val = cell;
+      else val = String(cell);
+      obj[key] = val;
+      if (val != null && String(val).trim() !== "") hasValue = true;
+    }
+    if (!hasValue) continue;
+    out.push({ linha: i + 1, data: obj });
+  }
+  return { rows: out, headerIndex, headers };
+}
 
-    // Prioridade quando uma linha origina múltiplos splits: o resultado mais
-    // "forte" domina, para que cada linha analisada termine numa e só uma
-    // classificação final.
-    const priority: Record<string, number> = {
-      flagged: 5,
-      updated: 4,
-      duplicado_exato: 3,
-      kept_separate: 2,
-      created: 1,
-    };
+// Contadores incrementais devolvidos por cada chunk.
+export type ChunkCounters = {
+  novas: number;
+  atualizadas: number;
+  duplicados_exatos_fundidos: number;
+  mantidas_separadas: number;
+  sinalizadas_revisao: number;
+  ignoradas_sem_contacto: number;
+  descartadas_anuncio: number;
+  erros: number;
+};
 
-    for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
-      const raw = rows[rowIndex];
-      // Linha 1 do Excel é o cabeçalho; a primeira linha de dados é a 2.
-      const linhaNumero = rowIndex + 2;
+const priority: Record<string, number> = {
+  flagged: 5,
+  updated: 4,
+  duplicado_exato: 3,
+  kept_separate: 2,
+  created: 1,
+};
+
+const col = (row: Record<string, unknown>, ...names: string[]): unknown => {
+  for (const nm of names) {
+    for (const k of Object.keys(row)) {
+      if (k.toLowerCase() === nm.toLowerCase()) return row[k];
+    }
+  }
+  return null;
+};
+
+type OneRowOutcome = {
+  linha: ExcelImportResult["linhas"][number];
+  deltas: ChunkCounters;
+  upsertedIds: string[];
+};
+
+async function processOneRow(
+  supabase: any,
+  userId: string,
+  raw: Record<string, unknown>,
+  linhaNumero: number,
+  batch_id: string,
+  expires: string,
+  geoSnap: Awaited<ReturnType<typeof LocationRepository.getSnapshot>>,
+): Promise<OneRowOutcome> {
+  const deltas: ChunkCounters = {
+    novas: 0,
+    atualizadas: 0,
+    duplicados_exatos_fundidos: 0,
+    mantidas_separadas: 0,
+    sinalizadas_revisao: 0,
+    ignoradas_sem_contacto: 0,
+    descartadas_anuncio: 0,
+    erros: 0,
+  };
+  const upsertedIds: string[] = [];
       const nome = s(col(raw, "Nome"));
       const telefone = s(col(raw, "WhatsApp", "Telefone", "Telemovel", "Telemóvel"));
       const email = s(col(raw, "Email", "E-mail"));
@@ -265,10 +390,6 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
       const tipoImovel = parseTipoImovel(col(raw, "tipo_imovel", "tipo"));
       const tipologia = parseTipologia(col(raw, "tipologia"));
       const budget = pickBudget(col(raw, "budget", "orcamento", "orçamento"));
-      // Preservar sempre os valores originais das localizações. A
-      // normalização por IA foi removida (Correções Pós-1.3): a IA não pode
-      // alterar automaticamente os dados importados. Sugestões continuam
-      // disponíveis via aba Revisão.
       const zona = s(col(raw, "localizacao", "localização", "zona"));
       const freguesia = s(col(raw, "Freguesia"));
       const municipio = s(col(raw, "Municipio", "Município", "Concelho"));
@@ -282,7 +403,6 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
       const descricao = s(col(raw, "descricao", "descrição"));
       const mensagem = s(col(raw, "mensagem_original", "mensagem"));
       const dataPub = combineDate(col(raw, "data"), col(raw, "hora"));
-      // Release 1.2 — metadados de contexto
       const dataOrigem = normalizeExcelDate(col(raw, "data"));
       const horaOrigem = normalizeExcelTime(col(raw, "hora"));
       const consultorNome = s(col(raw, "Consultor", "consultor", "Agente", "agente"));
@@ -292,22 +412,21 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
 
       const consultorLabel = consultorNome ?? consultorTelefone ?? null;
 
-      // Regra mínima: precisa de telefone OU nome para ser útil.
       if (!telefone && !nome) {
-        ignoradas_sem_contacto++;
-        linhas.push({
+    deltas.ignoradas_sem_contacto++;
+    return {
+      deltas,
+      upsertedIds,
+      linha: {
           linha: linhaNumero,
           comprador: null,
           consultor: consultorLabel,
           resultado: "Ignorada",
           motivo: "Sem contacto (telefone e nome em falta)",
-        });
-        continue;
+      },
+    };
       }
 
-      // Release Arrendamento — classificar reconhecendo dois fluxos válidos
-      // (Compra e Arrendamento). Anúncios continuam descartados; ambíguos com
-      // dados estruturados suficientes passam directamente sem revisão.
       const structuredZone = zona ?? municipio ?? freguesia;
       const hasStructured =
         finalidade !== "indefinido" &&
@@ -320,15 +439,18 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
         hasStructured,
       });
       if (decision.kind === "anuncio") {
-        descartadas_anuncio++;
-        linhas.push({
+    deltas.descartadas_anuncio++;
+    return {
+      deltas,
+      upsertedIds,
+      linha: {
           linha: linhaNumero,
           comprador: nome,
           consultor: consultorLabel,
           resultado: "Descartada",
           motivo: decision.reason,
-        });
-        continue;
+      },
+    };
       }
       const flagAsReview = decision.kind === "revisao";
       const reviewReason = decision.reason;
@@ -356,10 +478,7 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
         caracteristicas: caracExtras.length ? caracExtras : null,
       };
 
-      // Release 2.1 — separar automaticamente múltiplas procuras num único texto.
       const rawText = mensagem ?? descricao ?? "";
-      // Release 1.2.1 — só chamamos IA quando o pré-detector determinístico
-      // aponta para múltiplas procuras. Poupa créditos e latência.
       const fallbackSearch: SplitSearch = {
         finalidade,
         tipo_imovel: tipoImovel,
@@ -376,14 +495,10 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
         ? await splitBuyerSearches(rawText, fallbackSearch)
         : [fallbackSearch];
 
-      // Recolhe o resultado de cada split para consolidar numa única
-      // classificação por linha depois do loop interno.
       const splitOutcomes: Array<{ kind: string; reason: string }> = [];
 
       for (let idx = 0; idx < splits.length; idx++) {
         const sp: SplitSearch = splits[idx];
-        // Cada procura é INDEPENDENTE: só herda contactos e metadados. Nunca
-        // partilhamos zona/tipologia/orçamento entre procuras separadas.
         const spZona = sp.zona ?? null;
         const spMunicipio = sp.municipio ?? null;
         const spFreguesia = sp.freguesia ?? null;
@@ -419,8 +534,6 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
           zona: spZona ?? spMunicipio ?? spFreguesia,
         });
 
-        // Sprint 1.2.2 — resolver location_ids via parser único, do mais
-        // específico ao menos específico. Nunca duplicar heurísticas aqui.
         const geoCandidates = [spFreguesia, spZona, spMunicipio, distrito]
           .map((v) => (v ?? "").trim())
           .filter((v) => v.length > 0);
@@ -464,8 +577,6 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
         try {
           const res = await upsertOne(supabase, userId, row);
           upsertedIds.push(res.id);
-          // Sprint 1.2.2 — se a zona não resolveu, promove flag de revisão
-          // (não sobrepõe uma flag prévia mais grave já emitida acima).
           if (geoFlag && !flagAsReview) {
             try {
               await supabase
@@ -476,11 +587,10 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
               console.error("flag geo unresolved failed", e);
             }
             splitOutcomes.push({ kind: "flagged", reason: geoFlag.reason });
-            sinalizadas_revisao++;
+        deltas.sinalizadas_revisao++;
             continue;
           }
           if (flagAsReview) {
-            // Sinaliza para revisão manual sem impedir o fluxo.
             try {
               await supabase
                 .from("active_searches")
@@ -496,23 +606,23 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
               kind: "flagged",
               reason: reviewReason,
             });
-            sinalizadas_revisao++;
+        deltas.sinalizadas_revisao++;
             continue;
           }
           switch (res.action) {
             case "created":
-              novas++;
+          deltas.novas++;
               splitOutcomes.push({ kind: "created", reason: res.reason || "Nova procura" });
               break;
             case "updated":
               if ((res.reason ?? "").includes("auto-merge")) {
-                duplicados_exatos_fundidos++;
+            deltas.duplicados_exatos_fundidos++;
                 splitOutcomes.push({
                   kind: "duplicado_exato",
                   reason: "Duplicado exato — fundido automaticamente",
                 });
               } else {
-                atualizadas++;
+            deltas.atualizadas++;
                 splitOutcomes.push({
                   kind: "updated",
                   reason: res.reason || "Registo atualizado",
@@ -520,14 +630,14 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
               }
               break;
             case "kept_separate":
-              mantidas_separadas++;
+          deltas.mantidas_separadas++;
               splitOutcomes.push({
                 kind: "kept_separate",
                 reason: res.reason || "Mantida separada",
               });
               break;
             case "flagged":
-              sinalizadas_revisao++;
+          deltas.sinalizadas_revisao++;
               splitOutcomes.push({
                 kind: "flagged",
                 reason: res.reason || "Enviada para Revisão",
@@ -543,41 +653,42 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
         }
       }
 
-      // Consolidar num único resultado por linha.
       if (splitOutcomes.length === 0) {
-        erros++;
-        linhas.push({
+    deltas.erros++;
+    return {
+      deltas,
+      upsertedIds,
+      linha: {
           linha: linhaNumero,
           comprador: nome,
           consultor: consultorLabel,
           resultado: "Erro",
           motivo: "Nenhum split processado",
-        });
-        continue;
+      },
+    };
       }
       const anyError = splitOutcomes.find((o) => o.kind === "erro");
       if (anyError) {
-        // Se qualquer split falhou, a linha inteira conta como Erro.
-        // Reverte incrementos parciais dos outros splits desta linha para
-        // manter a invariante "1 linha = 1 classificação".
         for (const o of splitOutcomes) {
-          if (o.kind === "created") novas--;
-          else if (o.kind === "updated") atualizadas--;
-          else if (o.kind === "duplicado_exato") duplicados_exatos_fundidos--;
-          else if (o.kind === "kept_separate") mantidas_separadas--;
-          else if (o.kind === "flagged") sinalizadas_revisao--;
+      if (o.kind === "created") deltas.novas--;
+      else if (o.kind === "updated") deltas.atualizadas--;
+      else if (o.kind === "duplicado_exato") deltas.duplicados_exatos_fundidos--;
+      else if (o.kind === "kept_separate") deltas.mantidas_separadas--;
+      else if (o.kind === "flagged") deltas.sinalizadas_revisao--;
         }
-        erros++;
-        linhas.push({
+    deltas.erros++;
+    return {
+      deltas,
+      upsertedIds,
+      linha: {
           linha: linhaNumero,
           comprador: nome,
           consultor: consultorLabel,
           resultado: "Erro",
           motivo: anyError.reason,
-        });
-        continue;
+      },
+    };
       }
-      // Escolhe o outcome dominante pela ordem de prioridade.
       splitOutcomes.sort((a, b) => (priority[b.kind] ?? 0) - (priority[a.kind] ?? 0));
       const top = splitOutcomes[0];
       const label: ExcelImportResult["linhas"][number]["resultado"] =
@@ -594,32 +705,135 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
         splitOutcomes.length > 1
           ? `${top.reason} (linha originou ${splitOutcomes.length} procuras)`
           : top.reason;
-      linhas.push({
+  return {
+    deltas,
+    upsertedIds,
+    linha: {
         linha: linhaNumero,
         comprador: nome,
         consultor: consultorLabel,
         resultado: label,
         motivo,
-      });
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Release 1.2.4 — API em três passos para permitir barra de progresso real:
+//   1) startExcelImport      → parse + auto-deteção de cabeçalhos
+//   2) processExcelChunk     → processa N linhas (repetido pelo cliente)
+//   3) finalizeExcelImport   → corre o Motor Match em lote
+// ---------------------------------------------------------------------------
+
+const StartInput = z.object({ fileBase64: z.string().min(10), filename: z.string().optional() });
+
+export type StartExcelImportResult = {
+  batch_id: string;
+  expires_at: string;
+  header_row: number; // 1-indexed para leitura humana
+  total: number;
+  rows: PreparedExcelRow[];
+};
+
+export const startExcelImport = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => StartInput.parse(data))
+  .handler(async ({ data }): Promise<StartExcelImportResult> => {
+    const { rows, headerIndex } = parseWorkbookRows(data.fileBase64);
+    const batch_id = `xlsx_${Date.now()}`;
+    const expires = new Date(Date.now() + DURATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    return {
+      batch_id,
+      expires_at: expires,
+      header_row: headerIndex + 1,
+      total: rows.length,
+      rows,
+    };
+  });
+
+const ChunkInput = z.object({
+  batch_id: z.string().min(1),
+  expires_at: z.string().min(1),
+  rows: z.array(
+    z.object({
+      linha: z.number(),
+      data: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])),
+    }),
+  ),
+});
+
+export type ProcessExcelChunkResult = {
+  counters: ChunkCounters;
+  linhas: ExcelImportResult["linhas"];
+  upsertedIds: string[];
+};
+
+export const processExcelChunk = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => ChunkInput.parse(data))
+  .handler(async ({ data, context }): Promise<ProcessExcelChunkResult> => {
+    const { supabase, userId } = context;
+    const geoSnap = await LocationRepository.getSnapshot();
+    const counters: ChunkCounters = {
+      novas: 0,
+      atualizadas: 0,
+      duplicados_exatos_fundidos: 0,
+      mantidas_separadas: 0,
+      sinalizadas_revisao: 0,
+      ignoradas_sem_contacto: 0,
+      descartadas_anuncio: 0,
+      erros: 0,
+    };
+    const linhas: ExcelImportResult["linhas"] = [];
+    const upsertedIds: string[] = [];
+    for (const pre of data.rows) {
+      try {
+        const res = await processOneRow(
+          supabase,
+          userId,
+          pre.data,
+          pre.linha,
+          data.batch_id,
+          data.expires_at,
+          geoSnap,
+        );
+        for (const k of Object.keys(counters) as (keyof ChunkCounters)[]) {
+          counters[k] += res.deltas[k];
+        }
+        linhas.push(res.linha);
+        upsertedIds.push(...res.upsertedIds);
+      } catch (e) {
+        counters.erros++;
+        linhas.push({
+          linha: pre.linha,
+          comprador: null,
+          consultor: null,
+          resultado: "Erro",
+          motivo: e instanceof Error ? e.message : "Erro desconhecido",
+        });
+      }
     }
+    return { counters, linhas, upsertedIds };
+  });
 
-    // 2) Regra Release 1.1: procuras ausentes do ficheiro NÃO são desativadas
-    //    pela sync. Deixam apenas de estar ativas quando expirarem pelo TTL.
-    const removidas = 0;
+const FinalizeInput = z.object({ batch_id: z.string().min(1) });
 
-    // 3) Match imediato — processado em LOTE para todas as procuras deste
-    //    batch. O `recomputeForBatch` carrega snapshot/geoIndex/properties/
-    //    match_opportunities apenas uma vez, elimina a duplicação entre o
-    //    scoring "de aviso" e o `recomputeForSearch` per-procura, e mantém
-    //    o mesmo comportamento funcional (mesmas condições de aceitação e
-    //    mesma persistência em `match_opportunities`).
+export type FinalizeExcelImportResult = {
+  matches: number;
+  removidas: number;
+};
+
+export const finalizeExcelImport = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => FinalizeInput.parse(data))
+  .handler(async ({ data, context }): Promise<FinalizeExcelImportResult> => {
+    const { supabase, userId } = context;
     const { data: batchSearches } = await supabase
       .from("active_searches")
       .select("id")
       .eq("user_id", userId)
-      .eq("import_batch_id", batch_id);
+      .eq("import_batch_id", data.batch_id);
     const searchIds = (batchSearches ?? []).map((r: any) => r.id as string);
-
     let matches = 0;
     try {
       const { matchesBySearch } = await recomputeForBatch(supabase, userId, searchIds);
@@ -638,37 +852,5 @@ export const importSearchesFromExcel = createServerFn({ method: "POST" })
     } catch (e) {
       console.error("excel: recomputeForBatch failed", e);
     }
-
-    const somaFinal =
-      novas +
-      atualizadas +
-      duplicados_exatos_fundidos +
-      mantidas_separadas +
-      sinalizadas_revisao +
-      ignoradas_sem_contacto +
-      descartadas_anuncio +
-      erros;
-    const total_check = somaFinal === rows.length;
-    if (!total_check) {
-      console.warn(
-        `[excel-import] contabilização inconsistente: analisadas=${rows.length} soma=${somaFinal}`,
-      );
-    }
-
-    return {
-      analisadas: rows.length,
-      novas,
-      atualizadas,
-      duplicados_exatos_fundidos,
-      mantidas_separadas,
-      sinalizadas_revisao,
-      removidas,
-      matches,
-      batch_id,
-      ignoradas_sem_contacto,
-      descartadas_anuncio,
-      erros,
-      total_check,
-      linhas,
-    };
+    return { matches, removidas: 0 };
   });
