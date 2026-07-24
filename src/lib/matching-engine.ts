@@ -311,20 +311,11 @@ function finalidadeFilter(buyer: BuyerLike, property: PropertyLike): HardFilterR
 function tipoFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResult {
   const buyerTipos = (buyer.tipo_imovel ?? []).map(normTipoText).filter(Boolean);
   const pTipo = normTipoText(property.tipo_imovel);
-  const pTipoRaw = pTipo;
-  const isTerrainType =
-    pTipoRaw === "terreno" || pTipoRaw === "quinta" || pTipoRaw === "herdade";
+  // Release 1.2.4 — Hard Filter estrito: se o comprador NÃO indicar tipo,
+  // todos os tipos permanecem elegíveis. Se indicar, só imóveis com tipo
+  // compatível passam.
   if (buyerTipos.length === 0) {
-    // Correções 1.3: para imóveis Quinta/Terreno/Herdade, procuras sem tipo
-    // declarado NÃO devem ser eliminadas neste filtro — a intenção do
-    // consultor fica caracterizada pelos restantes filtros (localização,
-    // área mínima, orçamento). A tipologia deixa de mandar; o tipo também
-    // não deve mandar quando o imóvel é rústico e o comprador não o
-    // desqualificou explicitamente.
-    if (isTerrainType) {
-      return { ok: true, category: cat("tipo", "Tipo", true, property.tipo_imovel ?? "—") };
-    }
-    return { ok: false, rejectReason: "TIPO_IMOVEL", category: cat("tipo", "Tipo", false, "Tipo de imóvel não indicado na procura") };
+    return { ok: true, category: cat("tipo", "Tipo", true, property.tipo_imovel ?? "—") };
   }
   if (!pTipo) {
     return { ok: false, rejectReason: "TIPO_IMOVEL", category: cat("tipo", "Tipo", false, "Tipo do imóvel não declarado") };
