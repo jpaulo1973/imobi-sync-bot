@@ -288,7 +288,7 @@ function detectHeaderRow(matrix: unknown[][]): { headerIndex: number; headers: s
 /** Uma linha já normalizada, pronta para atravessar o wire nos chunks. */
 export type PreparedExcelRow = {
   linha: number;
-  data: Record<string, unknown>;
+  data: Record<string, string | number | boolean | null>;
 };
 
 function parseWorkbookRows(fileBase64: string): {
@@ -309,12 +309,16 @@ function parseWorkbookRows(fileBase64: string): {
   const out: PreparedExcelRow[] = [];
   for (let i = headerIndex + 1; i < matrix.length; i++) {
     const arr = matrix[i] ?? [];
-    const obj: Record<string, unknown> = {};
+    const obj: Record<string, string | number | boolean | null> = {};
     let hasValue = false;
     for (let c = 0; c < headers.length; c++) {
       const key = headers[c];
       if (!key) continue;
-      const val = arr[c] ?? null;
+      const cell = arr[c];
+      let val: string | number | boolean | null;
+      if (cell == null) val = null;
+      else if (typeof cell === "string" || typeof cell === "number" || typeof cell === "boolean") val = cell;
+      else val = String(cell);
       obj[key] = val;
       if (val != null && String(val).trim() !== "") hasValue = true;
     }
@@ -753,7 +757,7 @@ const ChunkInput = z.object({
   rows: z.array(
     z.object({
       linha: z.number(),
-      data: z.record(z.unknown()),
+      data: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])),
     }),
   ),
 });
