@@ -499,6 +499,84 @@ function CruzarPage() {
           ))}
         </div>
       )}
+      <Sheet
+        open={!!openProperty}
+        onOpenChange={(v) => {
+          if (!v) {
+            setOpenProperty(null);
+            setOpenMatchMeta(null);
+          }
+        }}
+      >
+        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+          {openProperty && (
+            <>
+              <SheetHeader>
+                <SheetTitle className="flex items-center gap-2">
+                  <Home className="w-5 h-5 text-primary" /> Ficha do imóvel
+                </SheetTitle>
+                {openMatchMeta && (
+                  <SheetDescription>
+                    Compatibilidade <strong>{openMatchMeta.score}%</strong> com a procura em análise.
+                  </SheetDescription>
+                )}
+              </SheetHeader>
+              <div className="mt-4 space-y-4 text-sm">
+                <Card className="p-3 space-y-1">
+                  <div className="text-xs font-semibold uppercase text-muted-foreground">
+                    Identificação
+                  </div>
+                  <div className="font-medium">
+                    {openProperty.referencia ?? openProperty.tipo_imovel ?? "Imóvel"}
+                    {openProperty.tipologia ? ` · ${openProperty.tipologia}` : ""}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {openProperty.tipo_imovel ?? "—"}
+                    {openProperty.finalidade ? ` · ${openProperty.finalidade}` : ""}
+                    {openProperty.referencia ? ` · Ref: ${openProperty.referencia}` : ""}
+                  </div>
+                </Card>
+                <Card className="p-3 space-y-1">
+                  <div className="text-xs font-semibold uppercase text-muted-foreground">
+                    Localização
+                  </div>
+                  <div className="text-sm">
+                    {[openProperty.zona, openProperty.freguesia, openProperty.concelho]
+                      .filter(Boolean)
+                      .join(" · ") || "—"}
+                  </div>
+                </Card>
+                <Card className="p-3 space-y-1">
+                  <div className="text-xs font-semibold uppercase text-muted-foreground">
+                    Características
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                    <span><strong>{euros(openProperty.preco)}</strong></span>
+                    {openProperty.quartos != null && (
+                      <span>{openProperty.quartos} quartos</span>
+                    )}
+                    {openProperty.area_util_m2 != null && (
+                      <span>{openProperty.area_util_m2} m² úteis</span>
+                    )}
+                  </div>
+                </Card>
+                {openMatchMeta && openMatchMeta.reasons.length > 0 && (
+                  <Card className="p-3 space-y-1">
+                    <div className="text-xs font-semibold uppercase text-muted-foreground">
+                      Razões do match
+                    </div>
+                    <ul className="text-xs list-disc pl-4 space-y-0.5">
+                      {openMatchMeta.reasons.map((r, i) => (
+                        <li key={i}>{r}</li>
+                      ))}
+                    </ul>
+                  </Card>
+                )}
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
