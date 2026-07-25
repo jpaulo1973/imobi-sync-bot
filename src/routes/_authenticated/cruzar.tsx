@@ -6,6 +6,7 @@ import {
   createBuyersFromLeads,
   type QualifiedLead,
   type LeadMatchResult,
+  type PropertyMatchResult,
 } from "@/lib/whatsapp-leads.functions";
 import { saveActiveSearch } from "@/lib/active-searches.functions";
 import { Button } from "@/components/ui/button";
