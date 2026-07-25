@@ -68,6 +68,8 @@ function CruzarPage() {
   const [totalProperties, setTotalProperties] = useState(0);
   const [creatingIdx, setCreatingIdx] = useState<number | null>(null);
   const [savingAll, setSavingAll] = useState(false);
+  const [openProperty, setOpenProperty] = useState<PropertyMatchResult["property"] | null>(null);
+  const [openMatchMeta, setOpenMatchMeta] = useState<{ score: number; reasons: string[] } | null>(null);
   const matchFn = useServerFn(matchWhatsappConversations);
   const createFn = useServerFn(createBuyersFromLeads);
   const saveRadarFn = useServerFn(saveActiveSearch);
