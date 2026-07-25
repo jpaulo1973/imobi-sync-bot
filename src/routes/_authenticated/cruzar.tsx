@@ -12,7 +12,14 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { MessageSquare, ImagePlus, X, Sparkles, ArrowRight, UserPlus, MessageCircle, Radar } from "lucide-react";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
+import { MessageSquare, ImagePlus, X, Sparkles, ArrowRight, UserPlus, MessageCircle, Radar, Home } from "lucide-react";
 import { toast } from "sonner";
 import { PhoneButton, openWhatsApp } from "@/components/PhoneButton";
 
