@@ -478,14 +478,17 @@ function CruzarPage() {
                           </ul>
                         )}
                         <div className="pt-1">
-                          <Link
-                            to="/imoveis"
-                            search={{ q: m.property.referencia ?? m.property.id }}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpenProperty(m.property);
+                              setOpenMatchMeta({ score: m.score, reasons: m.reasons });
+                            }}
                             className="inline-flex items-center text-xs font-medium text-primary hover:underline"
                           >
-                            Abrir ficha do imóvel
+                            Ver ficha do imóvel
                             <ArrowRight className="w-3 h-3 ml-1" />
-                          </Link>
+                          </button>
                         </div>
                       </div>
                     ))}
