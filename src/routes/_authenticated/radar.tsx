@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
   listActiveSearches,
@@ -18,6 +18,14 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { Radar, Trash2, Sparkles, ArrowRight, Users } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import { PhoneButton } from "@/components/PhoneButton";
 import { supabase } from "@/integrations/supabase/client";
@@ -45,9 +53,17 @@ type Row = {
   criteria: {
     finalidade?: string | null;
     tipologia?: string | null;
+    tipo_imovel?: string | null;
     zona?: string | null;
+    municipio?: string | null;
+    freguesia?: string | null;
+    concelho?: string | null;
+    distrito?: string | null;
+    budget_min?: number | null;
     budget_max?: number | null;
   };
+  tipo_imovel?: string | null;
+  zona?: string | null;
   resumo: string | null;
   contact_nome: string | null;
   contact_telefone: string | null;
@@ -79,6 +95,32 @@ function stateBadge(days: number) {
   return { label: "Ativa", cls: "bg-emerald-100 text-emerald-800 border-emerald-200" };
 }
 
+const TIPOS_IMOVEL = [
+  "Apartamento",
+  "Moradia",
+  "Terreno",
+  "Loja",
+  "Escritório",
+  "Armazém",
+  "Prédio",
+  "Espaço comercial",
+];
+
+type SortKey = "recentes" | "budget_desc" | "budget_asc" | "expira";
+
+function stateKey(days: number): "ativa" | "breve" | "expirada" {
+  if (days <= 0) return "expirada";
+  if (days <= 3) return "breve";
+  return "ativa";
+}
+
+function normalize(v: string) {
+  return v
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
 function RadarPage() {
   const listFn = useServerFn(listActiveSearches);
   const delFn = useServerFn(deleteActiveSearch);
@@ -93,6 +135,13 @@ function RadarPage() {
   // Correções 1.3: abrir uma oportunidade mostra o detalhe num Sheet inline,
   // sem sair do Radar.
   const [openOpp, setOpenOpp] = useState<any | null>(null);
+  // Filtros e ordenação (client-side, sobre as procuras já carregadas).
+  const [fTipo, setFTipo] = useState<string>("todos");
+  const [fZona, setFZona] = useState<string>("");
+  const [fMin, setFMin] = useState<string>("");
+  const [fMax, setFMax] = useState<string>("");
+  const [fEstado, setFEstado] = useState<string>("todas");
+  const [sort, setSort] = useState<SortKey>("recentes");
 
   const load = async () => {
     setLoading(true);
@@ -135,6 +184,63 @@ function RadarPage() {
       toast.error(e instanceof Error ? e.message : "Erro ao remover.");
     }
   };
+
+  const visibleRows = useMemo(() => {
+    const min = fMin.trim() === "" ? null : Number(fMin);
+    const max = fMax.trim() === "" ? null : Number(fMax);
+    const zonaQ = normalize(fZona.trim());
+
+    const filtered = rows.filter((r) => {
+      const c = r.criteria ?? {};
+      if (fTipo !== "todos") {
+        const tipo = normalize(String(c.tipo_imovel ?? r.tipo_imovel ?? ""));
+        if (!tipo || !tipo.includes(normalize(fTipo))) return false;
+      }
+      if (zonaQ) {
+        const hay = normalize(
+          [c.zona, c.municipio, c.freguesia, c.concelho, c.distrito, r.zona, r.resumo]
+            .filter(Boolean)
+            .join(" "),
+        );
+        if (!hay.includes(zonaQ)) return false;
+      }
+      const bMax = c.budget_max ?? null;
+      const bMin = c.budget_min ?? null;
+      if (min != null && !Number.isNaN(min)) {
+        const ref = bMax ?? bMin;
+        if (ref == null || ref < min) return false;
+      }
+      if (max != null && !Number.isNaN(max)) {
+        const ref = bMin ?? bMax;
+        if (ref == null || ref > max) return false;
+      }
+      if (fEstado !== "todas" && stateKey(daysLeft(r.expires_at)) !== fEstado) return false;
+      return true;
+    });
+
+    const sorted = [...filtered];
+    sorted.sort((a, b) => {
+      if (sort === "recentes") {
+        return (
+          new Date(b.data_publicacao ?? b.created_at).getTime() -
+          new Date(a.data_publicacao ?? a.created_at).getTime()
+        );
+      }
+      if (sort === "expira") {
+        return daysLeft(a.expires_at) - daysLeft(b.expires_at);
+      }
+      const av = a.criteria?.budget_max ?? a.criteria?.budget_min ?? null;
+      const bv = b.criteria?.budget_max ?? b.criteria?.budget_min ?? null;
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return sort === "budget_desc" ? bv - av : av - bv;
+    });
+    return sorted;
+  }, [rows, fTipo, fZona, fMin, fMax, fEstado, sort]);
+
+  const filtersActive =
+    fTipo !== "todos" || fZona.trim() !== "" || fMin !== "" || fMax !== "" || fEstado !== "todas";
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
@@ -226,14 +332,109 @@ function RadarPage() {
             </section>
           )}
 
+          {rows.length > 0 && (
+            <Card className="p-4 space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Tipo de imóvel</label>
+                  <Select value={fTipo} onValueChange={setFTipo}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todos</SelectItem>
+                      {TIPOS_IMOVEL.map((t) => (
+                        <SelectItem key={t} value={t}>{t}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Zona / localização</label>
+                  <Input
+                    value={fZona}
+                    onChange={(e) => setFZona(e.target.value)}
+                    placeholder="ex: Lisboa"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Estado</label>
+                  <Select value={fEstado} onValueChange={setFEstado}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todas">Todas</SelectItem>
+                      <SelectItem value="ativa">Ativa</SelectItem>
+                      <SelectItem value="breve">Expira em breve</SelectItem>
+                      <SelectItem value="expirada">Expirada</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Orçamento mínimo</label>
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    value={fMin}
+                    onChange={(e) => setFMin(e.target.value)}
+                    placeholder="0"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Orçamento máximo</label>
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    value={fMax}
+                    onChange={(e) => setFMax(e.target.value)}
+                    placeholder="sem limite"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Ordenar por</label>
+                  <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="recentes">Mais recentes primeiro</SelectItem>
+                      <SelectItem value="budget_desc">Orçamento: maior para menor</SelectItem>
+                      <SelectItem value="budget_asc">Orçamento: menor para maior</SelectItem>
+                      <SelectItem value="expira">Expira em breve primeiro</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-xs text-muted-foreground">
+                  {visibleRows.length} de {rows.length} procura(s)
+                </span>
+                {filtersActive && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setFTipo("todos");
+                      setFZona("");
+                      setFMin("");
+                      setFMax("");
+                      setFEstado("todas");
+                    }}
+                  >
+                    Limpar filtros
+                  </Button>
+                )}
+              </div>
+            </Card>
+          )}
+
           {rows.length === 0 ? (
         <Card className="p-8 text-center text-muted-foreground">
           Sem procuras ativas no momento. Podes ativar uma procura no final de cada análise em{" "}
           <strong>Match WhatsApp</strong> quando não existirem imóveis compatíveis.
         </Card>
+      ) : visibleRows.length === 0 ? (
+        <Card className="p-8 text-center text-muted-foreground">
+          Nenhuma procura corresponde aos filtros aplicados.
+        </Card>
       ) : (
         <div className="space-y-3">
-          {rows.map((r) => {
+          {visibleRows.map((r) => {
             const days = daysLeft(r.expires_at);
             const st = stateBadge(days);
             const tel = r.contact_telefone?.replace(/\s+/g, "");
