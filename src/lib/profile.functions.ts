@@ -9,7 +9,7 @@ export const getMyProfile = createServerFn({ method: "GET" })
 
     const [{ data: profile }, { data: roles }, propsRes, buyersRes, oppsRes] =
       await Promise.all([
-        supabase.from("profiles").select("full_name, agency").eq("id", userId).maybeSingle(),
+        supabase.from("profiles").select("full_name, agency, ativo").eq("id", userId).maybeSingle(),
         supabase.from("user_roles").select("role").eq("user_id", userId),
         supabase.from("properties").select("id", { count: "exact", head: true }).eq("user_id", userId),
         supabase.from("buyer_clients").select("id", { count: "exact", head: true }).eq("user_id", userId),
@@ -33,6 +33,7 @@ export const getMyProfile = createServerFn({ method: "GET" })
       email: (claims as any)?.email ?? null,
       fullName: profile?.full_name ?? null,
       agency: profile?.agency ?? null,
+      ativo: (profile as any)?.ativo !== false,
       role: isAdmin ? ("admin" as const) : ("consultor" as const),
       lastSignInAt,
       counts: {
