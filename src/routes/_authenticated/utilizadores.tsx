@@ -7,12 +7,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { Trash2, UserPlus } from "lucide-react";
+import { Trash2, UserPlus, Ban, RotateCcw } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   createAppUser,
   deleteAppUser,
   isCurrentUserAdmin,
   listAppUsers,
+  setAppUserActive,
+  setAppUserRole,
 } from "@/lib/admin.functions";
 
 export const Route = createFileRoute("/_authenticated/utilizadores")({
@@ -26,15 +36,20 @@ export const Route = createFileRoute("/_authenticated/utilizadores")({
 type AppUser = {
   id: string;
   email: string | undefined;
+  full_name: string | null;
   created_at: string;
   last_sign_in_at: string | null | undefined;
   roles: string[];
+  role: "admin" | "consultor";
+  ativo: boolean;
 };
 
 function UtilizadoresPage() {
   const listFn = useServerFn(listAppUsers);
   const createFn = useServerFn(createAppUser);
   const deleteFn = useServerFn(deleteAppUser);
+  const roleFn = useServerFn(setAppUserRole);
+  const activeFn = useServerFn(setAppUserActive);
   const [users, setUsers] = useState<AppUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
@@ -72,10 +87,32 @@ function UtilizadoresPage() {
   };
 
   const onDelete = async (id: string) => {
-    if (!confirm("Remover este utilizador?")) return;
+    if (!confirm("Remover definitivamente este utilizador? Esta ação é irreversível.")) return;
     try {
       await deleteFn({ data: { userId: id } });
       toast.success("Utilizador removido");
+      await refresh();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
+
+  const onChangeRole = async (id: string, role: "admin" | "consultor") => {
+    try {
+      await roleFn({ data: { userId: id, role } });
+      toast.success(role === "admin" ? "Agora é Administrador" : "Agora é Consultor");
+      await refresh();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
+
+  const onToggleActive = async (id: string, ativo: boolean) => {
+    if (!ativo && !confirm("Desativar esta conta? O utilizador deixa de conseguir entrar."))
+      return;
+    try {
+      await activeFn({ data: { userId: id, ativo } });
+      toast.success(ativo ? "Conta reativada" : "Conta desativada");
       await refresh();
     } catch (err: any) {
       toast.error(err.message);
@@ -134,18 +171,48 @@ function UtilizadoresPage() {
           {users.map((u) => (
             <div key={u.id} className="p-4 flex items-center justify-between gap-4">
               <div>
-                <div className="font-medium">{u.email}</div>
+                <div className="font-medium flex items-center gap-2">
+                  {u.full_name || u.email}
+                  {!u.ativo && <Badge variant="secondary">Desativado</Badge>}
+                </div>
                 <div className="text-xs text-muted-foreground">
-                  {u.roles.includes("admin") ? "Administrador · " : ""}
-                  Último acesso:{" "}
+                  {u.full_name ? `${u.email} · ` : ""}
+                  Criado em {new Date(u.created_at).toLocaleDateString("pt-PT")} · Último acesso:{" "}
                   {u.last_sign_in_at
                     ? new Date(u.last_sign_in_at).toLocaleString("pt-PT")
                     : "nunca"}
                 </div>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => onDelete(u.id)}>
-                <Trash2 className="w-4 h-4" />
-              </Button>
+              <div className="flex items-center gap-2">
+                <Select
+                  value={u.role}
+                  onValueChange={(v) => onChangeRole(u.id, v as "admin" | "consultor")}
+                >
+                  <SelectTrigger className="w-[150px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="consultor">Consultor</SelectItem>
+                    <SelectItem value="admin">Administrador</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  title={u.ativo ? "Desativar conta" : "Reativar conta"}
+                  onClick={() => onToggleActive(u.id, !u.ativo)}
+                >
+                  {u.ativo ? <Ban className="w-4 h-4" /> : <RotateCcw className="w-4 h-4" />}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  title="Remover definitivamente"
+                  onClick={() => onDelete(u.id)}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
           ))}
           {users.length === 0 && (

@@ -677,6 +677,7 @@ export type Database = {
       profiles: {
         Row: {
           agency: string | null
+          ativo: boolean
           created_at: string
           full_name: string | null
           id: string
@@ -684,6 +685,7 @@ export type Database = {
         }
         Insert: {
           agency?: string | null
+          ativo?: boolean
           created_at?: string
           full_name?: string | null
           id: string
@@ -691,6 +693,7 @@ export type Database = {
         }
         Update: {
           agency?: string | null
+          ativo?: boolean
           created_at?: string
           full_name?: string | null
           id?: string

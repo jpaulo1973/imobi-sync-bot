@@ -29,15 +29,20 @@ function Layout() {
   useEffect(() => {
     const load = () =>
       profileFn()
-        .then((p) =>
-          setProfile({ fullName: p.fullName, email: p.email, role: p.role }),
-        )
+        .then(async (p) => {
+          if ((p as any).ativo === false) {
+            await supabase.auth.signOut();
+            navigate({ to: "/auth" });
+            return;
+          }
+          setProfile({ fullName: p.fullName, email: p.email, role: p.role });
+        })
         .catch(() => setProfile(null));
     load();
     const onUpdated = () => load();
     window.addEventListener("pm:profile-updated", onUpdated);
     return () => window.removeEventListener("pm:profile-updated", onUpdated);
-  }, [profileFn]);
+  }, [profileFn, navigate]);
   useEffect(() => {
     const tick = () => countFn().then((r) => setUnseen(r.unseen)).catch(() => {});
     tick();

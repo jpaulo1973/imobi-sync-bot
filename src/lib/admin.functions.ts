@@ -33,21 +33,85 @@ export const listAppUsers = createServerFn({ method: "GET" })
     const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 200 });
     if (error) throw new Error(error.message);
     const { data: roles } = await supabaseAdmin.from("user_roles").select("user_id, role");
+    const { data: profiles } = await supabaseAdmin
+      .from("profiles")
+      .select("id, full_name, agency, ativo");
     const rolesByUser = new Map<string, string[]>();
     (roles ?? []).forEach((r: any) => {
       const arr = rolesByUser.get(r.user_id) ?? [];
       arr.push(r.role);
       rolesByUser.set(r.user_id, arr);
     });
+    const profileById = new Map<string, any>();
+    (profiles ?? []).forEach((p: any) => profileById.set(p.id, p));
     return {
-      users: data.users.map((u) => ({
-        id: u.id,
-        email: u.email,
-        created_at: u.created_at,
-        last_sign_in_at: u.last_sign_in_at,
-        roles: rolesByUser.get(u.id) ?? [],
-      })),
+      users: data.users.map((u) => {
+        const p = profileById.get(u.id);
+        const userRoles = rolesByUser.get(u.id) ?? [];
+        return {
+          id: u.id,
+          email: u.email,
+          full_name: (p?.full_name as string | null) ?? null,
+          agency: (p?.agency as string | null) ?? null,
+          created_at: u.created_at,
+          last_sign_in_at: u.last_sign_in_at,
+          roles: userRoles,
+          role: (userRoles.includes("admin") ? "admin" : "consultor") as "admin" | "consultor",
+          ativo: p?.ativo !== false,
+        };
+      }),
     };
+  });
+
+export const setAppUserRole = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) =>
+    z
+      .object({ userId: z.string().uuid(), role: z.enum(["admin", "consultor"]) })
+      .parse(data),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    if (data.userId === context.userId && data.role !== "admin") {
+      throw new Error("Não pode remover as suas próprias permissões de administrador.");
+    }
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    // 'consultor' é representado pelo papel base 'user' na base de dados
+    const dbRole = data.role === "admin" ? "admin" : "user";
+    const { error: delError } = await supabaseAdmin
+      .from("user_roles")
+      .delete()
+      .eq("user_id", data.userId);
+    if (delError) throw new Error(delError.message);
+    const { error } = await supabaseAdmin
+      .from("user_roles")
+      .insert({ user_id: data.userId, role: dbRole });
+    if (error) throw new Error(error.message);
+    return { ok: true, role: data.role };
+  });
+
+export const setAppUserActive = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) =>
+    z.object({ userId: z.string().uuid(), ativo: z.boolean() }).parse(data),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    if (data.userId === context.userId && !data.ativo) {
+      throw new Error("Não pode desativar a sua própria conta.");
+    }
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin
+      .from("profiles")
+      .update({ ativo: data.ativo })
+      .eq("id", data.userId);
+    if (error) throw new Error(error.message);
+    // Soft-delete reversível: bloqueia também o login sem apagar a conta.
+    const { error: banError } = await supabaseAdmin.auth.admin.updateUserById(data.userId, {
+      ban_duration: data.ativo ? "none" : "876000h",
+    });
+    if (banError) throw new Error(banError.message);
+    return { ok: true, ativo: data.ativo };
   });
 
 export const createAppUser = createServerFn({ method: "POST" })
