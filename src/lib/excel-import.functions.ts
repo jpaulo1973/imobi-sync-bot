@@ -73,15 +73,21 @@ function parseTipoImovel(v: unknown): string[] | null {
   const map: Array<[RegExp, string]> = [
     [/apart|t\d/i, "Apartamento"],
     [/mora|casa|vivenda/i, "Moradia"],
-    [/terreno|lote/i, "Terreno"],
     [/loja/i, "Loja"],
     [/escrit/i, "Escritório"],
     [/armaz/i, "Armazém"],
     [/pr[eé]dio/i, "Prédio"],
     [/comerc/i, "Espaço comercial"],
+    [/quinta/i, "Quinta"],
+    [/herdade|monte/i, "Herdade/Monte"],
   ];
   const out = new Set<string>();
   for (const [re, label] of map) if (re.test(t)) out.add(label);
+  // Terreno: rústico (rústico/agrícola/florestal) vs urbano (por defeito)
+  if (/terreno|lote/i.test(t)) {
+    const rustico = /r[uú]stic|agr[ií]col|florest/i.test(t);
+    out.add(rustico ? "Terreno Rústico" : "Terreno Urbano");
+  }
   return out.size ? Array.from(out) : null;
 }
 
