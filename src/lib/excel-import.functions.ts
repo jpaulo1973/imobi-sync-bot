@@ -83,9 +83,12 @@ function parseTipoImovel(v: unknown): string[] | null {
   ];
   const out = new Set<string>();
   for (const [re, label] of map) if (re.test(t)) out.add(label);
-  // Terreno: rústico (rústico/agrícola/florestal) vs urbano (por defeito)
+  // Terreno: rústico (rústico/agrícola/florestal) vs urbano (por defeito).
+  // Mantemos também "Terreno" genérico para não quebrar o hard filter de tipo
+  // contra imóveis já gravados como "terreno".
   if (/terreno|lote/i.test(t)) {
     const rustico = /r[uú]stic|agr[ií]col|florest/i.test(t);
+    out.add("Terreno");
     out.add(rustico ? "Terreno Rústico" : "Terreno Urbano");
   }
   return out.size ? Array.from(out) : null;
