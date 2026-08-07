@@ -18,7 +18,8 @@ Nova tabela `match_notifications`:
 Nova função de servidor `sweepMatchNotifications`:
 - Usa exactamente o motor existente (`scoreMatch`), sem qualquer alteração ao `matching-engine.ts` nem às regras de compatibilidade
 - Para o consultor autenticado: cruza os seus imóveis activos com os seus compradores activos e com as procuras activas da base global
-- Para cada par compatível com score ≥ 60 monta o `pair_key` e faz inserção ignorando conflitos — só pares nunca notificados geram notificação
+- Usa o mesmo limiar de score já aplicado hoje nas abas de cruzamento (Imóveis/Clientes) para considerar um match válido — sem introduzir número novo; o valor é lido do mesmo ponto que as páginas usam
+- Para cada par considerado válido monta o `pair_key` e faz inserção ignorando conflitos — só pares nunca notificados geram notificação
 - Notifica o dono do cliente e o dono do imóvel; se for o mesmo consultor, apenas uma notificação
 - É chamada quando o utilizador entra na app e periodicamente (a cada ~5 min) pelo próprio sino
 
@@ -41,6 +42,7 @@ Assim que o domínio de email estiver configurado, activa-se numa sprint curta s
 
 ## Notas técnicas
 - `pair_key` = `${buyer_source}:${buyer_ref}:${property_id}`; a unicidade é garantida na base de dados, não em código
+- O limiar de score passa a constante partilhada, importada tanto pelas funções de oportunidades existentes como pela varredura, para nunca divergirem
 - Inserção em lote com `upsert` + `ignoreDuplicates`, para a varredura ser idempotente e barata
 - A varredura reutiliza um único `GeoMatchIndex` por execução (mesmo padrão já usado na importação em lote)
 - Nada do crawler nem da extensão Companion é tocado
