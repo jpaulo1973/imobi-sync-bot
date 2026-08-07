@@ -12,6 +12,7 @@ import {
   type RejectReason,
 } from "./matching-engine";
 import { LocationRepository } from "./geo";
+import { MIN_MATCH_SCORE } from "./match-thresholds";
 import {
   loadConsultorMeta,
   sanitizePropertyForViewer,
@@ -99,7 +100,7 @@ export const runBuyerOpportunities = createServerFn({ method: "POST" })
         if (r.rejectReason) rejections[r.rejectReason]++;
         continue;
       }
-      if (r.score < 60) continue;
+      if (r.score < MIN_MATCH_SCORE) continue;
       const isOwner = (p as any).user_id === userId;
       const consultor = !isOwner ? consultorMap.get((p as any).user_id) ?? null : null;
       const dto = sanitizePropertyForViewer(p, userId, consultor);
