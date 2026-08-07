@@ -149,3 +149,39 @@ export async function sweepForUser(
 
   return { rows: Array.from(rowsByPair.values()), evaluated, candidates: candidates.length };
 }
+
+// ---------------------------------------------------------------------------
+// Email por "onda" — preparado mas DESLIGADO.
+//
+// O envio exige um domínio de envio próprio configurado no projecto. Até lá,
+// `MATCH_EMAIL_ENABLED` fica false: a notificação in-app é criada normalmente
+// e `emailed_at` permanece nulo. Quando o domínio existir, basta ligar a flag
+// e ligar o envio ao serviço de email do projecto.
+// ---------------------------------------------------------------------------
+export const MATCH_EMAIL_ENABLED = false;
+
+export function buildEmailDigest(
+  rows: Array<{
+    buyer_label: string | null;
+    property_label: string | null;
+    score: number;
+    reason_summary: string | null;
+    property_id: string;
+  }>,
+  baseUrl: string,
+): { subject: string; html: string } | null {
+  if (rows.length === 0) return null;
+  const subject =
+    rows.length === 1
+      ? "1 novo match no Property Match"
+      : `${rows.length} novos matches no Property Match`;
+  const items = rows
+    .map(
+      (r) =>
+        `<li><strong>${r.buyer_label ?? "Comprador"}</strong> ↔ ${r.property_label ?? "Imóvel"}` +
+        ` (${r.score}%)<br><small>${r.reason_summary ?? ""}</small><br>` +
+        `<a href="${baseUrl}/imoveis?open=${r.property_id}">Ver match</a></li>`,
+    )
+    .join("");
+  return { subject, html: `<h2>${subject}</h2><ul>${items}</ul>` };
+}
