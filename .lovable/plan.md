@@ -1,75 +1,46 @@
-## Plano revisto — Encerramento da Fase 2
+# Notificações de Match — tabela leve + sino na app
 
-Incorpora as três correcções: sem alias para "Foros de Amora", expressão de teste sintética, `times_used` só incrementado em reutilização.
+Sem persistir matches. Os matches continuam a ser calculados na hora pelo motor atual. Guarda-se apenas o registo de "já notifiquei este par cliente+imóvel".
 
-### 1. Foros de Amora — verificação, não alias
+## O que vai ser feito
 
-Confirmado por query directa: `locations` só tem `Amora` (freguesia). Não existe `Foros de Amora`.
+### 1. Tabela de notificações
+Nova tabela `match_notifications`:
+- `user_id` — consultor destinatário
+- `pair_key` — identifica o par cliente+imóvel (chave única por consultor, evita duplicados)
+- `buyer_source` (`buyer` ou `search`), `buyer_ref`, `property_id`
+- `buyer_label` (nome do cliente / referência da procura), `property_label`, `score`, `reason_summary` (resumo curto do critério que bateu)
+- `read_at` (nulo = não lida), `created_at`
+- Restrição de unicidade `(user_id, pair_key)`: reprocessar o mesmo par nunca cria segunda notificação
+- Regras de acesso: cada consultor vê, marca como lida e apaga apenas as suas notificações
 
-**Contexto administrativo importante:** "Foros de Amora" **não é uma freguesia oficial**. É uma localidade (aglomerado populacional) dentro da freguesia de Amora, concelho do Seixal. A tabela `locations` actualmente só modela `distrito | concelho | freguesia | zona_funcional` — não tem nível "localidade/lugar".
+### 2. Varredura de matches novos
+Nova função de servidor `sweepMatchNotifications`:
+- Usa exactamente o motor existente (`scoreMatch`), sem qualquer alteração ao `matching-engine.ts` nem às regras de compatibilidade
+- Para o consultor autenticado: cruza os seus imóveis activos com os seus compradores activos e com as procuras activas da base global
+- Para cada par compatível com score ≥ 60 monta o `pair_key` e faz inserção ignorando conflitos — só pares nunca notificados geram notificação
+- Notifica o dono do cliente e o dono do imóvel; se for o mesmo consultor, apenas uma notificação
+- É chamada quando o utilizador entra na app e periodicamente (a cada ~5 min) pelo próprio sino
 
-**Decisão para esta sprint:**
+### 3. Sino na barra existente
+- Novo componente `NotificationBell` acrescentado à barra de navegação actual (Consultor e Admin), sem mexer em abas nem permissões
+- Contador de não lidas; ao abrir mostra as mais recentes primeiro com cliente/imóvel, score e resumo do critério
+- Cada item abre o match directamente na página de cruzamento
+- Marca como lida ao abrir o item; botão "Marcar todas como lidas"
 
-- **Não criar alias** (respeita a regra: aliases são para sinónimos/abreviaturas de entidades reais, não para preencher lacunas de biblioteca).
-- **Não inserir em `locations`** como freguesia (seria factualmente incorrecto).
-- **Não introduzir novo tipo `localidade`** nesta sprint — expandir a taxonomia do modelo geográfico é uma decisão arquitectural que merece a sua própria sprint (com definição de regras de contenção, matching de proximidade, e migração das freguesias que também contêm localidades relevantes: Barreiro, Almada, Setúbal, etc.).
-- **Deixar cair naturalmente na Revisão:** na primeira ocorrência real em produção, o consultor resolve manualmente para `[Amora]`. Se o padrão se repetir, sinaliza a necessidade de introduzir o nível "localidade" numa sprint dedicada.
+### 4. Email — fica preparado, não activado
+O envio de email exige um domínio de envio próprio, que este projecto ainda não tem configurado. Nesta sprint fica:
+- A coluna que registará o envio (`emailed_at`) já criada
+- A lógica de agrupamento por "onda" (um único email por consultor por varredura, com os matches novos e link directo) escrita mas desligada
+Assim que o domínio de email estiver configurado, activa-se numa sprint curta sem mexer no resto.
 
-Registar esta pendência no relatório final como *known gap*, não como bug.
+### 5. Validação final
+- Typecheck e build
+- Suite de testes existente sem regressões
+- Teste novo que confirma que a segunda varredura sobre os mesmos dados não cria notificações adicionais
 
-### 2. Testes end-to-end via Playwright autenticado
-
-Script em `/tmp/browser/fase2/`, sessão Supabase restaurada via `LOVABLE_BROWSER_SUPABASE_*`, screenshots por passo em `/tmp/browser/fase2/screenshots/`.
-
-**Teste 1 — Aprendizagem de alias (expressão sintética)**
-
-Usar uma expressão claramente inventada, garantindo que se testa a *aprendizagem* e não uma lacuna geográfica:
-
-1. Via `psql`: inserir uma `active_search` de teste em `revisao_pendente` com `texto_original = "Procuro apartamento na Urbanização XPTO"`.
-2. Chamar `resolveLocationText({ text: "Urbanização XPTO" })` **antes** — deve devolver `resolved=[]`, `unresolved=["Urbanização XPTO"]` (baseline).
-3. Navegar `/revisao`, localizar o cartão, adicionar manualmente `[Amora]` (ou outra freguesia arbitrária que sirva de "interpretação humana") no `LocationSelector`, guardar.
-4. Aceitar o `window.confirm` da aprendizagem via `page.on("dialog", d => d.accept())`.
-5. Validar via `psql`:
-   - novo registo em `location_aliases`: `alias_text = "urbanizacao xpto"` (normalizado), `location_ids = [<id Amora>]`, `approved = true`, `origem = "revisao"`, **`times_used = 0`**, `last_used_at = NULL`.
-6. Chamar `resolveLocationText({ text: "Urbanização XPTO" })` **depois** e confirmar `resolved=[<id Amora>]`, `via="alias"`.
-7. Re-validar via `psql`: **agora sim** `times_used = 1` e `last_used_at IS NOT NULL`.
-8. Limpar: `DELETE` do alias e da search de teste.
-
-**Verificação de código adicional (Teste 1a):** antes de correr o Playwright, ler `promoteAlias` em `src/lib/geo/geo.functions.ts` para confirmar que **não** incrementa `times_used` no `INSERT`. Se estiver incorrecto (a incrementar na criação), tratar como bug de âmbito da Fase 2 e corrigir antes do Playwright — o comportamento esperado é `times_used=0` na criação, incremento na primeira resolução via `LocationRepository`/parser.
-
-**Teste 2 — Persistência UI de `location_ids` / `location_id`**
-
-*Compradores:*
-1. `/clientes` → criar comprador (nome sintético `__TEST_FASE2_BUYER__`), seleccionar `Alverca` + `Parque das Nações`, guardar.
-2. Reabrir → confirmar 2 chips pré-preenchidos.
-3. Editar: remover `Alverca`, adicionar `Oeiras`, guardar. Reabrir → confirmar chips = `[Parque das Nações, Oeiras]`.
-4. Validar via `psql`: `buyer_clients.location_ids` reflecte IDs esperados.
-5. Limpar: `DELETE`.
-
-*Imóveis:*
-1. `/imoveis` → criar imóvel de teste (referência sintética), seleccionar `Carcavelos` (single), guardar.
-2. Reabrir → confirmar chip.
-3. Editar para `Cascais`, guardar, reabrir → confirmar.
-4. Validar via `psql`: `properties.location_id`.
-5. Limpar: `DELETE`.
-
-Screenshots críticos: formulário aberto, chips após reabertura, prompt de aprendizagem, estado pós-edição.
-
-### 3. Relatório final estruturado
-
-- Resultado por teste (✅/❌) com evidência (screenshot + linha de query SQL).
-- Falhas: causa raiz, ficheiro/linha, correcção aplicada (se dentro da Fase 2).
-- Estado de `promoteAlias` re `times_used` (comportamento actual + correcção se aplicável).
-- *Known gap* documentado: "Foros de Amora" e outras localidades sub-freguesia dependem de uma futura sprint de expansão da taxonomia geográfica.
-- Confirmação explícita de que a Fase 2 pode ser encerrada.
-
-### Critério de encerramento
-
-Todos os testes verdes → aguardar autorização escrita para Fase 3 (reescrita do `matching-engine` para consumir exclusivamente `location_id`/`location_ids`; remoção de `location-graph.ts`, `KNOWN_CONCELHOS`, `ADJACENT`; activação da guarda estática anti-texto-livre).
-
-### Detalhes técnicos
-
-- Sem migrações SQL nesta sprint (não se toca em `locations` nem se cria alias seed).
-- Correcção pontual em `promoteAlias` (se necessária) via `apply_patch` — mudança isolada de uma linha.
-- Playwright: `headless=True`, `viewport 1280×1800`, cookies + `localStorage` restaurados, `page.on("dialog")` para o prompt.
-- Limpeza garantida mesmo em caso de falha (bloco `try/finally` no script).
+## Notas técnicas
+- `pair_key` = `${buyer_source}:${buyer_ref}:${property_id}`; a unicidade é garantida na base de dados, não em código
+- Inserção em lote com `upsert` + `ignoreDuplicates`, para a varredura ser idempotente e barata
+- A varredura reutiliza um único `GeoMatchIndex` por execução (mesmo padrão já usado na importação em lote)
+- Nada do crawler nem da extensão Companion é tocado
