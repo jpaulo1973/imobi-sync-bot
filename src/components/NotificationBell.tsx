@@ -103,15 +103,12 @@ export function NotificationBell() {
               Sem notificações por agora.
             </p>
           )}
-          {items.map((n) => (
-            <Link
-              key={n.id}
-              to={n.href}
-              onClick={() => openItem(n)}
-              className={`block px-3 py-2 border-b last:border-0 hover:bg-secondary/60 ${
-                n.read_at == null ? "bg-secondary/30" : ""
-              }`}
-            >
+          {items.map((n) => {
+            const cls = `block px-3 py-2 border-b last:border-0 hover:bg-secondary/60 ${
+              n.read_at == null ? "bg-secondary/30" : ""
+            }`;
+            const body = (
+            <>
               <div className="flex items-start justify-between gap-2">
                 <span className="text-sm font-medium truncate">
                   {n.buyer_label ?? "Comprador"}
@@ -125,8 +122,24 @@ export function NotificationBell() {
                 <p className="text-xs text-muted-foreground/80 truncate">{n.reason_summary}</p>
               )}
               <p className="text-[11px] text-muted-foreground/70 mt-0.5">{timeAgo(n.created_at)}</p>
-            </Link>
-          ))}
+            </>
+            );
+            return n.href.startsWith("/imoveis") ? (
+              <Link
+                key={n.id}
+                to="/imoveis"
+                search={{ open: n.property_id }}
+                onClick={() => openItem(n)}
+                className={cls}
+              >
+                {body}
+              </Link>
+            ) : (
+              <Link key={n.id} to="/clientes" onClick={() => openItem(n)} className={cls}>
+                {body}
+              </Link>
+            );
+          })}
         </div>
       </PopoverContent>
     </Popover>
