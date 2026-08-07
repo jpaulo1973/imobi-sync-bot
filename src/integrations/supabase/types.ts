@@ -498,6 +498,54 @@ export type Database = {
           },
         ]
       }
+      match_notifications: {
+        Row: {
+          buyer_label: string | null
+          buyer_ref: string
+          buyer_source: string
+          created_at: string
+          emailed_at: string | null
+          id: string
+          pair_key: string
+          property_id: string
+          property_label: string | null
+          read_at: string | null
+          reason_summary: string | null
+          score: number
+          user_id: string
+        }
+        Insert: {
+          buyer_label?: string | null
+          buyer_ref: string
+          buyer_source: string
+          created_at?: string
+          emailed_at?: string | null
+          id?: string
+          pair_key: string
+          property_id: string
+          property_label?: string | null
+          read_at?: string | null
+          reason_summary?: string | null
+          score?: number
+          user_id: string
+        }
+        Update: {
+          buyer_label?: string | null
+          buyer_ref?: string
+          buyer_source?: string
+          created_at?: string
+          emailed_at?: string | null
+          id?: string
+          pair_key?: string
+          property_id?: string
+          property_label?: string | null
+          read_at?: string | null
+          reason_summary?: string | null
+          score?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       match_opportunities: {
         Row: {
           active_search_id: string
