@@ -1,0 +1,115 @@
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+
+export type MatchNotification = {
+  id: string;
+  buyer_source: "cliente" | "search";
+  buyer_ref: string;
+  property_id: string;
+  buyer_label: string | null;
+  property_label: string | null;
+  score: number;
+  reason_summary: string | null;
+  read_at: string | null;
+  created_at: string;
+  href: string;
+};
+
+/**
+ * Varredura idempotente: cria notificações apenas para pares (cliente+imóvel)
+ * que ainda não foram notificados a este consultor. Os matches continuam a ser
+ * calculados na hora — nada é persistido além da notificação.
+ */
+export const sweepMatchNotifications = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { userId } = context;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { sweepForUser } = await import("./match-notifications.server");
+    const { rows, evaluated, candidates } = await sweepForUser(supabaseAdmin, userId);
+    if (rows.length === 0) return { created: 0, evaluated, candidates };
+
+    // A unicidade (user_id, pair_key) faz o trabalho: pares já notificados
+    // são ignorados em vez de duplicados.
+    const { data, error } = await supabaseAdmin
+      .from("match_notifications")
+      .upsert(rows, { onConflict: "user_id,pair_key", ignoreDuplicates: true })
+      .select("id");
+    if (error) throw new Error(error.message);
+    return { created: (data ?? []).length, evaluated, candidates };
+  });
+
+export const listMatchNotifications = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    const { data, error } = await supabase
+      .from("match_notifications")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(30);
+    if (error) throw new Error(error.message);
+    const rows = data ?? [];
+    const propIds = Array.from(new Set(rows.map((r: any) => r.property_id as string)));
+    const ownProps = new Set<string>();
+    if (propIds.length > 0) {
+      const { data: mine } = await supabase
+        .from("properties")
+        .select("id")
+        .eq("user_id", userId)
+        .in("id", propIds);
+      for (const p of mine ?? []) ownProps.add((p as any).id as string);
+    }
+    const items: MatchNotification[] = rows.map((r: any) => ({
+      id: r.id,
+      buyer_source: r.buyer_source,
+      buyer_ref: r.buyer_ref,
+      property_id: r.property_id,
+      buyer_label: r.buyer_label,
+      property_label: r.property_label,
+      score: r.score,
+      reason_summary: r.reason_summary,
+      read_at: r.read_at,
+      created_at: r.created_at,
+      href: ownProps.has(r.property_id) ? `/imoveis?open=${r.property_id}` : "/clientes",
+    }));
+    const unread = items.filter((i) => i.read_at == null).length;
+    return { items, unread };
+  });
+
+export const countUnreadMatchNotifications = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase } = context;
+    const { count, error } = await supabase
+      .from("match_notifications")
+      .select("id", { count: "exact", head: true })
+      .is("read_at", null);
+    if (error) throw new Error(error.message);
+    return { unread: count ?? 0 };
+  });
+
+export const markMatchNotificationRead = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => z.object({ id: z.string().uuid() }).parse(data))
+  .handler(async ({ data, context }) => {
+    const { error } = await context.supabase
+      .from("match_notifications")
+      .update({ read_at: new Date().toISOString() })
+      .eq("id", data.id)
+      .is("read_at", null);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const markAllMatchNotificationsRead = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { error } = await context.supabase
+      .from("match_notifications")
+      .update({ read_at: new Date().toISOString() })
+      .is("read_at", null);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
