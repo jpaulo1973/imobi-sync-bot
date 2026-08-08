@@ -77,10 +77,13 @@ export const runBuyerOpportunities = createServerFn({ method: "POST" })
     const buyerLike = buyerToBuyerLike(buyer);
 
     // 3) Pré-carregar meta dos consultores angariadores de imóveis externos.
+    // Nota 1.3: carregamos a meta de TODOS os donos de imóveis, incluindo o
+    // próprio viewer. O campo "Angariação" identifica o consultor responsável
+    // pelo imóvel — também quando esse consultor é o próprio utilizador.
     const otherUserIds = Array.from(
       new Set(
         (properties ?? [])
-          .filter((p: any) => p.user_id && p.user_id !== userId)
+          .filter((p: any) => p.user_id)
           .map((p: any) => p.user_id as string),
       ),
     );
@@ -102,7 +105,7 @@ export const runBuyerOpportunities = createServerFn({ method: "POST" })
       }
       if (r.score < MIN_MATCH_SCORE) continue;
       const isOwner = (p as any).user_id === userId;
-      const consultor = !isOwner ? consultorMap.get((p as any).user_id) ?? null : null;
+      const consultor = consultorMap.get((p as any).user_id) ?? null;
       const dto = sanitizePropertyForViewer(p, userId, consultor);
       matches.push({ ...dto, score: r.score, reasons: r.reasons, categories: r.categories });
     }
@@ -195,10 +198,13 @@ export const auditBuyerMatches = createServerFn({ method: "POST" })
     const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
     const buyerLike = buyerToBuyerLike(buyer);
 
+    // Nota 1.3: carregamos a meta de TODOS os donos de imóveis, incluindo o
+    // próprio viewer. O campo "Angariação" identifica o consultor responsável
+    // pelo imóvel — também quando esse consultor é o próprio utilizador.
     const otherUserIds = Array.from(
       new Set(
         (properties ?? [])
-          .filter((p: any) => p.user_id && p.user_id !== userId)
+          .filter((p: any) => p.user_id)
           .map((p: any) => p.user_id as string),
       ),
     );
@@ -208,7 +214,7 @@ export const auditBuyerMatches = createServerFn({ method: "POST" })
     for (const p of properties ?? []) {
       const r = evaluateExhaustive(buyerLike, p as any, { geoIndex });
       const isOwner = (p as any).user_id === userId;
-      const consultor = !isOwner ? consultorMap.get((p as any).user_id) ?? null : null;
+      const consultor = consultorMap.get((p as any).user_id) ?? null;
       const dto = sanitizePropertyForViewer(p, userId, consultor);
       candidates.push({
         key: p.id,
