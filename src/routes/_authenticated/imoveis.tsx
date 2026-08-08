@@ -197,6 +197,8 @@ function ImoveisPage() {
 
   const [items, setItems] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
   const [sortBy, setSortBy] = useState<SortMode>("ref_desc");
   const [matchCounts, setMatchCounts] = useState<Record<string, number>>({});
 
