@@ -101,6 +101,14 @@ function ClientesPage() {
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [drawerBuyerId, setDrawerBuyerId] = useState<string | null>(null);
   const countFn = useServerFn(countBuyerOpportunities);
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
+
+  // Notificações de match: `?buyer=<id>&property=<id>` abre o drawer do
+  // comprador e destaca o imóvel do par.
+  useEffect(() => {
+    if (search.buyer) setDrawerBuyerId(search.buyer);
+  }, [search.buyer]);
 
   const load = async () => {
     setLoading(true);
@@ -415,7 +423,11 @@ function ClientesPage() {
       <BuyerOpportunitiesDrawer
         buyerId={drawerBuyerId}
         buyerName={items.find((x) => x.id === drawerBuyerId)?.nome ?? null}
-        onClose={() => setDrawerBuyerId(null)}
+        highlightPropertyId={drawerBuyerId === search.buyer ? (search.property ?? null) : null}
+        onClose={() => {
+          setDrawerBuyerId(null);
+          if (search.buyer || search.property) void navigate({ search: {}, replace: true });
+        }}
       />
     </div>
   );
