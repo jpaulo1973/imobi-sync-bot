@@ -106,7 +106,12 @@ export const listMatchNotifications = createServerFn({ method: "POST" })
       reason_summary: r.reason_summary,
       read_at: r.read_at,
       created_at: r.created_at,
-      href: ownProps.has(r.property_id) ? `/imoveis?open=${r.property_id}` : "/clientes",
+      target: notificationTarget({
+        buyer_source: r.buyer_source,
+        buyer_ref: r.buyer_ref,
+        property_id: r.property_id,
+        ownsProperty: ownProps.has(r.property_id as string),
+      }),
     }));
     const unread = items.filter((i) => i.read_at == null).length;
     return { items, unread };
