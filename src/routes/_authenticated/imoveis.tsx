@@ -293,9 +293,33 @@ function ImoveisPage() {
 
   useEffect(() => { load(); }, []);
 
-  // Correções 1.3: abrir uma oportunidade no Radar deixou de navegar para
-  // /imoveis (agora é um Sheet inline no próprio Radar), pelo que já não
-  // precisamos do handler ?open=<propertyId>.
+  // Notificações de match: `?open=<propertyId>&match=<source>-<id>` abre
+  // directamente o Property Match desse imóvel e destaca o comprador do par.
+  useEffect(() => {
+    if (!search.open || loading) return;
+    if (matchOpen && matchProperty?.id === search.open) return;
+    const p = items.find((x) => x.id === search.open);
+    if (!p) return;
+    void runMatch(p);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.open, items, loading]);
+
+  // Destaque + scroll até ao cartão do par indicado na notificação.
+  useEffect(() => {
+    if (!search.match || matchLoading || !matchOpen) return;
+    if (matches.length === 0) return;
+    const found = matches.some((m) => m.key === search.match);
+    if (!found) {
+      toast.info("Este comprador já não consta da lista de compatíveis deste imóvel.");
+      return;
+    }
+    const t = setTimeout(() => {
+      document
+        .querySelector(`[data-match-key="${search.match}"]`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 120);
+    return () => clearTimeout(t);
+  }, [search.match, matches, matchLoading, matchOpen]);
 
   // Realtime: sempre que buyer_clients mudar, refresca contadores (e o match aberto).
   useEffect(() => {
