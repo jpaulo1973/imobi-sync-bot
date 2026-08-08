@@ -441,10 +441,12 @@ function euros(v: number | null | undefined) {
 function BuyerOpportunitiesDrawer({
   buyerId,
   buyerName,
+  highlightPropertyId,
   onClose,
 }: {
   buyerId: string | null;
   buyerName: string | null;
+  highlightPropertyId?: string | null;
   onClose: () => void;
 }) {
   const runFn = useServerFn(runBuyerOpportunities);
@@ -579,7 +581,14 @@ function BuyerOpportunitiesDrawer({
             </Card>
           ) : (
             matches.map((m) => (
-              <Card key={m.id} className="p-3 space-y-2">
+              <Card
+                key={m.id}
+                data-property-id={m.id}
+                className={
+                  "p-3 space-y-2 " +
+                  (highlightPropertyId === m.id ? "ring-2 ring-primary border-primary" : "")
+                }
+              >
                 <div className="flex items-start gap-2">
                   <Badge variant="default">{m.score}%</Badge>
                   <div className="text-sm min-w-0 flex-1">
