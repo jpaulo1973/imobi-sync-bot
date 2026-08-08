@@ -37,6 +37,10 @@ import { MatchAuditPanel, type AuditRowData } from "@/components/MatchAuditPanel
 type Buyer = Tables<"buyer_clients">;
 
 export const Route = createFileRoute("/_authenticated/clientes")({
+  validateSearch: (search: Record<string, unknown>): { buyer?: string; property?: string } => ({
+    buyer: typeof search.buyer === "string" ? search.buyer : undefined,
+    property: typeof search.property === "string" ? search.property : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Clientes — Property Match" }, 
