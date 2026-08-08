@@ -9,7 +9,11 @@ export const getMyProfile = createServerFn({ method: "GET" })
 
     const [{ data: profile }, { data: roles }, propsRes, buyersRes, oppsRes] =
       await Promise.all([
-        supabase.from("profiles").select("full_name, agency, ativo").eq("id", userId).maybeSingle(),
+        supabase
+          .from("profiles")
+          .select("full_name, agency, telefone, ativo")
+          .eq("id", userId)
+          .maybeSingle(),
         supabase.from("user_roles").select("role").eq("user_id", userId),
         supabase.from("properties").select("id", { count: "exact", head: true }).eq("user_id", userId),
         supabase.from("buyer_clients").select("id", { count: "exact", head: true }).eq("user_id", userId),
@@ -33,6 +37,7 @@ export const getMyProfile = createServerFn({ method: "GET" })
       email: (claims as any)?.email ?? null,
       fullName: profile?.full_name ?? null,
       agency: profile?.agency ?? null,
+      telefone: (profile as any)?.telefone ?? null,
       ativo: (profile as any)?.ativo !== false,
       role: isAdmin ? ("admin" as const) : ("consultor" as const),
       lastSignInAt,
@@ -51,6 +56,7 @@ export const updateMyProfile = createServerFn({ method: "POST" })
       .object({
         fullName: z.string().trim().max(120).nullable().optional(),
         agency: z.string().trim().max(120).nullable().optional(),
+        telefone: z.string().trim().max(40).nullable().optional(),
       })
       .parse(data),
   )
@@ -58,6 +64,7 @@ export const updateMyProfile = createServerFn({ method: "POST" })
     const patch: Record<string, unknown> = {};
     if (data.fullName !== undefined) patch.full_name = data.fullName || null;
     if (data.agency !== undefined) patch.agency = data.agency || null;
+    if (data.telefone !== undefined) patch.telefone = data.telefone || null;
     if (Object.keys(patch).length === 0) return { ok: true };
     const { error } = await context.supabase
       .from("profiles")
