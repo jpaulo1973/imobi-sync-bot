@@ -237,13 +237,13 @@ export async function loadConsultorMeta(userIds: string[]): Promise<Map<string, 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: profs } = await supabaseAdmin
       .from("profiles")
-      .select("id, full_name, agency")
+      .select("id, full_name, agency, telefone")
       .in("id", unique);
     for (const p of profs ?? []) {
       map.set(p.id, {
         nome: p.full_name ?? null,
         email: null,
-        telefone: null,
+        telefone: (p as any).telefone ?? null,
         agency: (p as any).agency ?? null,
       });
     }
@@ -329,12 +329,16 @@ export async function loadConsultorDirectory(): Promise<ConsultorDirectory> {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: profs } = await supabaseAdmin
       .from("profiles")
-      .select("id, full_name, agency");
-    const profMap = new Map<string, { full_name: string | null; agency: string | null }>();
+      .select("id, full_name, agency, telefone");
+    const profMap = new Map<
+      string,
+      { full_name: string | null; agency: string | null; telefone: string | null }
+    >();
     for (const p of profs ?? []) {
       profMap.set(p.id, {
         full_name: p.full_name ?? null,
         agency: (p as any).agency ?? null,
+        telefone: (p as any).telefone ?? null,
       });
     }
     // auth.users list — página grande única (chega para tenants pequenos).
@@ -343,7 +347,7 @@ export async function loadConsultorDirectory(): Promise<ConsultorDirectory> {
       perPage: 1000,
     });
     for (const u of authList?.users ?? []) {
-      const prof = profMap.get(u.id) ?? { full_name: null, agency: null };
+      const prof = profMap.get(u.id) ?? { full_name: null, agency: null, telefone: null };
       const meta = (u.user_metadata ?? {}) as Record<string, unknown>;
       const metaName =
         (meta.full_name as string | undefined) ??
@@ -351,7 +355,7 @@ export async function loadConsultorDirectory(): Promise<ConsultorDirectory> {
         null;
       const emailPrefix = u.email ? u.email.split("@")[0] : null;
       const nome = prof.full_name ?? metaName ?? emailPrefix;
-      const phone = (u.phone as string | undefined) ?? null;
+      const phone = prof.telefone ?? (u.phone as string | undefined) ?? null;
       const record: ConsultorMeta = {
         nome,
         email: u.email ?? null,

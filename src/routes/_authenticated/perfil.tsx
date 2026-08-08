@@ -36,6 +36,7 @@ function PerfilPage() {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [fullName, setFullName] = useState("");
   const [agency, setAgency] = useState("");
+  const [telefone, setTelefone] = useState("");
   const [saving, setSaving] = useState(false);
 
   const [newPassword, setNewPassword] = useState("");
@@ -48,6 +49,7 @@ function PerfilPage() {
       setProfile(p);
       setFullName(p.fullName ?? "");
       setAgency(p.agency ?? "");
+      setTelefone((p as any).telefone ?? "");
     } catch (e: any) {
       toast.error(e.message);
     }
@@ -62,7 +64,7 @@ function PerfilPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      await updateFn({ data: { fullName, agency } });
+      await updateFn({ data: { fullName, agency, telefone } });
       toast.success("Perfil atualizado");
       await refresh();
       window.dispatchEvent(new Event("pm:profile-updated"));
@@ -159,6 +161,18 @@ function PerfilPage() {
                   onChange={(e) => setAgency(e.target.value)}
                   placeholder="(opcional)"
                 />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Telemóvel</Label>
+                <Input
+                  value={telefone}
+                  onChange={(e) => setTelefone(e.target.value)}
+                  placeholder="912 345 678"
+                  inputMode="tel"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Visível para outros consultores nos matches (telefone e WhatsApp).
+                </p>
               </div>
               <div className="sm:col-span-2">
                 <Button type="submit" disabled={saving}>
