@@ -2,6 +2,14 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
+/**
+ * Destino de navegação já resolvido no servidor: aponta para o par
+ * (comprador ↔ imóvel), não para a aba genérica.
+ */
+export type MatchNotificationTarget =
+  | { to: "/imoveis"; search: { open: string; match: string } }
+  | { to: "/clientes"; search: { buyer: string; property: string } };
+
 export type MatchNotification = {
   id: string;
   buyer_source: "cliente" | "search";
@@ -13,8 +21,34 @@ export type MatchNotification = {
   reason_summary: string | null;
   read_at: string | null;
   created_at: string;
-  href: string;
+  target: MatchNotificationTarget;
 };
+
+/**
+ * A chave usada nos cartões de match é `${source}-${id}` (ver
+ * property-match.functions.ts), pelo que o par guardado na notificação
+ * mapeia directamente para o cartão a destacar.
+ */
+export function matchCardKey(buyerSource: "cliente" | "search", buyerRef: string): string {
+  return `${buyerSource}-${buyerRef}`;
+}
+
+export function notificationTarget(args: {
+  buyer_source: "cliente" | "search";
+  buyer_ref: string;
+  property_id: string;
+  ownsProperty: boolean;
+}): MatchNotificationTarget {
+  // Comprador próprio (cliente) sem posse do imóvel → abre o drawer do cliente
+  // com o imóvel destacado. Nos restantes casos abre o match do imóvel.
+  if (!args.ownsProperty && args.buyer_source === "cliente") {
+    return { to: "/clientes", search: { buyer: args.buyer_ref, property: args.property_id } };
+  }
+  return {
+    to: "/imoveis",
+    search: { open: args.property_id, match: matchCardKey(args.buyer_source, args.buyer_ref) },
+  };
+}
 
 /**
  * Varredura idempotente: cria notificações apenas para pares (cliente+imóvel)
