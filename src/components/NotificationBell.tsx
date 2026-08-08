@@ -124,18 +124,24 @@ export function NotificationBell() {
               <p className="text-[11px] text-muted-foreground/70 mt-0.5">{timeAgo(n.created_at)}</p>
             </>
             );
-            return n.href.startsWith("/imoveis") ? (
+            return n.target.to === "/imoveis" ? (
               <Link
                 key={n.id}
                 to="/imoveis"
-                search={{ open: n.property_id }}
+                search={n.target.search}
                 onClick={() => openItem(n)}
                 className={cls}
               >
                 {body}
               </Link>
             ) : (
-              <Link key={n.id} to="/clientes" onClick={() => openItem(n)} className={cls}>
+              <Link
+                key={n.id}
+                to="/clientes"
+                search={n.target.search}
+                onClick={() => openItem(n)}
+                className={cls}
+              >
                 {body}
               </Link>
             );
