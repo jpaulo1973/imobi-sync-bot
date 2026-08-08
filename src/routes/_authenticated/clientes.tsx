@@ -475,6 +475,21 @@ function BuyerOpportunitiesDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buyerId]);
 
+  // Destaque + scroll até ao imóvel do par indicado na notificação.
+  useEffect(() => {
+    if (!highlightPropertyId || loading || matches.length === 0) return;
+    if (!matches.some((m) => m.id === highlightPropertyId)) {
+      toast.info("Este imóvel já não consta da lista de compatíveis deste comprador.");
+      return;
+    }
+    const t = setTimeout(() => {
+      document
+        .querySelector(`[data-property-id="${highlightPropertyId}"]`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 120);
+    return () => clearTimeout(t);
+  }, [highlightPropertyId, matches, loading]);
+
   const loadAudit = async () => {
     if (!buyerId) return;
     setAuditLoading(true);
