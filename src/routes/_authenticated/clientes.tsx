@@ -37,6 +37,10 @@ import { MatchAuditPanel, type AuditRowData } from "@/components/MatchAuditPanel
 type Buyer = Tables<"buyer_clients">;
 
 export const Route = createFileRoute("/_authenticated/clientes")({
+  validateSearch: (search: Record<string, unknown>): { buyer?: string; property?: string } => ({
+    buyer: typeof search.buyer === "string" ? search.buyer : undefined,
+    property: typeof search.property === "string" ? search.property : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Clientes — Property Match" }, 
@@ -97,6 +101,14 @@ function ClientesPage() {
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [drawerBuyerId, setDrawerBuyerId] = useState<string | null>(null);
   const countFn = useServerFn(countBuyerOpportunities);
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
+
+  // Notificações de match: `?buyer=<id>&property=<id>` abre o drawer do
+  // comprador e destaca o imóvel do par.
+  useEffect(() => {
+    if (search.buyer) setDrawerBuyerId(search.buyer);
+  }, [search.buyer]);
 
   const load = async () => {
     setLoading(true);
@@ -411,7 +423,11 @@ function ClientesPage() {
       <BuyerOpportunitiesDrawer
         buyerId={drawerBuyerId}
         buyerName={items.find((x) => x.id === drawerBuyerId)?.nome ?? null}
-        onClose={() => setDrawerBuyerId(null)}
+        highlightPropertyId={drawerBuyerId === search.buyer ? (search.property ?? null) : null}
+        onClose={() => {
+          setDrawerBuyerId(null);
+          if (search.buyer || search.property) void navigate({ search: {}, replace: true });
+        }}
       />
     </div>
   );
@@ -425,10 +441,12 @@ function euros(v: number | null | undefined) {
 function BuyerOpportunitiesDrawer({
   buyerId,
   buyerName,
+  highlightPropertyId,
   onClose,
 }: {
   buyerId: string | null;
   buyerName: string | null;
+  highlightPropertyId?: string | null;
   onClose: () => void;
 }) {
   const runFn = useServerFn(runBuyerOpportunities);
@@ -456,6 +474,21 @@ function BuyerOpportunitiesDrawer({
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buyerId]);
+
+  // Destaque + scroll até ao imóvel do par indicado na notificação.
+  useEffect(() => {
+    if (!highlightPropertyId || loading || matches.length === 0) return;
+    if (!matches.some((m) => m.id === highlightPropertyId)) {
+      toast.info("Este imóvel já não consta da lista de compatíveis deste comprador.");
+      return;
+    }
+    const t = setTimeout(() => {
+      document
+        .querySelector(`[data-property-id="${highlightPropertyId}"]`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 120);
+    return () => clearTimeout(t);
+  }, [highlightPropertyId, matches, loading]);
 
   const loadAudit = async () => {
     if (!buyerId) return;
@@ -563,7 +596,14 @@ function BuyerOpportunitiesDrawer({
             </Card>
           ) : (
             matches.map((m) => (
-              <Card key={m.id} className="p-3 space-y-2">
+              <Card
+                key={m.id}
+                data-property-id={m.id}
+                className={
+                  "p-3 space-y-2 " +
+                  (highlightPropertyId === m.id ? "ring-2 ring-primary border-primary" : "")
+                }
+              >
                 <div className="flex items-start gap-2">
                   <Badge variant="default">{m.score}%</Badge>
                   <div className="text-sm min-w-0 flex-1">

@@ -61,8 +61,9 @@ type Property = Tables<"properties">;
 type MatchResult = Opportunity;
 
 export const Route = createFileRoute("/_authenticated/imoveis")({
-  validateSearch: (search: Record<string, unknown>): { open?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { open?: string; match?: string } => ({
     open: typeof search.open === "string" ? search.open : undefined,
+    match: typeof search.match === "string" ? search.match : undefined,
   }),
   head: () => ({
     meta: [
@@ -196,6 +197,8 @@ function ImoveisPage() {
 
   const [items, setItems] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
   const [sortBy, setSortBy] = useState<SortMode>("ref_desc");
   const [matchCounts, setMatchCounts] = useState<Record<string, number>>({});
 
@@ -292,9 +295,33 @@ function ImoveisPage() {
 
   useEffect(() => { load(); }, []);
 
-  // Correções 1.3: abrir uma oportunidade no Radar deixou de navegar para
-  // /imoveis (agora é um Sheet inline no próprio Radar), pelo que já não
-  // precisamos do handler ?open=<propertyId>.
+  // Notificações de match: `?open=<propertyId>&match=<source>-<id>` abre
+  // directamente o Property Match desse imóvel e destaca o comprador do par.
+  useEffect(() => {
+    if (!search.open || loading) return;
+    if (matchOpen && matchProperty?.id === search.open) return;
+    const p = items.find((x) => x.id === search.open);
+    if (!p) return;
+    void runMatch(p);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.open, items, loading]);
+
+  // Destaque + scroll até ao cartão do par indicado na notificação.
+  useEffect(() => {
+    if (!search.match || matchLoading || !matchOpen) return;
+    if (matches.length === 0) return;
+    const found = matches.some((m) => m.key === search.match);
+    if (!found) {
+      toast.info("Este comprador já não consta da lista de compatíveis deste imóvel.");
+      return;
+    }
+    const t = setTimeout(() => {
+      document
+        .querySelector(`[data-match-key="${search.match}"]`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 120);
+    return () => clearTimeout(t);
+  }, [search.match, matches, matchLoading, matchOpen]);
 
   // Realtime: sempre que buyer_clients mudar, refresca contadores (e o match aberto).
   useEffect(() => {
@@ -845,7 +872,15 @@ function ImoveisPage() {
         </div>
       )}
 
-      <Dialog open={matchOpen} onOpenChange={setMatchOpen}>
+      <Dialog
+        open={matchOpen}
+        onOpenChange={(o) => {
+          setMatchOpen(o);
+          if (!o && (search.open || search.match)) {
+            void navigate({ search: {}, replace: true });
+          }
+        }}
+      >
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1005,9 +1040,11 @@ function ImoveisPage() {
                 return (
                   <div
                     key={m.key}
+                    data-match-key={m.key}
                     className={
                       "p-3 rounded-lg border bg-secondary/40 " +
-                      (m.state === "nao_interessado" ? "opacity-60" : "")
+                      (m.state === "nao_interessado" ? "opacity-60 " : "") +
+                      (search.match === m.key ? "ring-2 ring-primary border-primary" : "")
                     }
                   >
                     <div className="flex items-start justify-between gap-2">
