@@ -872,7 +872,15 @@ function ImoveisPage() {
         </div>
       )}
 
-      <Dialog open={matchOpen} onOpenChange={setMatchOpen}>
+      <Dialog
+        open={matchOpen}
+        onOpenChange={(o) => {
+          setMatchOpen(o);
+          if (!o && (search.open || search.match)) {
+            void navigate({ search: {}, replace: true });
+          }
+        }}
+      >
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1032,9 +1040,11 @@ function ImoveisPage() {
                 return (
                   <div
                     key={m.key}
+                    data-match-key={m.key}
                     className={
                       "p-3 rounded-lg border bg-secondary/40 " +
-                      (m.state === "nao_interessado" ? "opacity-60" : "")
+                      (m.state === "nao_interessado" ? "opacity-60 " : "") +
+                      (search.match === m.key ? "ring-2 ring-primary border-primary" : "")
                     }
                   >
                     <div className="flex items-start justify-between gap-2">
