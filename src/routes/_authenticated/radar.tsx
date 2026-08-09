@@ -35,6 +35,12 @@ import {
 } from "@/lib/buyer-opportunities.functions";
 
 export const Route = createFileRoute("/_authenticated/radar")({
+  // Notificações de Procura WhatsApp: `?procura=<id>&property=<id>` abre
+  // directamente essa procura (foco + detalhe da oportunidade).
+  validateSearch: (search: Record<string, unknown>): { procura?: string; property?: string } => ({
+    procura: typeof search.procura === "string" ? search.procura : undefined,
+    property: typeof search.property === "string" ? search.property : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Radar de Procuras Ativas — Property Match" },
@@ -122,6 +128,7 @@ function normalize(v: string) {
 }
 
 function RadarPage() {
+  const urlParams = Route.useSearch();
   const listFn = useServerFn(listActiveSearches);
   const delFn = useServerFn(deleteActiveSearch);
   const oppsFn = useServerFn(listOpportunities);
@@ -142,6 +149,9 @@ function RadarPage() {
   const [fMax, setFMax] = useState<string>("");
   const [fEstado, setFEstado] = useState<string>("todas");
   const [sort, setSort] = useState<SortKey>("recentes");
+  // Procura vinda de uma notificação: fica em foco e é aberta directamente.
+  const [focusSearchId, setFocusSearchId] = useState<string | null>(null);
+  const openedFromUrl = useState({ done: false })[0];
 
   const load = async () => {
     setLoading(true);
@@ -174,6 +184,33 @@ function RadarPage() {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Ao chegar de uma notificação: limpar filtros (para o cartão nunca ficar
+  // escondido), abrir o detalhe da oportunidade correspondente e fazer scroll
+  // até ao cartão da procura.
+  useEffect(() => {
+    const procuraId = urlParams.procura;
+    if (!procuraId || loading || openedFromUrl.done) return;
+    openedFromUrl.done = true;
+    setFTipo("todos");
+    setFZona("");
+    setFMin("");
+    setFMax("");
+    setFEstado("todas");
+    setFocusSearchId(procuraId);
+    const opp =
+      opps.find(
+        (o) =>
+          o.active_search_id === procuraId &&
+          (!urlParams.property || o.property_id === urlParams.property),
+      ) ?? opps.find((o) => o.active_search_id === procuraId);
+    if (opp) setOpenOpp(opp);
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-search-id="${procuraId}"]`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  }, [urlParams.procura, urlParams.property, loading, opps, openedFromUrl]);
 
   const remove = async (id: string) => {
     try {
@@ -438,8 +475,15 @@ function RadarPage() {
             const days = daysLeft(r.expires_at);
             const st = stateBadge(days);
             const tel = r.contact_telefone?.replace(/\s+/g, "");
+            const focused = focusSearchId === r.id;
             return (
-              <Card key={r.id} className="p-4 space-y-3">
+              <Card
+                key={r.id}
+                data-search-id={r.id}
+                className={
+                  "p-4 space-y-3 " + (focused ? "ring-2 ring-primary border-primary" : "")
+                }
+              >
                 <div className="flex items-start justify-between gap-3 flex-wrap">
                   <div className="space-y-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
