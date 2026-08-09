@@ -124,7 +124,17 @@ export function NotificationBell() {
               <p className="text-[11px] text-muted-foreground/70 mt-0.5">{timeAgo(n.created_at)}</p>
             </>
             );
-            return n.target.to === "/imoveis" ? (
+            return n.target.to === "/radar" ? (
+              <Link
+                key={n.id}
+                to="/radar"
+                search={n.target.search}
+                onClick={() => openItem(n)}
+                className={cls}
+              >
+                {body}
+              </Link>
+            ) : n.target.to === "/imoveis" ? (
               <Link
                 key={n.id}
                 to="/imoveis"
