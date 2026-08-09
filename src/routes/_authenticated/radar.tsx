@@ -151,7 +151,9 @@ function RadarPage() {
   const [sort, setSort] = useState<SortKey>("recentes");
   // Procura vinda de uma notificação: fica em foco e é aberta directamente.
   const [focusSearchId, setFocusSearchId] = useState<string | null>(null);
-  const openedFromUrl = useState({ done: false })[0];
+  // Guarda o último alvo (procura+imóvel) já tratado, para que cada notificação
+  // diferente volte a accionar foco/scroll/abertura sem recarregar a página.
+  const handledTarget = useState<{ key: string | null }>({ key: null })[0];
 
   const load = async () => {
     setLoading(true);
@@ -190,8 +192,10 @@ function RadarPage() {
   // até ao cartão da procura.
   useEffect(() => {
     const procuraId = urlParams.procura;
-    if (!procuraId || loading || openedFromUrl.done) return;
-    openedFromUrl.done = true;
+    if (!procuraId || loading) return;
+    const key = `${procuraId}|${urlParams.property ?? ""}`;
+    if (handledTarget.key === key) return;
+    handledTarget.key = key;
     setFTipo("todos");
     setFZona("");
     setFMin("");
@@ -205,12 +209,17 @@ function RadarPage() {
           (!urlParams.property || o.property_id === urlParams.property),
       ) ?? opps.find((o) => o.active_search_id === procuraId);
     if (opp) setOpenOpp(opp);
+    const existsInList = rows.some((r) => r.id === procuraId);
+    if (!opp && !existsInList) {
+      toast.warning("Procura não encontrada — pode ter expirado ou pertencer a outro grupo.");
+      return;
+    }
     requestAnimationFrame(() => {
       document
         .querySelector(`[data-search-id="${procuraId}"]`)
         ?.scrollIntoView({ block: "center", behavior: "smooth" });
     });
-  }, [urlParams.procura, urlParams.property, loading, opps, openedFromUrl]);
+  }, [urlParams.procura, urlParams.property, loading, opps, rows, handledTarget]);
 
   const remove = async (id: string) => {
     try {
