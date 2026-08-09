@@ -10,13 +10,10 @@ describe("destino da notificação de match", () => {
     expect(matchCardKey("search", B)).toBe(`search-${B}`);
   });
 
-  it("imóvel próprio → abre o match do imóvel com o comprador destacado", () => {
+  it("cliente próprio com imóvel próprio → abre o match do imóvel", () => {
     expect(
       notificationTarget({ buyer_source: "cliente", buyer_ref: B, property_id: P, ownsProperty: true }),
     ).toEqual({ to: "/imoveis", search: { open: P, match: `cliente-${B}` } });
-    expect(
-      notificationTarget({ buyer_source: "search", buyer_ref: B, property_id: P, ownsProperty: true }),
-    ).toEqual({ to: "/imoveis", search: { open: P, match: `search-${B}` } });
   });
 
   it("cliente próprio com imóvel de outro → abre o drawer do cliente no imóvel", () => {
@@ -25,9 +22,11 @@ describe("destino da notificação de match", () => {
     ).toEqual({ to: "/clientes", search: { buyer: B, property: P } });
   });
 
-  it("procura externa sem posse do imóvel cai no lado do imóvel", () => {
-    expect(
-      notificationTarget({ buyer_source: "search", buyer_ref: B, property_id: P, ownsProperty: false }),
-    ).toEqual({ to: "/imoveis", search: { open: P, match: `search-${B}` } });
+  it("procura WhatsApp abre directamente a procura no Radar", () => {
+    for (const ownsProperty of [true, false]) {
+      expect(
+        notificationTarget({ buyer_source: "search", buyer_ref: B, property_id: P, ownsProperty }),
+      ).toEqual({ to: "/radar", search: { procura: B, property: P } });
+    }
   });
 });
