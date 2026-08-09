@@ -8,7 +8,8 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
  */
 export type MatchNotificationTarget =
   | { to: "/imoveis"; search: { open: string; match: string } }
-  | { to: "/clientes"; search: { buyer: string; property: string } };
+  | { to: "/clientes"; search: { buyer: string; property: string } }
+  | { to: "/radar"; search: { procura: string; property: string } };
 
 export type MatchNotification = {
   id: string;
@@ -39,6 +40,12 @@ export function notificationTarget(args: {
   property_id: string;
   ownsProperty: boolean;
 }): MatchNotificationTarget {
+  // Procuras (WhatsApp/Lead) vivem no Radar: abrimos directamente a procura
+  // específica (cartão em foco + detalhe da oportunidade), em vez de a
+  // destacar numa lista completa.
+  if (args.buyer_source === "search") {
+    return { to: "/radar", search: { procura: args.buyer_ref, property: args.property_id } };
+  }
   // Comprador próprio (cliente) sem posse do imóvel → abre o drawer do cliente
   // com o imóvel destacado. Nos restantes casos abre o match do imóvel.
   if (!args.ownsProperty && args.buyer_source === "cliente") {
