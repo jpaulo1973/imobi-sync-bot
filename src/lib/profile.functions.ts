@@ -11,7 +11,7 @@ export const getMyProfile = createServerFn({ method: "GET" })
       await Promise.all([
         supabase
           .from("profiles")
-          .select("full_name, agency, telefone, ativo")
+          .select("full_name, agency, telefone, whatsapp, ami, ativo")
           .eq("id", userId)
           .maybeSingle(),
         supabase.from("user_roles").select("role").eq("user_id", userId),
@@ -38,6 +38,8 @@ export const getMyProfile = createServerFn({ method: "GET" })
       fullName: profile?.full_name ?? null,
       agency: profile?.agency ?? null,
       telefone: (profile as any)?.telefone ?? null,
+      whatsapp: (profile as any)?.whatsapp ?? null,
+      ami: (profile as any)?.ami ?? null,
       ativo: (profile as any)?.ativo !== false,
       role: isAdmin ? ("admin" as const) : ("consultor" as const),
       lastSignInAt,
@@ -49,23 +51,36 @@ export const getMyProfile = createServerFn({ method: "GET" })
     };
   });
 
+// Campos obrigatórios do perfil do consultor: nome, telemóvel, agência e
+// WhatsApp. AMI é opcional. O email vem da autenticação (não editável).
+const phone = z
+  .string()
+  .trim()
+  .min(9, "Número inválido (mínimo 9 dígitos).")
+  .max(40)
+  .refine((v) => v.replace(/\D+/g, "").length >= 9, "Número inválido (mínimo 9 dígitos).");
+
+export const profileFormSchema = z.object({
+  fullName: z.string().trim().min(2, "Indique o nome.").max(120),
+  agency: z.string().trim().min(2, "Indique a agência.").max(120),
+  telefone: phone,
+  whatsapp: phone,
+  ami: z.string().trim().max(40).optional().or(z.literal("")),
+});
+
+export type ProfileFormValues = z.infer<typeof profileFormSchema>;
+
 export const updateMyProfile = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data) =>
-    z
-      .object({
-        fullName: z.string().trim().max(120).nullable().optional(),
-        agency: z.string().trim().max(120).nullable().optional(),
-        telefone: z.string().trim().max(40).nullable().optional(),
-      })
-      .parse(data),
-  )
+  .inputValidator((data) => profileFormSchema.parse(data))
   .handler(async ({ data, context }) => {
-    const patch: Record<string, unknown> = {};
-    if (data.fullName !== undefined) patch.full_name = data.fullName || null;
-    if (data.agency !== undefined) patch.agency = data.agency || null;
-    if (data.telefone !== undefined) patch.telefone = data.telefone || null;
-    if (Object.keys(patch).length === 0) return { ok: true };
+    const patch: Record<string, unknown> = {
+      full_name: data.fullName,
+      agency: data.agency,
+      telefone: data.telefone,
+      whatsapp: data.whatsapp,
+      ami: data.ami?.trim() ? data.ami.trim() : null,
+    };
     const { error } = await context.supabase
       .from("profiles")
       .upsert({ id: context.userId, ...patch }, { onConflict: "id" });
