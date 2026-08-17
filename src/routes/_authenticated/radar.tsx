@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { PhoneButton } from "@/components/PhoneButton";
+import { OriginalMessage } from "@/components/OriginalMessage";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import {
@@ -71,6 +72,8 @@ type Row = {
   tipo_imovel?: string | null;
   zona?: string | null;
   resumo: string | null;
+  texto_original?: string | null;
+  notas?: string | null;
   contact_nome: string | null;
   contact_telefone: string | null;
   contact_grupo: string | null;
@@ -142,6 +145,9 @@ function RadarPage() {
   // Correções 1.3: abrir uma oportunidade mostra o detalhe num Sheet inline,
   // sem sair do Radar.
   const [openOpp, setOpenOpp] = useState<any | null>(null);
+  // Notificação de Procura WhatsApp: painel lateral dedicado com a procura
+  // completa (critérios, mensagem original, contactos e imóveis compatíveis).
+  const [openSearch, setOpenSearch] = useState<Row | null>(null);
   // Filtros e ordenação (client-side, sobre as procuras já carregadas).
   const [fTipo, setFTipo] = useState<string>("todos");
   const [fZona, setFZona] = useState<string>("");
@@ -208,9 +214,13 @@ function RadarPage() {
           o.active_search_id === procuraId &&
           (!urlParams.property || o.property_id === urlParams.property),
       ) ?? opps.find((o) => o.active_search_id === procuraId);
-    if (opp) setOpenOpp(opp);
-    const existsInList = rows.some((r) => r.id === procuraId);
-    if (!opp && !existsInList) {
+    const row = rows.find((r) => r.id === procuraId) ?? null;
+    if (row) {
+      // Abre a procura em detalhe (não apenas o par imóvel↔procura).
+      setOpenSearch(row);
+    } else if (opp) {
+      setOpenOpp(opp);
+    } else {
       toast.warning("Procura não encontrada — pode ter expirado ou pertencer a outro grupo.");
       return;
     }
