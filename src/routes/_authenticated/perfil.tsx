@@ -199,34 +199,76 @@ function PerfilPage() {
             <h2 className="font-semibold mb-4">Dados pessoais</h2>
             <form onSubmit={onSave} className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Nome</Label>
+                <Label>Nome *</Label>
                 <Input value={fullName} onChange={(e) => setFullName(e.target.value)} />
+                {errors.fullName && <p className="text-xs text-destructive">{errors.fullName}</p>}
               </div>
               <div className="space-y-2">
-                <Label>Agência</Label>
+                <Label>Agência *</Label>
                 <Input
                   value={agency}
                   onChange={(e) => setAgency(e.target.value)}
-                  placeholder="(opcional)"
+                  placeholder="ex: The Club"
                 />
+                {errors.agency && <p className="text-xs text-destructive">{errors.agency}</p>}
               </div>
-              <div className="space-y-2 sm:col-span-2">
-                <Label>Telemóvel</Label>
+              <div className="space-y-2">
+                <Label>Email *</Label>
+                <Input value={profile.email ?? ""} readOnly disabled />
+                <p className="text-xs text-muted-foreground">
+                  Email da conta — alterado apenas pelo administrador.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>AMI</Label>
+                <Input value={ami} onChange={(e) => setAmi(e.target.value)} placeholder="(opcional)" />
+              </div>
+              <div className="space-y-2">
+                <Label>Telemóvel *</Label>
                 <Input
                   value={telefone}
                   onChange={(e) => setTelefone(e.target.value)}
                   placeholder="912 345 678"
                   inputMode="tel"
                 />
+                {errors.telefone && <p className="text-xs text-destructive">{errors.telefone}</p>}
                 <p className="text-xs text-muted-foreground">
-                  Visível para outros consultores nos matches (telefone e WhatsApp).
+                  Visível para outros consultores nos matches.
                 </p>
               </div>
+              <div className="space-y-2">
+                <Label>WhatsApp *</Label>
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={sameWhatsapp}
+                    onCheckedChange={(v) => setSameWhatsapp(v === true)}
+                  />
+                  WhatsApp é o mesmo número
+                </label>
+                {!sameWhatsapp && (
+                  <>
+                    <Input
+                      value={whatsapp}
+                      onChange={(e) => setWhatsapp(e.target.value)}
+                      placeholder="912 345 678"
+                      inputMode="tel"
+                    />
+                    {errors.whatsapp && (
+                      <p className="text-xs text-destructive">{errors.whatsapp}</p>
+                    )}
+                  </>
+                )}
+              </div>
               <div className="sm:col-span-2">
-                <Button type="submit" disabled={saving}>
+                <Button type="submit" disabled={saving || !formValid}>
                   <Save className="w-4 h-4 mr-2" />
                   {saving ? "A guardar..." : "Guardar"}
                 </Button>
+                {!formValid && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Preencha todos os campos marcados com * para guardar.
+                  </p>
+                )}
               </div>
             </form>
           </Card>
