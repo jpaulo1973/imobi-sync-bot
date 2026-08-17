@@ -538,6 +538,11 @@ function RadarPage() {
                       {r.contact_telefone && <span>{r.contact_telefone}</span>}
                       {r.contact_grupo && <span>Grupo: {r.contact_grupo}</span>}
                     </div>
+                    <OriginalMessage
+                      className="mt-2"
+                      texto={r.texto_original ?? r.notas}
+                      origem={r.origem}
+                    />
                   </div>
                   <div className="flex items-center gap-1">
                     {tel && <PhoneButton telefone={tel} />}
