@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Database, RefreshCw } from "lucide-react";
+import { AlertTriangle, Database, RefreshCw, LifeBuoy, CheckCheck } from "lucide-react";
 import { toast } from "sonner";
 import { isCurrentUserAdmin } from "@/lib/admin.functions";
 import {
@@ -20,6 +20,11 @@ import {
   type BackfillGeoResult,
   type RecomputeAllResult,
 } from "@/lib/geo-backfill.functions";
+import {
+  listSupportRequests,
+  markSupportRequestRead,
+  type SupportRequest,
+} from "@/lib/support.functions";
 
 export const Route = createFileRoute("/_authenticated/manutencao")({
   beforeLoad: async () => {
@@ -34,6 +39,10 @@ function ManutencaoPage() {
   const setFn = useServerFn(setMaintenanceMode);
   const backfillFn = useServerFn(backfillGeoFromText);
   const recomputeFn = useServerFn(recomputeAllMatches);
+  const supportListFn = useServerFn(listSupportRequests);
+  const supportReadFn = useServerFn(markSupportRequestRead);
+  const [support, setSupport] = useState<SupportRequest[]>([]);
+  const [supportUnread, setSupportUnread] = useState(0);
   const [enabled, setEnabled] = useState(false);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -54,6 +63,27 @@ function ManutencaoPage() {
       .catch((e) => toast.error(e instanceof Error ? e.message : "Erro"))
       .finally(() => setInitialLoad(false));
   }, [getFn]);
+
+  useEffect(() => {
+    supportListFn()
+      .then((r) => {
+        setSupport(r.items);
+        setSupportUnread(r.unread);
+      })
+      .catch(() => {});
+  }, [supportListFn]);
+
+  const markRead = async (id: string) => {
+    try {
+      await supportReadFn({ data: { id } });
+      setSupport((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, read_at: new Date().toISOString() } : s)),
+      );
+      setSupportUnread((n) => Math.max(0, n - 1));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro");
+    }
+  };
 
   const save = async (next: boolean) => {
     setLoading(true);
@@ -247,6 +277,53 @@ function ManutencaoPage() {
             <div className="text-green-700">
               Novas oportunidades: {recomputeResult.opportunities_created}
             </div>
+          </div>
+        )}
+      </Card>
+
+      <Card className="p-6 space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <LifeBuoy className="w-5 h-5 text-primary" />
+            Ajuda / Sugestões
+            {supportUnread > 0 && <Badge variant="default">{supportUnread} não lidas</Badge>}
+          </h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Mensagens enviadas pelos consultores através do botão “Ajuda / Sugestão”.
+          </p>
+        </div>
+        {support.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Sem mensagens.</p>
+        ) : (
+          <div className="space-y-2">
+            {support.map((s) => (
+              <div
+                key={s.id}
+                className={`rounded-md border p-3 text-sm space-y-1 ${
+                  s.read_at ? "" : "border-primary/40 bg-primary/5"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="font-medium">
+                    {s.autor_nome ?? s.autor_email ?? "Consultor"}
+                    {s.autor_email && (
+                      <span className="text-xs text-muted-foreground"> · {s.autor_email}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(s.created_at).toLocaleString("pt-PT")}
+                    </span>
+                    {!s.read_at && (
+                      <Button size="sm" variant="ghost" onClick={() => markRead(s.id)}>
+                        <CheckCheck className="w-4 h-4 mr-1" /> Marcar lida
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <p className="whitespace-pre-wrap break-words">{s.mensagem}</p>
+              </div>
+            ))}
           </div>
         )}
       </Card>
