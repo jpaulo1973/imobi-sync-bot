@@ -56,6 +56,7 @@ import { updateMatchState } from "@/lib/match-states.functions";
 import { ConsultorContactActions } from "@/components/ConsultorContactActions";
 import type { MatchCategoryResult } from "@/lib/matching-engine";
 import { MatchAuditPanel, type AuditRowData } from "@/components/MatchAuditPanel";
+import { OriginalMessage } from "@/components/OriginalMessage";
 
 type Property = Tables<"properties">;
 type MatchResult = Opportunity;
