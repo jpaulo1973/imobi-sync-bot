@@ -7,10 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { LogOut, KeyRound, Save, UserCircle } from "lucide-react";
+import { LogOut, KeyRound, Save, UserCircle, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { getMyProfile, updateMyProfile } from "@/lib/profile.functions";
+import { getMyProfile, updateMyProfile, profileFormSchema } from "@/lib/profile.functions";
 
 export const Route = createFileRoute("/_authenticated/perfil")({
   head: () => ({
@@ -28,6 +29,10 @@ export const Route = createFileRoute("/_authenticated/perfil")({
 
 type ProfileData = Awaited<ReturnType<typeof getMyProfile>>;
 
+function sameDigits(a: string, b: string) {
+  return a.replace(/\D+/g, "") === b.replace(/\D+/g, "");
+}
+
 function PerfilPage() {
   const navigate = useNavigate();
   const getFn = useServerFn(getMyProfile);
@@ -37,6 +42,10 @@ function PerfilPage() {
   const [fullName, setFullName] = useState("");
   const [agency, setAgency] = useState("");
   const [telefone, setTelefone] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
+  const [sameWhatsapp, setSameWhatsapp] = useState(true);
+  const [ami, setAmi] = useState("");
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   const [newPassword, setNewPassword] = useState("");
@@ -50,6 +59,11 @@ function PerfilPage() {
       setFullName(p.fullName ?? "");
       setAgency(p.agency ?? "");
       setTelefone((p as any).telefone ?? "");
+      const wa = ((p as any).whatsapp ?? "") as string;
+      const tel = ((p as any).telefone ?? "") as string;
+      setWhatsapp(wa || tel);
+      setSameWhatsapp(!wa || (!!tel && sameDigits(wa, tel)));
+      setAmi((p as any).ami ?? "");
     } catch (e: any) {
       toast.error(e.message);
     }
@@ -62,9 +76,28 @@ function PerfilPage() {
 
   const onSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    const payload = {
+      fullName,
+      agency,
+      telefone,
+      whatsapp: sameWhatsapp ? telefone : whatsapp,
+      ami,
+    };
+    const parsed = profileFormSchema.safeParse(payload);
+    if (!parsed.success) {
+      const next: Record<string, string> = {};
+      for (const issue of parsed.error.issues) {
+        const key = String(issue.path[0] ?? "");
+        if (key && !next[key]) next[key] = issue.message;
+      }
+      setErrors(next);
+      toast.error("Preencha os campos obrigatórios.");
+      return;
+    }
+    setErrors({});
     setSaving(true);
     try {
-      await updateFn({ data: { fullName, agency, telefone } });
+      await updateFn({ data: parsed.data });
       toast.success("Perfil atualizado");
       await refresh();
       window.dispatchEvent(new Event("pm:profile-updated"));
@@ -103,6 +136,11 @@ function PerfilPage() {
   };
 
   const roleLabel = profile?.role === "admin" ? "Administrador" : "Consultor";
+  const currentWhatsapp = sameWhatsapp ? telefone : whatsapp;
+  const formValid =
+    profileFormSchema.safeParse({ fullName, agency, telefone, whatsapp: currentWhatsapp, ami })
+      .success && !!profile?.email;
+  const incomplete = !!profile && !formValid;
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -119,6 +157,16 @@ function PerfilPage() {
         <Card className="p-6 text-sm text-muted-foreground">A carregar...</Card>
       ) : (
         <>
+          {incomplete && (
+            <Card className="p-4 border-amber-300 bg-amber-50 text-amber-900 flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <strong>Perfil incompleto.</strong> Nome, telemóvel, agência, email e WhatsApp são
+                obrigatórios para que outros consultores o consigam contactar nos matches. O AMI é
+                opcional.
+              </div>
+            </Card>
+          )}
           <Card className="p-6 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -151,34 +199,76 @@ function PerfilPage() {
             <h2 className="font-semibold mb-4">Dados pessoais</h2>
             <form onSubmit={onSave} className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Nome</Label>
+                <Label>Nome *</Label>
                 <Input value={fullName} onChange={(e) => setFullName(e.target.value)} />
+                {errors.fullName && <p className="text-xs text-destructive">{errors.fullName}</p>}
               </div>
               <div className="space-y-2">
-                <Label>Agência</Label>
+                <Label>Agência *</Label>
                 <Input
                   value={agency}
                   onChange={(e) => setAgency(e.target.value)}
-                  placeholder="(opcional)"
+                  placeholder="ex: The Club"
                 />
+                {errors.agency && <p className="text-xs text-destructive">{errors.agency}</p>}
               </div>
-              <div className="space-y-2 sm:col-span-2">
-                <Label>Telemóvel</Label>
+              <div className="space-y-2">
+                <Label>Email *</Label>
+                <Input value={profile.email ?? ""} readOnly disabled />
+                <p className="text-xs text-muted-foreground">
+                  Email da conta — alterado apenas pelo administrador.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>AMI</Label>
+                <Input value={ami} onChange={(e) => setAmi(e.target.value)} placeholder="(opcional)" />
+              </div>
+              <div className="space-y-2">
+                <Label>Telemóvel *</Label>
                 <Input
                   value={telefone}
                   onChange={(e) => setTelefone(e.target.value)}
                   placeholder="912 345 678"
                   inputMode="tel"
                 />
+                {errors.telefone && <p className="text-xs text-destructive">{errors.telefone}</p>}
                 <p className="text-xs text-muted-foreground">
-                  Visível para outros consultores nos matches (telefone e WhatsApp).
+                  Visível para outros consultores nos matches.
                 </p>
               </div>
+              <div className="space-y-2">
+                <Label>WhatsApp *</Label>
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={sameWhatsapp}
+                    onCheckedChange={(v) => setSameWhatsapp(v === true)}
+                  />
+                  WhatsApp é o mesmo número
+                </label>
+                {!sameWhatsapp && (
+                  <>
+                    <Input
+                      value={whatsapp}
+                      onChange={(e) => setWhatsapp(e.target.value)}
+                      placeholder="912 345 678"
+                      inputMode="tel"
+                    />
+                    {errors.whatsapp && (
+                      <p className="text-xs text-destructive">{errors.whatsapp}</p>
+                    )}
+                  </>
+                )}
+              </div>
               <div className="sm:col-span-2">
-                <Button type="submit" disabled={saving}>
+                <Button type="submit" disabled={saving || !formValid}>
                   <Save className="w-4 h-4 mr-2" />
                   {saving ? "A guardar..." : "Guardar"}
                 </Button>
+                {!formValid && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Preencha todos os campos marcados com * para guardar.
+                  </p>
+                )}
               </div>
             </form>
           </Card>

@@ -53,6 +53,9 @@ export type Opportunity = {
   grupo_whatsapp: string | null;
   comunidade: string | null;
   resumo: string | null;
+  // Texto integral que originou a procura: mensagem WhatsApp original ou
+  // Notas/Observações quando a origem é um cliente próprio.
+  mensagem_original: string | null;
   created_at: string | null;
   // Release 1.3 — identificação do par para gestão de estado.
   buyer_source: "cliente" | "search";
@@ -238,6 +241,7 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
         grupo_whatsapp: null,
         comunidade: null,
         resumo: b.notas ?? null,
+        mensagem_original: b.notas ?? null,
         created_at: b.created_at ?? null,
         buyer_source: "cliente",
         buyer_ref: b.id,
@@ -331,6 +335,7 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
         grupo_whatsapp: q.grupo_whatsapp ?? q.contact_grupo ?? null,
         comunidade: q.comunidade ?? null,
         resumo: q.resumo ?? null,
+        mensagem_original: (q as any).texto_original ?? q.resumo ?? null,
         created_at: q.created_at ?? null,
         buyer_source: "search",
         buyer_ref: q.id,
