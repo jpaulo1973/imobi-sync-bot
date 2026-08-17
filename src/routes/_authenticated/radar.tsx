@@ -595,6 +595,11 @@ function RadarPage() {
                     {s.resumo && (
                       <p className="text-xs italic text-muted-foreground mt-1">"{s.resumo}"</p>
                     )}
+                    <OriginalMessage
+                      className="mt-2"
+                      texto={s.texto_original ?? s.resumo}
+                      origem={s.origem}
+                    />
                   </Card>
                   {Array.isArray(openOpp.reasons) && openOpp.reasons.length > 0 && (
                     <Card className="p-3 space-y-1">
@@ -608,6 +613,97 @@ function RadarPage() {
                       </ul>
                     </Card>
                   )}
+                </div>
+              </>
+            );
+          })()}
+        </SheetContent>
+      </Sheet>
+
+      {/* Melhoria 5 — painel lateral dedicado à procura (via notificação) */}
+      <Sheet open={!!openSearch} onOpenChange={(v) => !v && setOpenSearch(null)}>
+        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+          {openSearch && (() => {
+            const r = openSearch;
+            const matches = opps.filter((o: any) => o.active_search_id === r.id);
+            return (
+              <>
+                <SheetHeader>
+                  <SheetTitle className="flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-primary" /> Detalhe da procura
+                  </SheetTitle>
+                  <SheetDescription>
+                    {r.origem ? `Origem: ${r.origem} · ` : ""}
+                    {daysLeft(r.expires_at)} dia(s) restantes
+                  </SheetDescription>
+                </SheetHeader>
+                <div className="mt-4 space-y-4 text-sm">
+                  <Card className="p-3 space-y-1">
+                    <div className="text-xs font-semibold uppercase text-muted-foreground">Critérios</div>
+                    <div className="font-medium">
+                      {r.criteria.tipologia ? `${r.criteria.tipologia} · ` : ""}
+                      {r.criteria.zona ?? r.criteria.freguesia ?? r.criteria.concelho ?? "—"}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {r.criteria.tipo_imovel ?? r.tipo_imovel ?? "—"}
+                      {r.criteria.budget_max != null ? ` · até ${euros(r.criteria.budget_max)}` : ""}
+                    </div>
+                    {r.resumo && <p className="text-xs italic text-muted-foreground mt-1">"{r.resumo}"</p>}
+                  </Card>
+                  <OriginalMessage
+                    texto={r.texto_original ?? r.notas ?? r.resumo}
+                    origem={r.origem}
+                    defaultOpen
+                  />
+                  <Card className="p-3 space-y-1">
+                    <div className="text-xs font-semibold uppercase text-muted-foreground">Contactos</div>
+                    <div className="font-medium">{r.contact_nome ?? "—"}</div>
+                    <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3">
+                      {r.contact_telefone && <span>{r.contact_telefone}</span>}
+                      {r.contact_grupo && <span>Grupo: {r.contact_grupo}</span>}
+                    </div>
+                    {r.contact_telefone && (
+                      <div className="pt-1">
+                        <PhoneButton telefone={r.contact_telefone.replace(/\s+/g, "")} />
+                      </div>
+                    )}
+                  </Card>
+                  <Card className="p-3 space-y-2">
+                    <div className="text-xs font-semibold uppercase text-muted-foreground">
+                      Imóveis compatíveis ({matches.length})
+                    </div>
+                    {matches.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        Ainda sem imóveis compatíveis para esta procura.
+                      </p>
+                    ) : (
+                      matches.map((o: any) => {
+                        const p = o.properties ?? {};
+                        return (
+                          <button
+                            key={o.id}
+                            type="button"
+                            onClick={() => {
+                              setOpenSearch(null);
+                              setOpenOpp(o);
+                            }}
+                            className="w-full text-left rounded-md border p-2 hover:bg-secondary/60"
+                          >
+                            <div className="text-sm font-medium flex items-center gap-2">
+                              {p.tipologia ? `${p.tipologia} · ` : ""}
+                              {p.zona ?? p.freguesia ?? p.concelho ?? "—"}
+                              <Badge className="bg-accent text-accent-foreground ml-auto">{o.score}%</Badge>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {p.tipo_imovel ?? "—"}
+                              {p.preco ? ` · ${euros(p.preco)}` : ""}
+                              {p.referencia ? ` · Ref: ${p.referencia}` : ""}
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </Card>
                 </div>
               </>
             );
