@@ -65,15 +65,15 @@ export function notificationTarget(args: {
 export const sweepMatchNotifications = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { userId } = context;
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { supabase, userId } = context;
     const { sweepForUser } = await import("./match-notifications.server");
-    const { rows, evaluated, candidates } = await sweepForUser(supabaseAdmin, userId);
+    const { rows, evaluated, candidates } = await sweepForUser(supabase, userId);
     if (rows.length === 0) return { created: 0, evaluated, candidates };
 
-    // A unicidade (user_id, pair_key) faz o trabalho: pares já notificados
-    // são ignorados em vez de duplicados.
-    const { data, error } = await supabaseAdmin
+    // As notificações são sempre do próprio consultor (user_id = userId), pelo
+    // que a escrita passa pelo cliente autenticado + RLS. A unicidade
+    // (user_id, pair_key) evita duplicados.
+    const { data, error } = await supabase
       .from("match_notifications")
       .upsert(rows, { onConflict: "user_id,pair_key", ignoreDuplicates: true })
       .select("id");

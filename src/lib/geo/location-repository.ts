@@ -84,16 +84,19 @@ function indexSnapshot(
 
 /**
  * Carrega o snapshot completo da biblioteca a partir do storage.
- * Server-only — chama `supabaseAdmin` (leitura de tabelas de referência).
+ * Server-only — usa o cliente autenticado do pedido (as tabelas de
+ * referência geográfica têm política de leitura para `authenticated`).
+ * Não depende da service_role key, para funcionar em qualquer host.
  */
 async function loadSnapshot(): Promise<GeoSnapshot> {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { getRequestClient } = await import("@/lib/privileged.server");
+  const sb = (await getRequestClient()) as any;
   const [versionRes, locationsRes, aliasesRes, relationsRes, membersRes] = await Promise.all([
-    supabaseAdmin.from("geo_library_version").select("version").order("version", { ascending: false }).limit(1),
-    supabaseAdmin.from("locations").select("id, slug, nome, tipo, parent_id, aprovado").eq("aprovado", true),
-    supabaseAdmin.from("location_aliases").select("id, alias_normalizado, location_ids, origem, aprovado, times_used, last_used_at"),
-    supabaseAdmin.from("location_relations").select("from_location_id, to_location_id, relation_type"),
-    supabaseAdmin.from("functional_zone_members").select("functional_zone_id, location_id"),
+    sb.from("geo_library_version").select("version").order("version", { ascending: false }).limit(1),
+    sb.from("locations").select("id, slug, nome, tipo, parent_id, aprovado").eq("aprovado", true),
+    sb.from("location_aliases").select("id, alias_normalizado, location_ids, origem, aprovado, times_used, last_used_at"),
+    sb.from("location_relations").select("from_location_id, to_location_id, relation_type"),
+    sb.from("functional_zone_members").select("functional_zone_id, location_id"),
   ]);
   const version = Number(versionRes.data?.[0]?.version ?? 1);
   const locations = (locationsRes.data ?? []) as unknown as Location[];

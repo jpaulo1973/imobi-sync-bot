@@ -154,54 +154,42 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
   });
 
 // Helper interno partilhado entre saveActiveSearch e a server fn pública.
-async function recomputeForSearch(supabase: any, userId: string, searchId: string): Promise<number> {
-  // Release 1.2 — Base Global: materializa oportunidades para TODOS os
-  // imóveis (independentemente do dono) usando o cliente de admin.
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data: s } = await supabaseAdmin
-    .from("active_searches")
-    .select("id, criteria, location_ids")
-    .eq("id", searchId)
-    .maybeSingle();
+async function recomputeForSearch(supabase: any, _userId: string, searchId: string): Promise<number> {
+  // Base Global: materializa oportunidades para TODOS os imóveis
+  // (independentemente do dono) através de RPCs SECURITY DEFINER — sem
+  // service_role key, para funcionar em qualquer host.
+  const { setRequestClient, poolActiveSearches, poolProperties, applyMatchOpportunities } =
+    await import("@/lib/privileged.server");
+  setRequestClient(supabase);
+
+  const searches = await poolActiveSearches({ includeExpired: true });
+  const s = searches.find((row: any) => row.id === searchId);
   if (!s) return 0;
-  const { data: props } = await supabaseAdmin
-    .from("properties")
-    .select(
-      "id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade, location_id",
-    )
-    .eq("ativo", true);
+  const props = await poolProperties();
   const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria, (s as any).location_ids ?? []);
   const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
-  const { data: existing } = await supabaseAdmin
-    .from("match_opportunities")
-    .select("id, property_id, score, user_id")
-    .eq("active_search_id", s.id);
-  const existingMap = new Map<string, { id: string; score: number; user_id: string }>(
-    (existing ?? []).map((e: any) => [e.property_id, { id: e.id, score: e.score, user_id: e.user_id }]),
-  );
-  let created = 0;
-  for (const p of props ?? []) {
-    const r = scoreMatch(buyer, p, { geoIndex });
+
+  const rows: Array<{
+    user_id: string;
+    property_id: string;
+    active_search_id: string;
+    score: number;
+    reasons: string[];
+    categories: any;
+  }> = [];
+  for (const p of props) {
+    const r = scoreMatch(buyer, p as any, { geoIndex });
     if (!r.compatible || r.score < 60) continue;
-    const prev = existingMap.get(p.id);
-    if (!prev) {
-      await supabaseAdmin.from("match_opportunities").insert({
-        user_id: (p as any).user_id,
-        property_id: p.id,
-        active_search_id: s.id,
-        score: r.score,
-        reasons: r.reasons,
-        categories: r.categories as any,
-      });
-      created++;
-    } else if (prev.score !== r.score) {
-      await supabaseAdmin
-        .from("match_opportunities")
-        .update({ score: r.score, reasons: r.reasons, categories: r.categories as any, viewed_at: null })
-        .eq("id", prev.id);
-    }
+    rows.push({
+      user_id: (p as any).user_id,
+      property_id: (p as any).id,
+      active_search_id: s.id,
+      score: r.score,
+      reasons: r.reasons,
+      categories: r.categories as any,
+    });
   }
-  return created;
+  return applyMatchOpportunities(rows);
 }
 
 export { recomputeForSearch };
@@ -217,49 +205,26 @@ export { recomputeForSearch };
  * importações em lote.
  */
 export async function recomputeForBatch(
-  _supabase: any,
+  supabase: any,
   _userId: string,
   searchIds: string[],
 ): Promise<{ created: number; matchesBySearch: Map<string, number> }> {
   const matchesBySearch = new Map<string, number>();
   if (!searchIds.length) return { created: 0, matchesBySearch };
 
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { setRequestClient, poolActiveSearches, poolProperties, applyMatchOpportunities } =
+    await import("@/lib/privileged.server");
+  setRequestClient(supabase);
   const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
 
-  const [searchesRes, propsRes, existingRes] = await Promise.all([
-    supabaseAdmin
-      .from("active_searches")
-      .select("id, criteria, location_ids")
-      .in("id", searchIds),
-    supabaseAdmin
-      .from("properties")
-      .select(
-        "id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade, location_id",
-      )
-      .eq("ativo", true),
-    supabaseAdmin
-      .from("match_opportunities")
-      .select("id, active_search_id, property_id, score, user_id")
-      .in("active_search_id", searchIds),
+  const wanted = new Set(searchIds);
+  const [allSearches, props] = await Promise.all([
+    poolActiveSearches({ includeExpired: true }),
+    poolProperties(),
   ]);
+  const searches = allSearches.filter((row: any) => wanted.has(row.id));
 
-  const searches = searchesRes.data ?? [];
-  const props = propsRes.data ?? [];
-  const existing = existingRes.data ?? [];
-
-  // existingMap: search_id -> (property_id -> row)
-  const existingMap = new Map<string, Map<string, { id: string; score: number; user_id: string }>>();
-  for (const e of existing as any[]) {
-    let m = existingMap.get(e.active_search_id);
-    if (!m) {
-      m = new Map();
-      existingMap.set(e.active_search_id, m);
-    }
-    m.set(e.property_id, { id: e.id, score: e.score, user_id: e.user_id });
-  }
-
-  const inserts: Array<{
+  const rows: Array<{
     user_id: string;
     property_id: string;
     active_search_id: string;
@@ -267,112 +232,72 @@ export async function recomputeForBatch(
     reasons: string[];
     categories: any;
   }> = [];
-  const updates: Array<{ id: string; score: number; reasons: string[]; categories: any }> = [];
 
   for (const s of searches as any[]) {
     const buyer = criteriaToBuyer(
       s.criteria as ActiveSearchCriteria,
       (s.location_ids ?? []) as string[],
     );
-    const perSearch = existingMap.get(s.id) ?? new Map();
     let count = 0;
     for (const p of props as any[]) {
       const r = scoreMatch(buyer, p, { geoIndex });
       if (!r.compatible || r.score < 60) continue;
       count++;
-      const prev = perSearch.get(p.id);
-      if (!prev) {
-        inserts.push({
-          user_id: p.user_id,
-          property_id: p.id,
-          active_search_id: s.id,
-          score: r.score,
-          reasons: r.reasons,
-          categories: r.categories as any,
-        });
-      } else if (prev.score !== r.score) {
-        updates.push({
-          id: prev.id,
-          score: r.score,
-          reasons: r.reasons,
-          categories: r.categories as any,
-        });
-      }
-    }
-    matchesBySearch.set(s.id, count);
-  }
-
-  let created = 0;
-  if (inserts.length) {
-    // Chunk para evitar payloads gigantes.
-    const CHUNK = 500;
-    for (let i = 0; i < inserts.length; i += CHUNK) {
-      const slice = inserts.slice(i, i + CHUNK);
-      const { error } = await supabaseAdmin.from("match_opportunities").insert(slice);
-      if (error) {
-        console.error("[recomputeForBatch] insert failed", error);
-      } else {
-        created += slice.length;
-      }
-    }
-  }
-  for (const u of updates) {
-    await supabaseAdmin
-      .from("match_opportunities")
-      .update({ score: u.score, reasons: u.reasons, categories: u.categories, viewed_at: null })
-      .eq("id", u.id);
-  }
-
-  return { created, matchesBySearch };
-}
-
-// Release 1.2 — quando um imóvel é criado/atualizado, materializa
-// oportunidades cruzando com a Base Global de procuras (via admin).
-export async function recomputeForProperty(propertyId: string): Promise<number> {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data: p } = await supabaseAdmin
-    .from("properties")
-    .select("id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade, location_id, ativo")
-    .eq("id", propertyId)
-    .maybeSingle();
-  if (!p || !p.ativo) return 0;
-  const nowIso = new Date().toISOString();
-  const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
-  const { data: searches } = await supabaseAdmin
-    .from("active_searches")
-    .select("id, criteria, location_ids")
-    .gt("expires_at", nowIso);
-  const { data: existing } = await supabaseAdmin
-    .from("match_opportunities")
-    .select("id, active_search_id, score")
-    .eq("property_id", p.id);
-  const existingMap = new Map<string, { id: string; score: number }>(
-    (existing ?? []).map((e: any) => [e.active_search_id, { id: e.id, score: e.score }]),
-  );
-  let created = 0;
-  for (const s of searches ?? []) {
-    const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria, (s as any).location_ids ?? []);
-    const r = scoreMatch(buyer, p as any, { geoIndex });
-    if (!r.compatible || r.score < 60) continue;
-    const prev = existingMap.get(s.id);
-    if (!prev) {
-      await supabaseAdmin.from("match_opportunities").insert({
-        user_id: (p as any).user_id,
+      rows.push({
+        user_id: p.user_id,
         property_id: p.id,
         active_search_id: s.id,
         score: r.score,
         reasons: r.reasons,
         categories: r.categories as any,
       });
-      created++;
-    } else if (prev.score !== r.score) {
-      await supabaseAdmin
-        .from("match_opportunities")
-        .update({ score: r.score, reasons: r.reasons, categories: r.categories as any, viewed_at: null })
-        .eq("id", prev.id);
     }
+    matchesBySearch.set(s.id, count);
   }
-  return created;
+
+  // Um único RPC por bloco: insere o que falta e atualiza scores alterados.
+  const created = await applyMatchOpportunities(rows);
+  return { created, matchesBySearch };
+}
+
+// Release 1.2 — quando um imóvel é criado/atualizado, materializa
+// oportunidades cruzando com a Base Global de procuras (via admin).
+export async function recomputeForProperty(
+  propertyId: string,
+  supabase?: any,
+): Promise<number> {
+  const { setRequestClient, poolActiveSearches, poolProperties, applyMatchOpportunities } =
+    await import("@/lib/privileged.server");
+  if (supabase) setRequestClient(supabase);
+
+  const props = await poolProperties();
+  const p = props.find((row: any) => row.id === propertyId);
+  if (!p) return 0;
+  const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
+  const searches = await poolActiveSearches();
+
+  const rows: Array<{
+    user_id: string;
+    property_id: string;
+    active_search_id: string;
+    score: number;
+    reasons: string[];
+    categories: any;
+  }> = [];
+  for (const s of searches as any[]) {
+    const buyer = criteriaToBuyer(s.criteria as ActiveSearchCriteria, (s.location_ids ?? []) as string[]);
+    const r = scoreMatch(buyer, p as any, { geoIndex });
+    if (!r.compatible || r.score < 60) continue;
+    rows.push({
+      user_id: (p as any).user_id,
+      property_id: (p as any).id,
+      active_search_id: s.id,
+      score: r.score,
+      reasons: r.reasons,
+      categories: r.categories as any,
+    });
+  }
+  return applyMatchOpportunities(rows);
 }
 
 // Server fn callable from the client after saving a property.
@@ -389,7 +314,7 @@ export const recomputeOpportunitiesForProperty = createServerFn({ method: "POST"
       .eq("user_id", userId)
       .maybeSingle();
     if (!p) return { created: 0 };
-    const created = await recomputeForProperty(data.propertyId);
+    const created = await recomputeForProperty(data.propertyId, supabase);
     return { created };
   });
 

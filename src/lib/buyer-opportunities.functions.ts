@@ -67,11 +67,9 @@ export const runBuyerOpportunities = createServerFn({ method: "POST" })
     if (!buyer) throw new Error("Comprador não encontrado.");
 
     // 2) Carregar imóveis da base global via admin.
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: properties } = await supabaseAdmin
-      .from("properties")
-      .select("*")
-      .eq("ativo", true);
+    const { setRequestClient, poolProperties } = await import("@/lib/privileged.server");
+    setRequestClient(supabase);
+    const properties = await poolProperties();
 
     const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
     const buyerLike = buyerToBuyerLike(buyer);
@@ -130,11 +128,9 @@ export const countBuyerOpportunities = createServerFn({ method: "POST" })
       .select("*")
       .eq("user_id", userId)
       .eq("ativo", true);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: properties } = await supabaseAdmin
-      .from("properties")
-      .select("id, user_id, tipo_imovel, tipologia, distrito, concelho, freguesia, zona, preco, area_util_m2, area_m2, area_terreno_m2, quartos, garagem, elevador, jardim, piscina, finalidade, location_id")
-      .eq("ativo", true);
+    const { setRequestClient, poolProperties } = await import("@/lib/privileged.server");
+    setRequestClient(supabase);
+    const properties = await poolProperties();
     const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
     const counts: Record<string, number> = {};
     for (const b of buyers ?? []) {
@@ -189,11 +185,9 @@ export const auditBuyerMatches = createServerFn({ method: "POST" })
     if (bErr) throw new Error(bErr.message);
     if (!buyer) throw new Error("Comprador não encontrado.");
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: properties } = await supabaseAdmin
-      .from("properties")
-      .select("*")
-      .eq("ativo", true);
+    const { setRequestClient, poolProperties } = await import("@/lib/privileged.server");
+    setRequestClient(supabase);
+    const properties = await poolProperties();
 
     const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
     const buyerLike = buyerToBuyerLike(buyer);

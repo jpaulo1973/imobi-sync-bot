@@ -29,35 +29,25 @@ export const listAppUsers = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     await assertAdmin(context);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 200 });
+    // RPC SECURITY DEFINER: lista os consultores a partir de `profiles`
+    // (email sincronizado no registo) + papéis. Não depende da service_role
+    // key, pelo que funciona em qualquer host.
+    const { data, error } = await context.supabase.rpc("admin_list_users");
     if (error) throw new Error(error.message);
-    const { data: roles } = await supabaseAdmin.from("user_roles").select("user_id, role");
-    const { data: profiles } = await supabaseAdmin
-      .from("profiles")
-      .select("id, full_name, agency, ativo");
-    const rolesByUser = new Map<string, string[]>();
-    (roles ?? []).forEach((r: any) => {
-      const arr = rolesByUser.get(r.user_id) ?? [];
-      arr.push(r.role);
-      rolesByUser.set(r.user_id, arr);
-    });
-    const profileById = new Map<string, any>();
-    (profiles ?? []).forEach((p: any) => profileById.set(p.id, p));
     return {
-      users: data.users.map((u) => {
-        const p = profileById.get(u.id);
-        const userRoles = rolesByUser.get(u.id) ?? [];
+      users: (data ?? []).map((u: any) => {
+        const userRoles: string[] = (u.roles ?? []).filter(Boolean);
         return {
-          id: u.id,
-          email: u.email,
-          full_name: (p?.full_name as string | null) ?? null,
-          agency: (p?.agency as string | null) ?? null,
-          created_at: u.created_at,
-          last_sign_in_at: u.last_sign_in_at,
+          id: u.id as string,
+          email: (u.email as string | null) ?? null,
+          full_name: (u.full_name as string | null) ?? null,
+          agency: (u.agency as string | null) ?? null,
+          created_at: u.created_at as string,
+          // last_sign_in_at vive em auth.users (só com service_role).
+          last_sign_in_at: null as string | null,
           roles: userRoles,
           role: (userRoles.includes("admin") ? "admin" : "consultor") as "admin" | "consultor",
-          ativo: p?.ativo !== false,
+          ativo: u.ativo !== false,
         };
       }),
     };
@@ -75,17 +65,12 @@ export const setAppUserRole = createServerFn({ method: "POST" })
     if (data.userId === context.userId && data.role !== "admin") {
       throw new Error("Não pode remover as suas próprias permissões de administrador.");
     }
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     // 'consultor' é representado pelo papel base 'user' na base de dados
     const dbRole = data.role === "admin" ? "admin" : "user";
-    const { error: delError } = await supabaseAdmin
-      .from("user_roles")
-      .delete()
-      .eq("user_id", data.userId);
-    if (delError) throw new Error(delError.message);
-    const { error } = await supabaseAdmin
-      .from("user_roles")
-      .insert({ user_id: data.userId, role: dbRole });
+    const { error } = await context.supabase.rpc("admin_set_user_role", {
+      p_user_id: data.userId,
+      p_role: dbRole,
+    });
     if (error) throw new Error(error.message);
     return { ok: true, role: data.role };
   });
@@ -100,17 +85,13 @@ export const setAppUserActive = createServerFn({ method: "POST" })
     if (data.userId === context.userId && !data.ativo) {
       throw new Error("Não pode desativar a sua própria conta.");
     }
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { error } = await supabaseAdmin
+    // `profiles.ativo` é a fonte de verdade do acesso: a app bloqueia contas
+    // inativas na sessão (ver perfil/gate). Escrita via política de admin.
+    const { error } = await context.supabase
       .from("profiles")
       .update({ ativo: data.ativo })
       .eq("id", data.userId);
     if (error) throw new Error(error.message);
-    // Soft-delete reversível: bloqueia também o login sem apagar a conta.
-    const { error: banError } = await supabaseAdmin.auth.admin.updateUserById(data.userId, {
-      ban_duration: data.ativo ? "none" : "876000h",
-    });
-    if (banError) throw new Error(banError.message);
     return { ok: true, ativo: data.ativo };
   });
 
@@ -127,18 +108,29 @@ export const createAppUser = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
+    // Criação sem service_role: registo normal (publishable key) num cliente
+    // isolado, para não tocar na sessão do administrador.
+    const { createClient } = await import("@supabase/supabase-js");
+    const url = process.env['SUPABASE_URL'];
+    const key = process.env['SUPABASE_PUBLISHABLE_KEY'] ?? process.env['SUPABASE_ANON_KEY'];
+    if (!url || !key) throw new Error("Configuração do backend indisponível.");
+    const signupClient = createClient(url, key, {
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+    });
+    const { data: created, error } = await signupClient.auth.signUp({
       email: data.email,
       password: data.password,
-      email_confirm: true,
     });
     if (error) throw new Error(error.message);
+    const newId = created.user?.id;
+    if (!newId) throw new Error("Não foi possível criar a conta.");
     const role = data.isAdmin ? "admin" : "user";
-    await supabaseAdmin
-      .from("user_roles")
-      .insert({ user_id: created.user!.id, role });
-    return { id: created.user!.id, email: created.user!.email };
+    const { error: roleError } = await context.supabase.rpc("admin_set_user_role", {
+      p_user_id: newId,
+      p_role: role,
+    });
+    if (roleError) throw new Error(roleError.message);
+    return { id: newId, email: created.user?.email ?? data.email };
   });
 
 export const deleteAppUser = createServerFn({ method: "POST" })
@@ -149,8 +141,12 @@ export const deleteAppUser = createServerFn({ method: "POST" })
     if (data.userId === context.userId) {
       throw new Error("Não pode remover a sua própria conta.");
     }
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { error } = await supabaseAdmin.auth.admin.deleteUser(data.userId);
+    // Sem service_role não é possível apagar a linha de autenticação. O RPC
+    // remove todos os dados do consultor e desativa a conta (soft-delete),
+    // que é o efeito prático esperado na aplicação.
+    const { error } = await context.supabase.rpc("admin_purge_user_data", {
+      p_user_id: data.userId,
+    });
     if (error) throw new Error(error.message);
     return { ok: true };
   });

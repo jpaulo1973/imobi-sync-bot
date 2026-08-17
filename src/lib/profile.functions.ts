@@ -24,13 +24,10 @@ export const getMyProfile = createServerFn({ method: "GET" })
       ]);
 
     const isAdmin = (roles ?? []).some((r: any) => r.role === "admin");
-    // last_sign_in_at is on auth.users — read via admin client
-    let lastSignInAt: string | null = null;
-    try {
-      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-      const { data } = await supabaseAdmin.auth.admin.getUserById(userId);
-      lastSignInAt = data.user?.last_sign_in_at ?? null;
-    } catch {}
+    // last_sign_in_at vive em auth.users e só é legível com service_role, que
+    // não existe em todos os hosts. Usamos o claim do token quando presente.
+    const iat = (claims as any)?.iat as number | undefined;
+    const lastSignInAt = typeof iat === "number" ? new Date(iat * 1000).toISOString() : null;
 
     return {
       userId,
