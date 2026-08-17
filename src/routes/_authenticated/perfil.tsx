@@ -7,10 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { LogOut, KeyRound, Save, UserCircle } from "lucide-react";
+import { LogOut, KeyRound, Save, UserCircle, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { getMyProfile, updateMyProfile } from "@/lib/profile.functions";
+import { getMyProfile, updateMyProfile, profileFormSchema } from "@/lib/profile.functions";
 
 export const Route = createFileRoute("/_authenticated/perfil")({
   head: () => ({
@@ -28,6 +29,10 @@ export const Route = createFileRoute("/_authenticated/perfil")({
 
 type ProfileData = Awaited<ReturnType<typeof getMyProfile>>;
 
+function sameDigits(a: string, b: string) {
+  return a.replace(/\D+/g, "") === b.replace(/\D+/g, "");
+}
+
 function PerfilPage() {
   const navigate = useNavigate();
   const getFn = useServerFn(getMyProfile);
@@ -37,6 +42,10 @@ function PerfilPage() {
   const [fullName, setFullName] = useState("");
   const [agency, setAgency] = useState("");
   const [telefone, setTelefone] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
+  const [sameWhatsapp, setSameWhatsapp] = useState(true);
+  const [ami, setAmi] = useState("");
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   const [newPassword, setNewPassword] = useState("");
@@ -50,6 +59,11 @@ function PerfilPage() {
       setFullName(p.fullName ?? "");
       setAgency(p.agency ?? "");
       setTelefone((p as any).telefone ?? "");
+      const wa = ((p as any).whatsapp ?? "") as string;
+      const tel = ((p as any).telefone ?? "") as string;
+      setWhatsapp(wa || tel);
+      setSameWhatsapp(!wa || (!!tel && sameDigits(wa, tel)));
+      setAmi((p as any).ami ?? "");
     } catch (e: any) {
       toast.error(e.message);
     }
@@ -62,9 +76,28 @@ function PerfilPage() {
 
   const onSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    const payload = {
+      fullName,
+      agency,
+      telefone,
+      whatsapp: sameWhatsapp ? telefone : whatsapp,
+      ami,
+    };
+    const parsed = profileFormSchema.safeParse(payload);
+    if (!parsed.success) {
+      const next: Record<string, string> = {};
+      for (const issue of parsed.error.issues) {
+        const key = String(issue.path[0] ?? "");
+        if (key && !next[key]) next[key] = issue.message;
+      }
+      setErrors(next);
+      toast.error("Preencha os campos obrigatórios.");
+      return;
+    }
+    setErrors({});
     setSaving(true);
     try {
-      await updateFn({ data: { fullName, agency, telefone } });
+      await updateFn({ data: parsed.data });
       toast.success("Perfil atualizado");
       await refresh();
       window.dispatchEvent(new Event("pm:profile-updated"));
@@ -103,6 +136,11 @@ function PerfilPage() {
   };
 
   const roleLabel = profile?.role === "admin" ? "Administrador" : "Consultor";
+  const currentWhatsapp = sameWhatsapp ? telefone : whatsapp;
+  const formValid =
+    profileFormSchema.safeParse({ fullName, agency, telefone, whatsapp: currentWhatsapp, ami })
+      .success && !!profile?.email;
+  const incomplete = !!profile && !formValid;
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -119,6 +157,16 @@ function PerfilPage() {
         <Card className="p-6 text-sm text-muted-foreground">A carregar...</Card>
       ) : (
         <>
+          {incomplete && (
+            <Card className="p-4 border-amber-300 bg-amber-50 text-amber-900 flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <strong>Perfil incompleto.</strong> Nome, telemóvel, agência, email e WhatsApp são
+                obrigatórios para que outros consultores o consigam contactar nos matches. O AMI é
+                opcional.
+              </div>
+            </Card>
+          )}
           <Card className="p-6 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
