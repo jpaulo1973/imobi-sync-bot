@@ -15,8 +15,11 @@ const searchSchema = z.object({
 });
 
 export const searchLocations = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => searchSchema.parse(data))
-  .handler(async ({ data }): Promise<Location[]> => {
+  .handler(async ({ data, context }): Promise<Location[]> => {
+    const { setRequestClient } = await import("@/lib/privileged.server");
+    setRequestClient(context.supabase);
     return LocationRepository.search(data.text, {
       tipo: data.tipo as LocationType | undefined,
       limit: data.limit ?? 20,
@@ -26,8 +29,11 @@ export const searchLocations = createServerFn({ method: "POST" })
 const resolveSchema = z.object({ text: z.string().max(1000) });
 
 export const resolveLocationText = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => resolveSchema.parse(data))
-  .handler(async ({ data }): Promise<ParseResult> => {
+  .handler(async ({ data, context }): Promise<ParseResult> => {
+    const { setRequestClient, touchLocationAlias } = await import("@/lib/privileged.server");
+    setRequestClient(context.supabase);
     const snap = await LocationRepository.getSnapshot();
     const result = parseLocations(data.text, snap);
     // Registar utilização real dos aliases resolvidos automaticamente.
@@ -35,18 +41,7 @@ export const resolveLocationText = createServerFn({ method: "POST" })
     // nunca é incrementado na criação/promoção (essa é uma acção humana).
     if (result.aliases_used.length > 0) {
       try {
-        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        const nowIso = new Date().toISOString();
-        await Promise.all(
-          result.aliases_used.map(async (aliasId) => {
-            const aliasRow = snap.aliases.find((a) => a.id === aliasId);
-            const next = (aliasRow?.times_used ?? 0) + 1;
-            await supabaseAdmin
-              .from("location_aliases")
-              .update({ times_used: next, last_used_at: nowIso })
-              .eq("id", aliasId);
-          }),
-        );
+        await Promise.all(result.aliases_used.map((aliasId) => touchLocationAlias(aliasId)));
       } catch {
         // Contador é telemetria — não deve bloquear a resolução.
       }
@@ -57,8 +52,11 @@ export const resolveLocationText = createServerFn({ method: "POST" })
 const byIdsSchema = z.object({ ids: z.array(z.string().uuid()).max(200) });
 
 export const getLocationsByIds = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => byIdsSchema.parse(data))
-  .handler(async ({ data }): Promise<Location[]> => {
+  .handler(async ({ data, context }): Promise<Location[]> => {
+    const { setRequestClient } = await import("@/lib/privileged.server");
+    setRequestClient(context.supabase);
     const snap = await LocationRepository.getSnapshot();
     const out: Location[] = [];
     for (const id of data.ids) {
@@ -85,40 +83,17 @@ export const promoteAlias = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const alias = normalizeGeoText(data.text);
     if (!alias) throw new Error("Texto inválido para alias");
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { setRequestClient, upsertLocationAlias } = await import("@/lib/privileged.server");
+    setRequestClient(context.supabase);
     // Validar que todos os IDs existem na biblioteca.
     const snap = await LocationRepository.getSnapshot();
     const validIds = data.location_ids.filter((id) => snap.byId.has(id));
     if (validIds.length === 0) throw new Error("Nenhum location_id válido");
 
-    const { data: existing } = await supabaseAdmin
-      .from("location_aliases")
-      .select("id, times_used, location_ids")
-      .eq("alias_normalizado", alias)
-      .maybeSingle();
-
-    if (existing) {
-      const { error } = await supabaseAdmin
-        .from("location_aliases")
-        .update({
-          location_ids: validIds,
-          aprovado: true,
-          origem: data.origem ?? "revisao",
-        })
-        .eq("id", existing.id);
-      if (error) throw new Error(error.message);
-    } else {
-      const { error } = await supabaseAdmin.from("location_aliases").insert({
-        alias_normalizado: alias,
-        location_ids: validIds,
-        aprovado: true,
-        origem: data.origem ?? "revisao",
-        times_used: 0,
-        last_used_at: null,
-        created_by: context.userId,
-      });
-      if (error) throw new Error(error.message);
-    }
+    // Upsert idempotente via RPC SECURITY DEFINER (aprendizagem auditável,
+    // sem depender da service_role key). times_used nunca é incrementado
+    // aqui — isso é reservado à reutilização pelo parser.
+    await upsertLocationAlias(alias, validIds, data.origem ?? "revisao");
     // Invalidar cache para que o parser passe a reconhecer o alias.
     LocationRepository.invalidate();
     return { ok: true as const, alias, location_ids: validIds };

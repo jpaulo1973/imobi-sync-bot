@@ -35,16 +35,28 @@ const buyer = {
   elevador_obrigatorio: false,
 };
 
-function fakeAdmin() {
+// Cliente autenticado simulado: a varredura passa a ler a Base Global por
+// RPCs SECURITY DEFINER (pool_properties / pool_buyer_clients /
+// pool_active_searches) e as tabelas geográficas por `from`.
+function fakeClient() {
   return {
-    from(table: string) {
+    rpc(fn: string) {
       const data =
-        table === "properties" ? [property] : table === "buyer_clients" ? [buyer] : [];
+        fn === "pool_properties"
+          ? [property]
+          : fn === "pool_buyer_clients"
+            ? [buyer]
+            : [];
+      return Promise.resolve({ data, error: null });
+    },
+    from(_table: string) {
       const chain: any = {
         select: () => chain,
         eq: () => chain,
         gt: () => chain,
-        then: (res: any) => Promise.resolve({ data, error: null }).then(res),
+        order: () => chain,
+        limit: () => chain,
+        then: (res: any) => Promise.resolve({ data: [], error: null }).then(res),
       };
       return chain;
     },
@@ -63,8 +75,8 @@ describe("notificações de match — varredura", () => {
   });
 
   it("gera no máximo uma linha por par e é estável entre varreduras", async () => {
-    const first = await sweepForUser(fakeAdmin(), USER);
-    const second = await sweepForUser(fakeAdmin(), USER);
+    const first = await sweepForUser(fakeClient(), USER);
+    const second = await sweepForUser(fakeClient(), USER);
     const keys = first.rows.map((r) => r.pair_key);
     expect(new Set(keys).size).toBe(keys.length);
     expect(second.rows.map((r) => r.pair_key)).toEqual(keys);

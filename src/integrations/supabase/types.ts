@@ -728,6 +728,7 @@ export type Database = {
           ami: string | null
           ativo: boolean
           created_at: string
+          email: string | null
           full_name: string | null
           id: string
           telefone: string | null
@@ -739,6 +740,7 @@ export type Database = {
           ami?: string | null
           ativo?: boolean
           created_at?: string
+          email?: string | null
           full_name?: string | null
           id: string
           telefone?: string | null
@@ -750,6 +752,7 @@ export type Database = {
           ami?: string | null
           ativo?: boolean
           created_at?: string
+          email?: string | null
           full_name?: string | null
           id?: string
           telefone?: string | null
@@ -918,6 +921,41 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_list_users: {
+        Args: never
+        Returns: {
+          agency: string
+          ativo: boolean
+          created_at: string
+          email: string
+          full_name: string
+          id: string
+          roles: string[]
+          telefone: string
+        }[]
+      }
+      admin_purge_user_data: { Args: { p_user_id: string }; Returns: undefined }
+      admin_set_user_role: {
+        Args: {
+          p_role: Database["public"]["Enums"]["app_role"]
+          p_user_id: string
+        }
+        Returns: undefined
+      }
+      apply_match_opportunities: { Args: { p_rows: Json }; Returns: number }
+      assert_active_caller: { Args: never; Returns: undefined }
+      consultor_directory: {
+        Args: never
+        Returns: {
+          agency: string
+          ativo: boolean
+          email: string
+          full_name: string
+          id: string
+          telefone: string
+          whatsapp: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -925,7 +963,143 @@ export type Database = {
         }
         Returns: boolean
       }
+      insert_match_notifications: { Args: { p_rows: Json }; Returns: number }
+      list_match_opportunities: {
+        Args: { p_search_ids: string[] }
+        Returns: {
+          active_search_id: string
+          id: string
+          property_id: string
+          score: number
+          user_id: string
+        }[]
+      }
       normalize_phone_pt: { Args: { raw: string }; Returns: string }
+      pool_active_searches: {
+        Args: { p_include_expired?: boolean }
+        Returns: {
+          audit_geo: Json | null
+          comunidade: string | null
+          consultor_email: string | null
+          consultor_nome: string | null
+          consultor_telefone: string | null
+          consultor_whatsapp: string | null
+          contact_email: string | null
+          contact_grupo: string | null
+          contact_nome: string | null
+          contact_telefone: string | null
+          created_at: string
+          criteria: Json
+          data_origem: string | null
+          data_publicacao: string | null
+          decision_reason: string | null
+          dedup_key: string | null
+          expires_at: string
+          flagged_for_review: boolean
+          geo_library_version: number | null
+          grupo_whatsapp: string | null
+          hora_origem: string | null
+          id: string
+          import_batch_id: string | null
+          last_match_at: string | null
+          location_ids: string[]
+          matches_count: number
+          merged_from_count: number
+          origem: string
+          pending_geo: boolean
+          proximity: Json | null
+          resumo: string | null
+          similarity_score: number | null
+          texto_original: string | null
+          updated_at: string
+          user_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "active_searches"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      pool_buyer_clients: {
+        Args: never
+        Returns: {
+          andar_min: number | null
+          area_min: number | null
+          ativo: boolean
+          budget_max: number | null
+          budget_min: number | null
+          created_at: string
+          elevador_obrigatorio: boolean
+          email: string | null
+          finalidade: Database["public"]["Enums"]["finalidade_tipo"]
+          garagem_obrigatoria: boolean
+          geo_library_version: number | null
+          id: string
+          location_ids: string[]
+          nome: string
+          notas: string | null
+          proximity: Json | null
+          quartos_min: number | null
+          telefone: string | null
+          tipo_imovel: string[] | null
+          tipologia: string | null
+          updated_at: string
+          user_id: string
+          zona: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "buyer_clients"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      pool_properties: {
+        Args: never
+        Returns: {
+          area_bruta_m2: number | null
+          area_m2: number | null
+          area_terreno_m2: number | null
+          area_util_m2: number | null
+          ativo: boolean
+          caracteristicas: string | null
+          casas_banho: number | null
+          concelho: string | null
+          created_at: string
+          descricao: string | null
+          distrito: string | null
+          elevador: boolean | null
+          finalidade: Database["public"]["Enums"]["finalidade_tipo"]
+          freguesia: string | null
+          garagem: boolean | null
+          geo_library_version: number | null
+          id: string
+          jardim: boolean | null
+          location_id: string | null
+          piscina: boolean | null
+          preco: number
+          quartos: number | null
+          referencia: string | null
+          subtipo_imovel: string | null
+          tipo_imovel: string | null
+          tipologia: string
+          updated_at: string
+          user_id: string
+          zona: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "properties"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      touch_location_alias: { Args: { p_id: string }; Returns: undefined }
+      upsert_location_alias: {
+        Args: { p_alias: string; p_ids: string[]; p_origem?: string }
+        Returns: string
+      }
     }
     Enums: {
       app_role: "admin" | "user"

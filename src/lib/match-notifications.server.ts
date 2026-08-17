@@ -82,18 +82,19 @@ type Candidate = {
  *   B) imóveis activos globais × compradores/procuras do próprio consultor
  */
 export async function sweepForUser(
-  supabaseAdmin: any,
+  supabase: any,
   userId: string,
 ): Promise<{ rows: any[]; evaluated: number; candidates: number }> {
-  const nowIso = new Date().toISOString();
-  const [propsRes, buyersRes, searchesRes] = await Promise.all([
-    supabaseAdmin.from("properties").select("*").eq("ativo", true),
-    supabaseAdmin.from("buyer_clients").select("*").eq("ativo", true),
-    supabaseAdmin.from("active_searches").select("*").gt("expires_at", nowIso),
+  // Base Global via RPCs SECURITY DEFINER (sem service_role key).
+  const { setRequestClient, poolProperties, poolBuyerClients, poolActiveSearches } = await import(
+    "@/lib/privileged.server"
+  );
+  setRequestClient(supabase);
+  const [properties, buyers, searches] = await Promise.all([
+    poolProperties(),
+    poolBuyerClients(),
+    poolActiveSearches(),
   ]);
-  const properties: any[] = propsRes.data ?? [];
-  const buyers: any[] = buyersRes.data ?? [];
-  const searches: any[] = searchesRes.data ?? [];
 
   const candidates: Candidate[] = [
     ...buyers.map((b) => ({

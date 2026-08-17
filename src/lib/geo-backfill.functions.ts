@@ -40,7 +40,9 @@ export const backfillGeoFromText = createServerFn({ method: "POST" })
 
     const { LocationRepository } = await import("./geo/location-repository");
     const { parseLocations } = await import("./geo");
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { setRequestClient } = await import("@/lib/privileged.server");
+    setRequestClient(context.supabase);
+    const supabaseAdmin = context.supabase as any;
 
     const snap = await LocationRepository.getSnapshot(true);
 
@@ -155,7 +157,9 @@ export const recomputeAllMatches = createServerFn({ method: "POST" })
   .handler(async ({ context }): Promise<RecomputeAllResult> => {
     await assertAdmin(context.supabase, context.userId);
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { setRequestClient } = await import("@/lib/privileged.server");
+    setRequestClient(context.supabase);
+    const supabaseAdmin = context.supabase as any;
     const { recomputeForBatch } = await import("./active-searches.functions");
 
     const nowIso = new Date().toISOString();
@@ -179,7 +183,7 @@ export const recomputeAllMatches = createServerFn({ method: "POST" })
     for (const [uid, ids] of byUser) {
       for (let i = 0; i < ids.length; i += CHUNK) {
         const slice = ids.slice(i, i + CHUNK);
-        const res = await recomputeForBatch(supabaseAdmin as any, uid, slice);
+        const res = await recomputeForBatch(context.supabase, uid, slice);
         created += res.created ?? 0;
         processed += slice.length;
       }

@@ -380,7 +380,10 @@ export const recruzarTudo = createServerFn({ method: "POST" })
     await assertAdmin(supabase, userId);
 
     // 1) Merge duplicados (partilhar a mesma lógica sem chamar o wrapper).
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { setRequestClient } = await import("@/lib/privileged.server");
+    setRequestClient(context.supabase);
+    // Políticas de administrador cobrem estas tabelas: sem service_role key.
+    const supabaseAdmin = context.supabase as any;
     const { data: all } = await supabaseAdmin
       .from("active_searches")
       .select("id, user_id, dedup_key, criteria, contact_telefone, texto_original, created_at")
@@ -505,7 +508,10 @@ export const createFunctionalZoneFromReview = createServerFn({ method: "POST" })
     const { supabase, userId } = context;
     await assertAdmin(supabase, userId);
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { setRequestClient } = await import("@/lib/privileged.server");
+    setRequestClient(context.supabase);
+    // Políticas de administrador cobrem estas tabelas: sem service_role key.
+    const supabaseAdmin = context.supabase as any;
     // Normalizar aliases para minúsculas sem acentos — o resolver compara já normalizado.
     const aliases = Array.from(
       new Set(
@@ -570,7 +576,10 @@ export const ignoreUnknownZone = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     await assertAdmin(supabase, userId);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { setRequestClient } = await import("@/lib/privileged.server");
+    setRequestClient(context.supabase);
+    // Políticas de administrador cobrem estas tabelas: sem service_role key.
+    const supabaseAdmin = context.supabase as any;
     const { error } = await supabaseAdmin
       .from("active_searches")
       .update({
@@ -623,7 +632,10 @@ export const listIncompleteConsultores = createServerFn({ method: "GET" })
   .handler(async ({ context }): Promise<{ consultores: IncompleteConsultor[] }> => {
     const { supabase, userId } = context;
     await assertAdmin(supabase, userId);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { setRequestClient } = await import("@/lib/privileged.server");
+    setRequestClient(context.supabase);
+    // Políticas de administrador cobrem estas tabelas: sem service_role key.
+    const supabaseAdmin = context.supabase as any;
     const nowIso = new Date().toISOString();
     // Correções 1.3: audit contra o MESMO caminho de resolução do Motor
     // Match/DTO. Cada procura ativa contribui com um consultor efetivo
@@ -711,7 +723,10 @@ export const listConsultoresSemTelefone = createServerFn({ method: "GET" })
   .handler(async ({ context }): Promise<{ consultores: ConsultorSemTelefone[] }> => {
     const { supabase, userId } = context;
     await assertAdmin(supabase, userId);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { setRequestClient } = await import("@/lib/privileged.server");
+    setRequestClient(context.supabase);
+    // Políticas de administrador cobrem estas tabelas: sem service_role key.
+    const supabaseAdmin = context.supabase as any;
     const nowIso = new Date().toISOString();
     const { data: rows, error } = await supabaseAdmin
       .from("active_searches")
@@ -786,7 +801,10 @@ export const setConsultorTelefone = createServerFn({ method: "POST" })
     if (!norm || norm.length < 9) {
       throw new Error("Número de telefone inválido. Introduza pelo menos 9 dígitos.");
     }
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { setRequestClient } = await import("@/lib/privileged.server");
+    setRequestClient(context.supabase);
+    // Políticas de administrador cobrem estas tabelas: sem service_role key.
+    const supabaseAdmin = context.supabase as any;
     const { error } = await supabaseAdmin
       .from("active_searches")
       .update({

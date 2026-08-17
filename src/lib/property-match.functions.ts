@@ -166,12 +166,9 @@ export const runPropertyOpportunities = createServerFn({ method: "POST" })
 
     // Base Global: active_searches via admin, filtradas ao vivo apenas para
     // esta property. Não expomos a lista completa ao consultor.
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const nowIso = new Date().toISOString();
-    const { data: searches } = await supabaseAdmin
-      .from("active_searches")
-      .select("*")
-      .gt("expires_at", nowIso);
+    const { setRequestClient, poolActiveSearches } = await import("@/lib/privileged.server");
+    setRequestClient(supabase);
+    const searches = await poolActiveSearches();
 
     const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
     // Consultor meta para procuras de OUTROS consultores (Privacy Layer).
@@ -381,13 +378,9 @@ export const countPropertyOpportunities = createServerFn({ method: "POST" })
       supabase.from("properties").select("*").eq("user_id", userId).eq("ativo", true),
       supabase.from("buyer_clients").select("*").eq("user_id", userId).eq("ativo", true),
     ]);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: searches } = await supabaseAdmin
-      .from("active_searches")
-      .select(
-        "id, criteria, origem, expires_at, resumo, texto_original, location_ids, contact_nome, contact_telefone",
-      )
-      .gt("expires_at", new Date().toISOString());
+    const { setRequestClient, poolActiveSearches } = await import("@/lib/privileged.server");
+    setRequestClient(supabase);
+    const searches = await poolActiveSearches();
 
     const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
     // Estados marcados como 'nao_interessado' — filtrados da contagem.
@@ -565,12 +558,9 @@ export const auditPropertyMatches = createServerFn({ method: "POST" })
       .eq("user_id", userId)
       .eq("ativo", true);
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const nowIso = new Date().toISOString();
-    const { data: searches } = await supabaseAdmin
-      .from("active_searches")
-      .select("*")
-      .gt("expires_at", nowIso);
+    const { setRequestClient, poolActiveSearches } = await import("@/lib/privileged.server");
+    setRequestClient(supabase);
+    const searches = await poolActiveSearches();
 
     const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
 

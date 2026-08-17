@@ -234,46 +234,21 @@ export async function loadConsultorMeta(userIds: string[]): Promise<Map<string, 
   const unique = Array.from(new Set(userIds.filter(Boolean)));
   if (unique.length === 0) return map;
   try {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: profs } = await supabaseAdmin
-      .from("profiles")
-      .select("id, full_name, agency, telefone")
-      .in("id", unique);
-    for (const p of profs ?? []) {
+    // Diretório via RPC SECURITY DEFINER — nome/agência/telefone/email dos
+    // consultores, sem service_role key (funciona em qualquer host).
+    const { consultorDirectoryRows } = await import("@/lib/privileged.server");
+    const rows = await consultorDirectoryRows();
+    const wanted = new Set(unique);
+    for (const p of rows) {
+      if (!wanted.has(p.id)) continue;
+      const emailPrefix = p.email ? p.email.split("@")[0] : null;
       map.set(p.id, {
-        nome: p.full_name ?? null,
-        email: null,
-        telefone: (p as any).telefone ?? null,
-        agency: (p as any).agency ?? null,
+        // Preferência: profile.full_name > prefixo do email.
+        nome: p.full_name ?? emailPrefix,
+        email: p.email ?? null,
+        telefone: p.telefone ?? p.whatsapp ?? null,
+        agency: p.agency ?? null,
       });
-    }
-    // Emails vêm de auth.users via admin. Uma chamada por user — barato
-    // para os poucos consultores que aparecem no set.
-    for (const uid of unique) {
-      try {
-        const { data } = await supabaseAdmin.auth.admin.getUserById(uid);
-        const email = data?.user?.email ?? null;
-        const phone = (data?.user?.phone as string | undefined) ?? null;
-        const meta = (data?.user?.user_metadata ?? {}) as Record<string, unknown>;
-        const metaName =
-          (meta.full_name as string | undefined) ??
-          (meta.name as string | undefined) ??
-          null;
-        const cur = map.get(uid) ?? {
-          nome: null,
-          email: null,
-          telefone: null,
-          agency: null,
-        };
-        // Preferência: profile.full_name > auth metadata > prefixo do email.
-        // Sem isto, contas sem full_name apareciam como "—" e contas onde
-        // full_name === prefixo do email pareciam sempre o mesmo utilizador.
-        const emailPrefix = email ? email.split("@")[0] : null;
-        const nome = cur.nome ?? metaName ?? emailPrefix;
-        map.set(uid, { ...cur, nome, email, telefone: cur.telefone ?? phone });
-      } catch {
-        // ignore
-      }
     }
   } catch (e) {
     console.error("loadConsultorMeta failed", e);
@@ -326,41 +301,17 @@ export async function loadConsultorDirectory(): Promise<ConsultorDirectory> {
   const byName = new Map<string, ConsultorMeta>();
   const byPhone = new Map<string, ConsultorMeta>();
   try {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: profs } = await supabaseAdmin
-      .from("profiles")
-      .select("id, full_name, agency, telefone");
-    const profMap = new Map<
-      string,
-      { full_name: string | null; agency: string | null; telefone: string | null }
-    >();
-    for (const p of profs ?? []) {
-      profMap.set(p.id, {
-        full_name: p.full_name ?? null,
-        agency: (p as any).agency ?? null,
-        telefone: (p as any).telefone ?? null,
-      });
-    }
-    // auth.users list — página grande única (chega para tenants pequenos).
-    const { data: authList } = await supabaseAdmin.auth.admin.listUsers({
-      page: 1,
-      perPage: 1000,
-    });
-    for (const u of authList?.users ?? []) {
-      const prof = profMap.get(u.id) ?? { full_name: null, agency: null, telefone: null };
-      const meta = (u.user_metadata ?? {}) as Record<string, unknown>;
-      const metaName =
-        (meta.full_name as string | undefined) ??
-        (meta.name as string | undefined) ??
-        null;
-      const emailPrefix = u.email ? u.email.split("@")[0] : null;
-      const nome = prof.full_name ?? metaName ?? emailPrefix;
-      const phone = prof.telefone ?? (u.phone as string | undefined) ?? null;
+    const { consultorDirectoryRows } = await import("@/lib/privileged.server");
+    const rows = await consultorDirectoryRows();
+    for (const r of rows) {
+      const emailPrefix = r.email ? r.email.split("@")[0] : null;
+      const nome = r.full_name ?? emailPrefix;
+      const phone = r.telefone ?? r.whatsapp ?? null;
       const record: ConsultorMeta = {
         nome,
-        email: u.email ?? null,
+        email: r.email ?? null,
         telefone: phone,
-        agency: prof.agency,
+        agency: r.agency ?? null,
       };
       const nk = normName(nome);
       if (nk) byName.set(nk, record);
