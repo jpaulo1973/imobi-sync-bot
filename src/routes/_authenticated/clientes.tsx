@@ -346,8 +346,16 @@ function ClientesPage() {
                 </label>
               </div>
               <div className="space-y-2">
-                <Label>Notas</Label>
-                <Textarea value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} rows={3} />
+                <Label>Notas / Observações</Label>
+                <Textarea
+                  value={form.notas}
+                  onChange={(e) => setForm({ ...form, notas: e.target.value })}
+                  rows={3}
+                  placeholder="Critérios subjetivos ou informais: preferências, urgência, restrições, contexto da procura..."
+                />
+                <p className="text-xs text-muted-foreground">
+                  Opcional. Fica visível no cartão de match para dar contexto ao outro consultor.
+                </p>
               </div>
               <Button type="submit" className="w-full" disabled={saving}>
                 {saving ? "A guardar..." : "Guardar"}
