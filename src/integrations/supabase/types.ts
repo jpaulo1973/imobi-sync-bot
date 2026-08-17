@@ -725,30 +725,36 @@ export type Database = {
       profiles: {
         Row: {
           agency: string | null
+          ami: string | null
           ativo: boolean
           created_at: string
           full_name: string | null
           id: string
           telefone: string | null
           updated_at: string
+          whatsapp: string | null
         }
         Insert: {
           agency?: string | null
+          ami?: string | null
           ativo?: boolean
           created_at?: string
           full_name?: string | null
           id: string
           telefone?: string | null
           updated_at?: string
+          whatsapp?: string | null
         }
         Update: {
           agency?: string | null
+          ami?: string | null
           ativo?: boolean
           created_at?: string
           full_name?: string | null
           id?: string
           telefone?: string | null
           updated_at?: string
+          whatsapp?: string | null
         }
         Relationships: []
       }
@@ -855,6 +861,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      support_requests: {
+        Row: {
+          autor_email: string | null
+          autor_nome: string | null
+          created_at: string
+          id: string
+          mensagem: string
+          read_at: string | null
+          user_id: string
+        }
+        Insert: {
+          autor_email?: string | null
+          autor_nome?: string | null
+          created_at?: string
+          id?: string
+          mensagem: string
+          read_at?: string | null
+          user_id: string
+        }
+        Update: {
+          autor_email?: string | null
+          autor_nome?: string | null
+          created_at?: string
+          id?: string
+          mensagem?: string
+          read_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       user_roles: {
         Row: {
