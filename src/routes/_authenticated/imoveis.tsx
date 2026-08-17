@@ -1076,6 +1076,11 @@ function ImoveisPage() {
                             "{m.resumo}"
                           </p>
                         )}
+                        <OriginalMessage
+                          className="mt-2"
+                          texto={m.mensagem_original}
+                          origem={m.source === "cliente" ? "cliente" : "whatsapp"}
+                        />
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {m.categories
                             .filter((c) => c.weight > 0 || c.key === "tipo")
