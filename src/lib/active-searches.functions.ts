@@ -960,7 +960,7 @@ export const listOpportunities = createServerFn({ method: "GET" })
     const { data, error } = await supabase
       .from("match_opportunities")
       .select(
-        "id, score, reasons, viewed_at, created_at, updated_at, property_id, active_search_id, properties(id, referencia, tipo_imovel, tipologia, zona, freguesia, concelho, preco, finalidade, location_id), active_searches(id, contact_nome, contact_telefone, contact_grupo, resumo, criteria, location_ids)",
+        "id, score, reasons, viewed_at, created_at, updated_at, property_id, active_search_id, properties(id, referencia, tipo_imovel, tipologia, zona, freguesia, concelho, preco, finalidade, location_id), active_searches(id, contact_nome, contact_telefone, contact_grupo, resumo, texto_original, origem, criteria, location_ids)",
       )
       .eq("user_id", userId)
       .order("viewed_at", { ascending: true, nullsFirst: true })
