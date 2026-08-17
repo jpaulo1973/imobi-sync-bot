@@ -9,6 +9,7 @@ import { countUnseenOpportunities } from "@/lib/active-searches.functions";
 import { getMyProfile } from "@/lib/profile.functions";
 import { MaintenanceGate } from "@/components/MaintenanceGate";
 import { NotificationBell } from "@/components/NotificationBell";
+import { SupportDialog } from "@/components/SupportDialog";
 import type { MaintenanceStatus } from "@/lib/maintenance.functions";
 
 export const Route = createFileRoute("/_authenticated")({
@@ -148,6 +149,7 @@ function Layout() {
               <UserCircle className="w-4 h-4" /> Perfil
             </Link>
             <NotificationBell />
+            <SupportDialog />
             {profile && (
               <div
                 className="hidden md:flex items-center gap-2 ml-2 pl-3 border-l text-sm"
