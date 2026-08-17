@@ -6,15 +6,15 @@ Campos obrigatórios: **nome, telemóvel, agência, email, WhatsApp**. AMI fica 
 
 - Nova coluna `whatsapp` e `ami` em `profiles` (migração).
 - No formulário de Perfil: telemóvel + checkbox "WhatsApp é o mesmo número". Se desmarcada, aparece campo WhatsApp próprio e é obrigatório.
-- Email: hoje vem da autenticação e não é editável. Passa a campo do perfil pré-preenchido com o email da conta e obrigatório (guardado em `profiles.email` para efeitos de contacto entre consultores).
-- Validação com Zod no cliente e no servidor (`updateMyProfile`); botão Guardar bloqueado e mensagens de erro por campo enquanto faltar algum obrigatório.
+- Email: mantém-se como hoje — vem da autenticação, só leitura, sem nova coluna. É mostrado no formulário e conta como obrigatório na validação do perfil (na prática a autenticação garante que existe).
+- Validação com Zod no cliente e no servidor (`updateMyProfile`) para nome, telemóvel, agência e WhatsApp; botão Guardar bloqueado e mensagens de erro por campo enquanto faltar algum obrigatório.
 - Aviso no topo do Perfil quando faltam campos obrigatórios, para quem já tem conta antiga.
 
 ## 2. Botão "Ajuda / Sugestão"
 
 - Botão no cabeçalho da área do consultor (junto ao sino) que abre um diálogo com um único campo de texto livre e botão Enviar.
 - Nova tabela `support_requests` (mensagem, autor, nome, email, data, estado lido) com RLS: cada consultor insere/lê os seus; admins leem todos.
-- Server function autenticada grava o pedido, incluindo automaticamente nome e email do consultor.
+- Server function autenticada grava o pedido, incluindo automaticamente nome e email do consultor (email vem da conta autenticada).
 - Confirmação ao consultor: "Mensagem enviada, obrigado!".
 - Admins veem os pedidos num painel na página Manutenção, com contador de não lidos.
 - Envio por email ao Admin fica implementado mas desativado (ainda não existe domínio de email configurado). Quando o domínio for configurado, basta ligar a flag — nunca WhatsApp.
@@ -40,6 +40,6 @@ O campo já existe em Clientes; passa a estar claro e a ser reutilizado:
 
 ## Notas técnicas
 
-- Migração: `profiles.whatsapp`, `profiles.ami`, `profiles.email`; nova tabela `public.support_requests` com GRANTs, RLS e política de admin via `has_role`.
+- Migração: `profiles.whatsapp` e `profiles.ami` (sem `profiles.email`); nova tabela `public.support_requests` com GRANTs, RLS e política de admin via `has_role`.
 - Ficheiros principais: `src/lib/profile.functions.ts`, `src/routes/_authenticated/perfil.tsx`, `src/routes/_authenticated.tsx`, novo `src/components/SupportDialog.tsx` + `src/lib/support.functions.ts`, `src/routes/_authenticated/manutencao.tsx`, `src/routes/_authenticated/clientes.tsx`, `src/routes/_authenticated/radar.tsx`, `src/lib/active-searches.functions.ts` e `src/lib/buyer-opportunities.functions.ts` (expor texto original / notas).
 - Validação: typecheck, testes existentes e verificação manual de cada ponto; depois Publish.
