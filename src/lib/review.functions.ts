@@ -974,6 +974,7 @@ export const listSearchesSemLocalizacao = createServerFn({ method: "GET" })
       (r: any) => !Array.isArray(r.location_ids) || r.location_ids.length === 0,
     );
     const { detectForeignLocation } = await import("@/lib/geo/foreign-detect");
+    const { detectOfferPosing } = await import("@/lib/offer-detect");
     const items: SearchSemLocalizacaoItem[] = rows.map((r: any) => {
       const c = (r.criteria ?? {}) as any;
       return {
@@ -1001,6 +1002,7 @@ export const listSearchesSemLocalizacao = createServerFn({ method: "GET" })
           r.resumo,
           r.texto_original,
         ),
+        offer: detectOfferPosing(r.resumo, r.texto_original),
       };
     });
     return {
