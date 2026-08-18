@@ -104,6 +104,15 @@ function normTipoText(v: unknown): string {
   return v.trim().toLowerCase();
 }
 
+import {
+  resolveCategory,
+  resolveCategories,
+  categoryLabel,
+  normalizeCondition,
+  inferCondition,
+  type PropertyCondition,
+} from "@/lib/property-taxonomy";
+
 export type BuyerLike = {
   finalidade?: string | null;
   tipo_imovel?: string[] | null;
@@ -112,6 +121,13 @@ export type BuyerLike = {
   location_ids?: string[] | null;
   budget_min?: number | string | null;
   budget_max?: number | string | null;
+  /** Item 5e — orçamentos condicionais ao estado do imóvel. */
+  budget_max_obras?: number | string | null;
+  budget_max_pronto?: number | string | null;
+  /** Item 5d — estado desejado do imóvel (null = indiferente). */
+  estado_desejado?: string | null;
+  /** Item 5a — categorias de topo pretendidas (opcional; derivadas de tipo_imovel se ausentes). */
+  categorias?: string[] | null;
   area_min?: number | string | null;
   quartos_min?: number | null;
   garagem_obrigatoria?: boolean | null;
@@ -132,6 +148,11 @@ export type PropertyLike = {
   /** ID da localização do imóvel (Fase 3 — única fonte geográfica). */
   location_id?: string | null;
   preco?: number | string | null;
+  /** Item 5a/5d — categoria de topo e estado do imóvel. */
+  categoria?: string | null;
+  estado?: string | null;
+  descricao?: string | null;
+  caracteristicas?: string | null;
   area_util_m2?: number | string | null;
   area_m2?: number | string | null;
   area_terreno_m2?: number | string | null;
@@ -311,6 +332,28 @@ function finalidadeFilter(buyer: BuyerLike, property: PropertyLike): HardFilterR
 function tipoFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResult {
   const buyerTipos = (buyer.tipo_imovel ?? []).map(normTipoText).filter(Boolean);
   const pTipo = normTipoText(property.tipo_imovel);
+  // Item 5b — hard filter por CATEGORIA de topo (taxonomia única). Substitui a
+  // comparação textual quando ambos os lados são resolúveis (elimina casos como
+  // "T3" vs "lar de idosos").
+  const buyerCats = buyer.categorias?.length
+    ? resolveCategories(buyer.categorias)
+    : resolveCategories(buyer.tipo_imovel ?? []);
+  const pCat = resolveCategory(property.categoria) ?? resolveCategory(property.tipo_imovel);
+  if (buyerCats.length > 0 && pCat) {
+    if (!buyerCats.includes(pCat)) {
+      return {
+        ok: false,
+        rejectReason: "TIPO_IMOVEL",
+        category: cat(
+          "tipo",
+          "Tipo",
+          false,
+          `Categoria ${categoryLabel(pCat)} fora do pedido (${buyerCats.map(categoryLabel).join(", ")})`,
+        ),
+      };
+    }
+    return { ok: true, category: cat("tipo", "Tipo", true, categoryLabel(pCat)) };
+  }
   // Release 1.2.4 — Hard Filter estrito: se o comprador NÃO indicar tipo,
   // todos os tipos permanecem elegíveis. Se indicar, só imóveis com tipo
   // compatível passam.
@@ -513,7 +556,23 @@ function areaMinFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResu
 
 function precoMaxFilter(buyer: BuyerLike, property: PropertyLike, tolerance: number): HardFilterResult {
   const price = num(property.preco);
-  const budgetMax = num(buyer.budget_max);
+  // Item 5e — orçamento condicional: quando a procura declara orçamentos
+  // distintos para imóveis "prontos" e "para obras", escolhe-se o aplicável ao
+  // estado do imóvel candidato; sem correspondência, cai no orçamento único.
+  const condition = propertyCondition(property);
+  const budgetObras = num(buyer.budget_max_obras);
+  const budgetPronto = num(buyer.budget_max_pronto);
+  let budgetMax = num(buyer.budget_max);
+  let budgetNote = "";
+  if (condition === "recuperar" && budgetObras != null) {
+    budgetMax = budgetObras;
+    budgetNote = " (orçamento para obras)";
+  } else if (condition !== "recuperar" && budgetPronto != null) {
+    budgetMax = budgetPronto;
+    budgetNote = " (orçamento pronto a habitar)";
+  } else if (budgetMax == null) {
+    budgetMax = budgetPronto ?? budgetObras;
+  }
   if (budgetMax == null) {
     return { ok: true, category: cat("preco", "Preço", true, "Sem orçamento") };
   }
@@ -524,7 +583,33 @@ function precoMaxFilter(buyer: BuyerLike, property: PropertyLike, tolerance: num
   if (price > cap) {
     return { ok: false, rejectReason: "ORCAMENTO", category: cat("preco", "Preço", false, `Acima do orçamento (${Math.round(((price - budgetMax) / budgetMax) * 100)}%)`) };
   }
-  return { ok: true, category: cat("preco", "Preço", true, "Dentro do orçamento") };
+  return { ok: true, category: cat("preco", "Preço", true, `Dentro do orçamento${budgetNote}`) };
+}
+
+/** Item 5d — estado do imóvel: coluna explícita ou inferido do texto. */
+export function propertyCondition(property: PropertyLike): PropertyCondition | null {
+  return (
+    normalizeCondition(property.estado) ??
+    inferCondition(property.descricao, property.caracteristicas)
+  );
+}
+
+/** Item 5d — estado desejado é um hard filter só quando declarado em ambos. */
+function estadoFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResult {
+  const want = normalizeCondition(buyer.estado_desejado);
+  if (!want) return { ok: true, category: cat("extras", "Estado", true, "Indiferente") };
+  const have = propertyCondition(property);
+  if (!have) return { ok: true, category: cat("extras", "Estado", true, "Estado do imóvel não declarado") };
+  // "bom" aceita também "novo": quem quer pronto a habitar aceita novo.
+  const ok = have === want || (want === "bom" && have === "novo");
+  if (!ok) {
+    return {
+      ok: false,
+      rejectReason: "CARACTERISTICAS",
+      category: cat("extras", "Estado", false, `Estado ${have} ≠ pretendido ${want}`),
+    };
+  }
+  return { ok: true, category: cat("extras", "Estado", true, `Estado ${have}`) };
 }
 
 // Registo declarativo de características obrigatórias — acrescentar aqui
