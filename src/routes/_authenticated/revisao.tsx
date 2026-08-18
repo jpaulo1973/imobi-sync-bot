@@ -389,10 +389,16 @@ function Stat({ label, value }: { label: string; value: number }) {
 
 function SemLocalizacaoPanel() {
   const listFn = useServerFn(listSearchesSemLocalizacao);
-  const [items, setItems] = useState<SearchSemLocalizacao[]>([]);
+  const discardFn = useServerFn(discardSearches);
+  const [items, setItems] = useState<SearchSemLocalizacaoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [onlyWithText, setOnlyWithText] = useState(false);
+  // Item 4b/4c — descarte em lote das procuras fora de Portugal, sempre com
+  // a lista visível para confirmação antes de aplicar.
+  const [onlyForeign, setOnlyForeign] = useState(false);
+  const [confirmForeign, setConfirmForeign] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const reload = () => {
     setLoading(true);
@@ -405,9 +411,30 @@ function SemLocalizacaoPanel() {
     reload();
   }, []);
 
+  const foreignItems = items.filter((i) => i.foreign !== null);
+
+  const discardForeign = async () => {
+    setBulkBusy(true);
+    try {
+      const ids = foreignItems.map((i) => i.id);
+      const r = await discardFn({
+        data: { ids, motivo: "Localização fora de Portugal (fora do âmbito do motor geográfico)" },
+      });
+      toast.success(`${r.discarded} procura(s) descartada(s).`);
+      setItems((cur) => cur.filter((x) => x.foreign === null));
+      setConfirmForeign(false);
+      setOnlyForeign(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao descartar");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const q = query.trim().toLowerCase();
   const visible = items.filter((it) => {
     if (onlyWithText && !(it.texto_original ?? "").trim()) return false;
+    if (onlyForeign && it.foreign === null) return false;
     if (!q) return true;
     const hay = [
       it.resumo,
@@ -455,10 +482,87 @@ function SemLocalizacaoPanel() {
           >
             Só com mensagem original
           </Button>
+          <Button
+            type="button"
+            variant={onlyForeign ? "default" : "outline"}
+            size="sm"
+            onClick={() => setOnlyForeign((v) => !v)}
+          >
+            Fora de Portugal ({foreignItems.length})
+          </Button>
           <Button type="button" variant="outline" size="sm" onClick={reload} disabled={loading}>
             Recarregar
           </Button>
         </div>
+
+        {foreignItems.length > 0 && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-2 text-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <Globe className="w-4 h-4 text-amber-700" />
+              <span className="font-medium text-amber-900">
+                {foreignItems.length} procura(s) com localização fora de Portugal
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                className="ml-auto"
+                onClick={() => setConfirmForeign((v) => !v)}
+              >
+                <Trash2 className="w-3 h-3 mr-1" />
+                {confirmForeign ? "Fechar lista" : "Ver lista e descartar"}
+              </Button>
+            </div>
+            {confirmForeign && (
+              <>
+                <div className="max-h-64 overflow-auto rounded border bg-background">
+                  <table className="w-full text-left">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="px-2 py-1 font-medium">Localização no pedido</th>
+                        <th className="px-2 py-1 font-medium">País detetado</th>
+                        <th className="px-2 py-1 font-medium">Origem</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {foreignItems.map((f) => (
+                        <tr key={f.id} className="border-t">
+                          <td className="px-2 py-1">
+                            {f.criteria_geo.zona ??
+                              f.criteria_geo.municipio ??
+                              f.criteria_geo.freguesia ??
+                              f.criteria_geo.distrito ??
+                              "(sem zona)"}
+                          </td>
+                          <td className="px-2 py-1">
+                            {f.foreign?.country}{" "}
+                            <span className="text-muted-foreground">({f.foreign?.marker})</span>
+                          </td>
+                          <td className="px-2 py-1">{f.origem ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-amber-900">
+                  Descartar arquiva estas procuras (soft-delete): saem das listas e do Motor Match,
+                  mas o registo e a mensagem original ficam guardados.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="destructive"
+                  onClick={discardForeign}
+                  disabled={bulkBusy}
+                >
+                  {bulkBusy
+                    ? "A descartar…"
+                    : `Confirmar e descartar ${foreignItems.length} procura(s)`}
+                </Button>
+              </>
+            )}
+          </div>
+        )}
       </Card>
 
       {loading ? (
@@ -472,7 +576,7 @@ function SemLocalizacaoPanel() {
           <SemLocalizacaoCard
             key={it.id}
             item={it}
-            onSaved={() => setItems((cur) => cur.filter((x) => x.id !== it.id))}
+            onDone={() => setItems((cur) => cur.filter((x) => x.id !== it.id))}
           />
         ))
       )}
@@ -482,16 +586,18 @@ function SemLocalizacaoPanel() {
 
 function SemLocalizacaoCard({
   item,
-  onSaved,
+  onDone,
 }: {
-  item: SearchSemLocalizacao;
-  onSaved: () => void;
+  item: SearchSemLocalizacaoItem;
+  onDone: () => void;
 }) {
   const saveFn = useServerFn(setSearchLocations);
   const aliasFn = useServerFn(promoteAlias);
+  const discardFn = useServerFn(discardSearches);
   const [ids, setIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [learn, setLearn] = useState(true);
+  const [discarding, setDiscarding] = useState(false);
 
   const textoGeo =
     item.criteria_geo.zona ??
@@ -516,11 +622,26 @@ function SemLocalizacaoCard({
         }
       }
       toast.success("Localização guardada e procura recruzada.");
-      onSaved();
+      onDone();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao guardar");
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Item 4a — descartar uma entrada que não é uma procura real (ex. anúncio de
+  // imóvel à venda importado por engano) ou está fora do âmbito geográfico.
+  const discard = async (motivo: string) => {
+    setDiscarding(true);
+    try {
+      await discardFn({ data: { ids: [item.id], motivo } });
+      toast.success("Procura descartada (arquivada).");
+      onDone();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao descartar");
+    } finally {
+      setDiscarding(false);
     }
   };
 
@@ -531,6 +652,11 @@ function SemLocalizacaoCard({
           <MapPin className="w-3 h-3 mr-1" /> Sem localização
         </Badge>
         {item.origem && <Badge variant="secondary">{item.origem}</Badge>}
+        {item.foreign && (
+          <Badge variant="destructive">
+            <Globe className="w-3 h-3 mr-1" /> {item.foreign.country}
+          </Badge>
+        )}
         <span className="font-medium">
           {item.consultor_nome ?? item.contact_nome ?? "(sem consultor)"}
         </span>
@@ -578,6 +704,26 @@ function SemLocalizacaoCard({
             Guardar interpretação de “{textoGeo}” para o futuro
           </label>
         )}
+        <div className="ml-auto flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={discarding}
+            onClick={() => discard("Não é uma procura real (ex. anúncio de imóvel à venda)")}
+          >
+            <Trash2 className="w-4 h-4 mr-1" /> Não é procura
+          </Button>
+          {item.foreign && (
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={discarding}
+              onClick={() => discard(`Localização fora de Portugal (${item.foreign!.country})`)}
+            >
+              <Globe className="w-4 h-4 mr-1" /> Fora de Portugal
+            </Button>
+          )}
+        </div>
       </div>
     </Card>
   );
