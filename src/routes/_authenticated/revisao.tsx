@@ -372,3 +372,205 @@ function Stat({ label, value }: { label: string; value: number }) {
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Procuras sem localização resolvida — revisão manual, uma a uma.
+// A mensagem original fica visível para o administrador decidir; a correção
+// é feita exclusivamente pelo LocationSelector (IDs da biblioteca).
+// ---------------------------------------------------------------------------
+
+function SemLocalizacaoPanel() {
+  const listFn = useServerFn(listSearchesSemLocalizacao);
+  const [items, setItems] = useState<SearchSemLocalizacao[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+  const [onlyWithText, setOnlyWithText] = useState(false);
+
+  const reload = () => {
+    setLoading(true);
+    listFn()
+      .then((r) => setItems(r.items))
+      .catch((e) => toast.error(e instanceof Error ? e.message : "Erro"))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => {
+    reload();
+  }, []);
+
+  const q = query.trim().toLowerCase();
+  const visible = items.filter((it) => {
+    if (onlyWithText && !(it.texto_original ?? "").trim()) return false;
+    if (!q) return true;
+    const hay = [
+      it.resumo,
+      it.texto_original,
+      it.consultor_nome,
+      it.contact_nome,
+      it.grupo_whatsapp,
+      it.criteria_geo.zona,
+      it.criteria_geo.freguesia,
+      it.criteria_geo.municipio,
+      it.criteria_geo.distrito,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return hay.includes(q);
+  });
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <MapPin className="w-4 h-4 text-muted-foreground" />
+          <h2 className="font-semibold">Procuras sem localização resolvida</h2>
+          <Badge variant="secondary" className="ml-auto tabular-nums">
+            {loading ? "…" : `${visible.length} / ${items.length}`}
+          </Badge>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Procuras ativas sem <span className="font-mono">location_ids</span> — o backfill não
+          encontrou texto geográfico aproveitável. Escolha a localização correta e a procura volta
+          imediatamente ao Motor Match.
+        </p>
+        <div className="flex flex-col md:flex-row gap-2">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Pesquisar na mensagem, consultor ou grupo…"
+          />
+          <Button
+            type="button"
+            variant={onlyWithText ? "default" : "outline"}
+            size="sm"
+            onClick={() => setOnlyWithText((v) => !v)}
+          >
+            Só com mensagem original
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={reload} disabled={loading}>
+            Recarregar
+          </Button>
+        </div>
+      </Card>
+
+      {loading ? (
+        <p className="text-sm text-muted-foreground">A carregar…</p>
+      ) : visible.length === 0 ? (
+        <Card className="p-6 text-center text-muted-foreground">
+          Nenhuma procura pendente de localização.
+        </Card>
+      ) : (
+        visible.map((it) => (
+          <SemLocalizacaoCard
+            key={it.id}
+            item={it}
+            onSaved={() => setItems((cur) => cur.filter((x) => x.id !== it.id))}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+function SemLocalizacaoCard({
+  item,
+  onSaved,
+}: {
+  item: SearchSemLocalizacao;
+  onSaved: () => void;
+}) {
+  const saveFn = useServerFn(setSearchLocations);
+  const aliasFn = useServerFn(promoteAlias);
+  const [ids, setIds] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [learn, setLearn] = useState(true);
+
+  const textoGeo =
+    item.criteria_geo.zona ??
+    item.criteria_geo.freguesia ??
+    item.criteria_geo.municipio ??
+    item.criteria_geo.distrito ??
+    null;
+
+  const save = async () => {
+    if (ids.length === 0) {
+      toast.error("Selecione pelo menos uma localização.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await saveFn({ data: { id: item.id, location_ids: ids } });
+      if (learn && textoGeo && textoGeo.trim().length > 1) {
+        try {
+          await aliasFn({ data: { text: textoGeo, location_ids: ids, origem: "revisao" } });
+        } catch {
+          // Aprendizagem é complementar — não bloqueia a gravação.
+        }
+      }
+      toast.success("Localização guardada e procura recruzada.");
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao guardar");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card className="p-5 space-y-3">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <Badge variant="outline">
+          <MapPin className="w-3 h-3 mr-1" /> Sem localização
+        </Badge>
+        {item.origem && <Badge variant="secondary">{item.origem}</Badge>}
+        <span className="font-medium">
+          {item.consultor_nome ?? item.contact_nome ?? "(sem consultor)"}
+        </span>
+        {item.grupo_whatsapp && (
+          <span className="text-xs text-muted-foreground">{item.grupo_whatsapp}</span>
+        )}
+        <span className="text-muted-foreground ml-auto text-xs">
+          {new Date(item.created_at).toLocaleDateString("pt-PT")}
+        </span>
+      </div>
+
+      {item.resumo && <p className="text-sm">{item.resumo}</p>}
+
+      {textoGeo && (
+        <p className="text-xs text-muted-foreground">
+          Texto geográfico original: <span className="font-mono">{textoGeo}</span> (não resolvido)
+        </p>
+      )}
+
+      <OriginalMessage texto={item.texto_original} origem={item.origem} defaultOpen />
+
+      <div className="space-y-2">
+        <Label className="text-xs">Localização (biblioteca geográfica)</Label>
+        <LocationSelector
+          value={ids}
+          onChange={setIds}
+          multiple
+          placeholder="Pesquisar concelho, freguesia ou zona…"
+        />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Button size="sm" onClick={save} disabled={saving || ids.length === 0}>
+          <Save className="w-4 h-4 mr-1" />
+          {saving ? "A guardar…" : "Guardar localização"}
+        </Button>
+        {textoGeo && (
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={learn}
+              onChange={(e) => setLearn(e.target.checked)}
+              className="accent-primary"
+            />
+            Guardar interpretação de “{textoGeo}” para o futuro
+          </label>
+        )}
+      </div>
+    </Card>
+  );
+}
