@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { LocationSelector } from "@/components/entity-selector/LocationSelector";
+import { resolveCategory, normalizeCondition } from "@/lib/property-taxonomy";
 import {
   Dialog,
   DialogContent,
@@ -118,6 +119,7 @@ type FormState = {
   tipo_imovel: string;
   subtipo_imovel: string;
   tipologia: string;
+  estado: string;
   preco: string;
   distrito: string;
   concelho: string;
@@ -139,6 +141,7 @@ const empty: FormState = {
   tipo_imovel: "apartamento",
   subtipo_imovel: "",
   tipologia: "T2",
+  estado: "",
   preco: "",
   distrito: "",
   concelho: "",
@@ -160,6 +163,7 @@ const fromProperty = (p: Property): FormState => ({
   tipo_imovel: p.tipo_imovel ?? "apartamento",
   subtipo_imovel: p.subtipo_imovel ?? "",
   tipologia: p.tipologia ?? "",
+  estado: (p as any).estado ?? "",
   preco: p.preco != null ? String(p.preco) : "",
   distrito: p.distrito ?? "",
   concelho: p.concelho ?? "",
@@ -460,6 +464,9 @@ function ImoveisPage() {
       finalidade: form.finalidade,
       tipo_imovel: form.tipo_imovel || null,
       subtipo_imovel: form.subtipo_imovel || null,
+      // Item 5 — categoria da taxonomia derivada do tipo (fonte única).
+      categoria: resolveCategory(form.subtipo_imovel) ?? resolveCategory(form.tipo_imovel),
+      estado: normalizeCondition(form.estado),
       tipologia: form.tipologia.trim() ? form.tipologia.trim() : semTipologia ? "N/D" : "N/D",
       preco: form.preco ? Number(form.preco) : 0,
       distrito: form.distrito || null,
@@ -607,6 +614,21 @@ function ImoveisPage() {
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {TIPO_OPTS.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  {label("Estado do imóvel", "estado")}
+                  <Select
+                    value={form.estado || "indefinido"}
+                    onValueChange={(v) => setForm({ ...form, estado: v === "indefinido" ? "" : v })}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="indefinido">Não indicado</SelectItem>
+                      <SelectItem value="novo">Novo / pronto a habitar</SelectItem>
+                      <SelectItem value="bom">Bom estado</SelectItem>
+                      <SelectItem value="recuperar">Precisa de obras</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
