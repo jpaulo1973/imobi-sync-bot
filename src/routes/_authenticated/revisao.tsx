@@ -84,40 +84,60 @@ function RevisaoPage() {
           <AlertTriangle className="w-5 h-5" />
         </div>
         <div className="flex-1 min-w-[240px]">
-          <h1 className="text-3xl font-bold tracking-tight">Revisão — Contactos sem telefone</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Revisão manual</h1>
           <p className="text-muted-foreground mt-1">
-            Consultores/contactos sem número de telefone válido. Introduza o
-            número aqui: assim que for guardado, o registo sai desta lista.
+            Corrija aqui o que o sistema não conseguiu resolver: contactos sem
+            telefone válido e procuras sem localização resolvida.
           </p>
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" disabled={loading || items.length === 0}>
-              <Download className="w-4 h-4 mr-1" /> Exportar
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => void downloadReviewXlsx(items)}>
-              Excel (.xlsx)
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => downloadReviewCsv(items)}>CSV</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
 
-      <ReimportPanel onDone={reload} />
+      <Tabs defaultValue="telefone" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="telefone">
+            <Phone className="w-4 h-4 mr-1" /> Sem telefone
+          </TabsTrigger>
+          <TabsTrigger value="localizacao">
+            <MapPin className="w-4 h-4 mr-1" /> Sem localização
+          </TabsTrigger>
+        </TabsList>
 
-      {loading ? (
-        <p className="text-sm text-muted-foreground">A carregar…</p>
-      ) : items.length === 0 ? (
-        <Card className="p-6 text-center text-muted-foreground">
-          Sem contactos por corrigir. Todos os consultores têm telefone válido.
-        </Card>
-      ) : (
-        items.map((it) => (
-          <ContactoCard key={it.key} item={it} onSaved={() => removeLocal(it.key)} />
-        ))
-      )}
+        <TabsContent value="telefone" className="space-y-6">
+          <div className="flex justify-end">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" disabled={loading || items.length === 0}>
+                  <Download className="w-4 h-4 mr-1" /> Exportar
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => void downloadReviewXlsx(items)}>
+                  Excel (.xlsx)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => downloadReviewCsv(items)}>CSV</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          <ReimportPanel onDone={reload} />
+
+          {loading ? (
+            <p className="text-sm text-muted-foreground">A carregar…</p>
+          ) : items.length === 0 ? (
+            <Card className="p-6 text-center text-muted-foreground">
+              Sem contactos por corrigir. Todos os consultores têm telefone válido.
+            </Card>
+          ) : (
+            items.map((it) => (
+              <ContactoCard key={it.key} item={it} onSaved={() => removeLocal(it.key)} />
+            ))
+          )}
+        </TabsContent>
+
+        <TabsContent value="localizacao">
+          <SemLocalizacaoPanel />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
