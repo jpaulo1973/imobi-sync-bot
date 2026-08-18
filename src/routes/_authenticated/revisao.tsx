@@ -660,6 +660,11 @@ function SemLocalizacaoCard({
             <Globe className="w-3 h-3 mr-1" /> {item.foreign.country}
           </Badge>
         )}
+        {item.offer && (
+          <Badge variant="destructive" title={`Marcador: ${item.offer.marker}`}>
+            Parece anúncio de venda
+          </Badge>
+        )}
         <span className="font-medium">
           {item.consultor_nome ?? item.contact_nome ?? "(sem consultor)"}
         </span>
