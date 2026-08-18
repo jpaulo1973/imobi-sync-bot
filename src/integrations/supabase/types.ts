@@ -164,10 +164,14 @@ export type Database = {
           area_min: number | null
           ativo: boolean
           budget_max: number | null
+          budget_max_obras: number | null
+          budget_max_pronto: number | null
           budget_min: number | null
+          categorias: string[]
           created_at: string
           elevador_obrigatorio: boolean
           email: string | null
+          estado_desejado: string | null
           finalidade: Database["public"]["Enums"]["finalidade_tipo"]
           garagem_obrigatoria: boolean
           geo_library_version: number | null
@@ -189,10 +193,14 @@ export type Database = {
           area_min?: number | null
           ativo?: boolean
           budget_max?: number | null
+          budget_max_obras?: number | null
+          budget_max_pronto?: number | null
           budget_min?: number | null
+          categorias?: string[]
           created_at?: string
           elevador_obrigatorio?: boolean
           email?: string | null
+          estado_desejado?: string | null
           finalidade?: Database["public"]["Enums"]["finalidade_tipo"]
           garagem_obrigatoria?: boolean
           geo_library_version?: number | null
@@ -214,10 +222,14 @@ export type Database = {
           area_min?: number | null
           ativo?: boolean
           budget_max?: number | null
+          budget_max_obras?: number | null
+          budget_max_pronto?: number | null
           budget_min?: number | null
+          categorias?: string[]
           created_at?: string
           elevador_obrigatorio?: boolean
           email?: string | null
+          estado_desejado?: string | null
           finalidade?: Database["public"]["Enums"]["finalidade_tipo"]
           garagem_obrigatoria?: boolean
           geo_library_version?: number | null
@@ -779,11 +791,13 @@ export type Database = {
           ativo: boolean
           caracteristicas: string | null
           casas_banho: number | null
+          categoria: string | null
           concelho: string | null
           created_at: string
           descricao: string | null
           distrito: string | null
           elevador: boolean | null
+          estado: string | null
           finalidade: Database["public"]["Enums"]["finalidade_tipo"]
           freguesia: string | null
           garagem: boolean | null
@@ -810,11 +824,13 @@ export type Database = {
           ativo?: boolean
           caracteristicas?: string | null
           casas_banho?: number | null
+          categoria?: string | null
           concelho?: string | null
           created_at?: string
           descricao?: string | null
           distrito?: string | null
           elevador?: boolean | null
+          estado?: string | null
           finalidade?: Database["public"]["Enums"]["finalidade_tipo"]
           freguesia?: string | null
           garagem?: boolean | null
@@ -841,11 +857,13 @@ export type Database = {
           ativo?: boolean
           caracteristicas?: string | null
           casas_banho?: number | null
+          categoria?: string | null
           concelho?: string | null
           created_at?: string
           descricao?: string | null
           distrito?: string | null
           elevador?: boolean | null
+          estado?: string | null
           finalidade?: Database["public"]["Enums"]["finalidade_tipo"]
           freguesia?: string | null
           garagem?: boolean | null
@@ -1097,10 +1115,14 @@ export type Database = {
           area_min: number | null
           ativo: boolean
           budget_max: number | null
+          budget_max_obras: number | null
+          budget_max_pronto: number | null
           budget_min: number | null
+          categorias: string[]
           created_at: string
           elevador_obrigatorio: boolean
           email: string | null
+          estado_desejado: string | null
           finalidade: Database["public"]["Enums"]["finalidade_tipo"]
           garagem_obrigatoria: boolean
           geo_library_version: number | null
@@ -1134,11 +1156,13 @@ export type Database = {
           ativo: boolean
           caracteristicas: string | null
           casas_banho: number | null
+          categoria: string | null
           concelho: string | null
           created_at: string
           descricao: string | null
           distrito: string | null
           elevador: boolean | null
+          estado: string | null
           finalidade: Database["public"]["Enums"]["finalidade_tipo"]
           freguesia: string | null
           garagem: boolean | null
