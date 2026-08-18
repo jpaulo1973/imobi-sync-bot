@@ -137,6 +137,18 @@ function ManutencaoPage() {
 
   return (
     <div className="space-y-6 max-w-2xl">
+      {support.length > 0 && (
+        <a
+          href="#ajuda-sugestoes"
+          className="flex items-center gap-2 rounded-md border p-3 text-sm hover:bg-secondary"
+        >
+          <LifeBuoy className="w-4 h-4 text-primary" />
+          <span className="font-medium">Ajuda / Sugestões dos consultores</span>
+          <Badge variant={supportUnread > 0 ? "default" : "outline"}>
+            {supportUnread > 0 ? `${supportUnread} não lidas` : `${support.length} mensagens`}
+          </Badge>
+        </a>
+      )}
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <AlertTriangle className="w-5 h-5 text-amber-600" />
@@ -281,7 +293,7 @@ function ManutencaoPage() {
         )}
       </Card>
 
-      <Card className="p-6 space-y-4">
+      <Card id="ajuda-sugestoes" className="p-6 space-y-4 scroll-mt-20">
         <div>
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <LifeBuoy className="w-5 h-5 text-primary" />

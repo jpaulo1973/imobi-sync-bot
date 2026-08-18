@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { useServerFn } from "@tanstack/react-start";
 import { countUnseenOpportunities } from "@/lib/active-searches.functions";
 import { getMyProfile } from "@/lib/profile.functions";
+import { listSupportRequests } from "@/lib/support.functions";
 import { MaintenanceGate } from "@/components/MaintenanceGate";
 import { NotificationBell } from "@/components/NotificationBell";
 import { SupportDialog } from "@/components/SupportDialog";
@@ -28,6 +29,8 @@ function Layout() {
   const countFn = useServerFn(countUnseenOpportunities);
   const profileFn = useServerFn(getMyProfile);
   const [maintenance, setMaintenance] = useState<MaintenanceStatus | null>(null);
+  const [supportUnread, setSupportUnread] = useState(0);
+  const supportListFn = useServerFn(listSupportRequests);
   useEffect(() => {
     const load = () =>
       profileFn()
@@ -51,6 +54,16 @@ function Layout() {
     const id = setInterval(tick, 60000);
     return () => clearInterval(id);
   }, [countFn]);
+  useEffect(() => {
+    if (!isAdmin) return;
+    const tick = () =>
+      supportListFn()
+        .then((r) => setSupportUnread(r.unread))
+        .catch(() => {});
+    tick();
+    const id = setInterval(tick, 120000);
+    return () => clearInterval(id);
+  }, [isAdmin, supportListFn]);
   const logout = async () => {
     await supabase.auth.signOut();
     navigate({ to: "/auth" });
@@ -134,6 +147,11 @@ function Layout() {
                 activeProps={{ className: "active" }}
               >
                 <Wrench className="w-4 h-4" /> Manutenção
+                {supportUnread > 0 && (
+                  <Badge variant="default" className="ml-1 h-5 min-w-5 px-1.5">
+                    {supportUnread}
+                  </Badge>
+                )}
                 {maintenance?.enabled && (
                   <Badge className="ml-1 bg-amber-100 text-amber-800 border-amber-200" variant="outline">
                     Activa
