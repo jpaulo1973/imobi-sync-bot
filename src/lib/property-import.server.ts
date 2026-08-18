@@ -54,9 +54,15 @@ type PropertyInsert = {
   geo_library_version?: number | null;
 };
 
+const MISSING_FIRECRAWL_KEY_MESSAGE = [
+  "FIRECRAWL_API_KEY não configurado neste ambiente.",
+  "• Deploy Lovable: liga o conector Firecrawl no projeto (Settings → Connectors) — a chave é injetada automaticamente no runtime servidor.",
+  "• Deploy Vercel: os conectores da Lovable não são propagados. Adiciona manualmente a variável FIRECRAWL_API_KEY (valor fc-...) em Vercel → Project → Settings → Environment Variables (Production e Preview) e faz redeploy.",
+].join("\n");
+
 async function firecrawlScrape(url: string): Promise<{ markdown?: string; html?: string }> {
   const apiKey = process.env.FIRECRAWL_API_KEY;
-  if (!apiKey) throw new Error("FIRECRAWL_API_KEY não configurado");
+  if (!apiKey) throw new Error(MISSING_FIRECRAWL_KEY_MESSAGE);
   const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
