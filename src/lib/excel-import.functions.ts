@@ -462,8 +462,16 @@ async function processOneRow(
       },
     };
       }
-      const flagAsReview = decision.kind === "revisao";
-      const reviewReason = decision.reason;
+      // Item 4a — o ficheiro Excel mistura pedidos de compradores com anúncios
+      // de imóveis à venda. Quando o texto parece uma oferta, a linha entra
+      // marcada para revisão em vez de alimentar o Motor Match às cegas.
+      const { detectOfferPosing } = await import("@/lib/offer-detect");
+      const offerHint = detectOfferPosing(textoOriginal ?? null, resumo ?? null);
+      const flagAsReview = decision.kind === "revisao" || offerHint !== null;
+      const reviewReason =
+        decision.kind === "revisao"
+          ? decision.reason
+          : `Parece anúncio de imóvel à venda e não uma procura (marcador: "${offerHint?.marker}")`;
 
       const caracExtras: string[] = [...(caract ?? [])];
       if (elevador) caracExtras.push("elevador");
