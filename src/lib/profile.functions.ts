@@ -47,6 +47,13 @@ export const getMyProfile = createServerFn({ method: "GET" })
     const iat = (claims as any)?.iat as number | undefined;
     const lastSignInAt = typeof iat === "number" ? new Date(iat * 1000).toISOString() : null;
 
+    const missingFields = computeMissingProfileFields({
+      fullName: profile?.full_name ?? null,
+      agency: profile?.agency ?? null,
+      telefone: (profile as any)?.telefone ?? null,
+      whatsapp: (profile as any)?.whatsapp ?? null,
+    });
+
     return {
       userId,
       email: (claims as any)?.email ?? null,
@@ -55,6 +62,7 @@ export const getMyProfile = createServerFn({ method: "GET" })
       telefone: (profile as any)?.telefone ?? null,
       whatsapp: (profile as any)?.whatsapp ?? null,
       ami: (profile as any)?.ami ?? null,
+      missingFields,
       // Contas novas nascem inativas: só `true` explícito dá acesso.
       ativo: (profile as any)?.ativo === true,
       role: isAdmin ? ("admin" as const) : ("consultor" as const),
