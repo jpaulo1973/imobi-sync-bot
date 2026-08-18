@@ -121,15 +121,24 @@ export const createAppUser = createServerFn({ method: "POST" })
       email: data.email,
       password: data.password,
     });
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (/signup|not allowed/i.test(error.message)) {
+        throw new Error(
+          "O registo está desativado no backend. Ative o registo de email para poder criar contas.",
+        );
+      }
+      throw new Error(error.message);
+    }
     const newId = created.user?.id;
     if (!newId) throw new Error("Não foi possível criar a conta.");
     const role = data.isAdmin ? "admin" : "user";
-    const { error: roleError } = await context.supabase.rpc("admin_set_user_role", {
+    // Aprovisionamento atómico: papel + ativação (contas nascem inativas).
+    const { error: provisionError } = await context.supabase.rpc("admin_provision_user", {
       p_user_id: newId,
       p_role: role,
-    });
-    if (roleError) throw new Error(roleError.message);
+      p_ativo: true,
+    } as never);
+    if (provisionError) throw new Error(provisionError.message);
     return { id: newId, email: created.user?.email ?? data.email };
   });
 
