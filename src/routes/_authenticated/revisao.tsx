@@ -8,9 +8,10 @@ import {
   bulkSetConsultorTelefone,
   listSearchesSemLocalizacao,
   setSearchLocations,
+  discardSearches,
   type BulkPhoneLineResult,
   type ConsultorSemTelefone,
-  type SearchSemLocalizacao,
+  type SearchSemLocalizacaoItem,
 } from "@/lib/review.functions";
 import { promoteAlias } from "@/lib/geo/geo.functions";
 import { LocationSelector } from "@/components/entity-selector/LocationSelector";
@@ -42,6 +43,8 @@ import {
   Save,
   Upload,
   FileSpreadsheet,
+  Globe,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
