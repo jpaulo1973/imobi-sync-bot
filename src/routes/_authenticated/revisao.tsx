@@ -75,7 +75,22 @@ function RevisaoPage() {
             número aqui: assim que for guardado, o registo sai desta lista.
           </p>
         </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" disabled={loading || items.length === 0}>
+              <Download className="w-4 h-4 mr-1" /> Exportar
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => void downloadReviewXlsx(items)}>
+              Excel (.xlsx)
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => downloadReviewCsv(items)}>CSV</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
+
+      <ReimportPanel onDone={reload} />
 
       {loading ? (
         <p className="text-sm text-muted-foreground">A carregar…</p>
