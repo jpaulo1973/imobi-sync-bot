@@ -945,6 +945,11 @@ export type SearchSemLocalizacao = {
   };
 };
 
+export type SearchSemLocalizacaoItem = SearchSemLocalizacao & {
+  /** Item 4 — país detetado quando a localização é claramente fora de Portugal. */
+  foreign: { country: string; marker: string } | null;
+};
+
 export const listSearchesSemLocalizacao = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<{ items: SearchSemLocalizacao[]; total: number }> => {
