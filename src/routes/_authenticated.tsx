@@ -49,11 +49,16 @@ function Layout() {
     return () => window.removeEventListener("pm:profile-updated", onUpdated);
   }, [profileFn, navigate]);
   useEffect(() => {
+    // Item 1 — o Radar é exclusivo de Admin: não sondar o contador para consultores.
+    if (!isAdmin) {
+      setUnseen(0);
+      return;
+    }
     const tick = () => countFn().then((r) => setUnseen(r.unseen)).catch(() => {});
     tick();
     const id = setInterval(tick, 60000);
     return () => clearInterval(id);
-  }, [countFn]);
+  }, [countFn, isAdmin]);
   useEffect(() => {
     if (!isAdmin) return;
     const tick = () =>
@@ -120,17 +125,19 @@ function Layout() {
                 </Link>
               </>
             )}
-            <Link
-              to="/radar"
-              className="px-3 py-2 rounded-md text-sm font-medium hover:bg-secondary inline-flex items-center gap-2 [&.active]:bg-secondary [&.active]:text-primary"
-              activeProps={{ className: "active" }}
-              onClick={() => setUnseen(0)}
-            >
-              <Radar className="w-4 h-4" /> Radar
-              {unseen > 0 && (
-                <Badge variant="default" className="ml-1 h-5 min-w-5 px-1.5">{unseen}</Badge>
-              )}
-            </Link>
+            {isAdmin && (
+              <Link
+                to="/radar"
+                className="px-3 py-2 rounded-md text-sm font-medium hover:bg-secondary inline-flex items-center gap-2 [&.active]:bg-secondary [&.active]:text-primary"
+                activeProps={{ className: "active" }}
+                onClick={() => setUnseen(0)}
+              >
+                <Radar className="w-4 h-4" /> Radar
+                {unseen > 0 && (
+                  <Badge variant="default" className="ml-1 h-5 min-w-5 px-1.5">{unseen}</Badge>
+                )}
+              </Link>
+            )}
             {isAdmin && (
               <Link
                 to="/utilizadores"
