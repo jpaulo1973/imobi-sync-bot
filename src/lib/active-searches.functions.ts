@@ -77,14 +77,22 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
       if (inferred) criteria.finalidade = inferred;
     }
 
-    const zonaText = criteria.zona ?? criteria.municipio ?? criteria.freguesia ?? null;
+    const geoCandidate: { text: string; field: "zona" | "concelho" | "freguesia" } | null =
+      criteria.zona
+        ? { text: criteria.zona, field: "zona" }
+        : criteria.municipio
+          ? { text: criteria.municipio, field: "concelho" }
+          : criteria.freguesia
+            ? { text: criteria.freguesia, field: "freguesia" }
+            : null;
+    const zonaText = geoCandidate?.text ?? null;
     let resolvedLocationIds: string[] = [];
     let zonaUnresolved = false;
-    if (zonaText) {
+    if (geoCandidate) {
       try {
         const snap = await LocationRepository.getSnapshot();
         const { parseLocations } = await import("./geo");
-        const parseRes = parseLocations(zonaText, snap);
+        const parseRes = parseLocations(geoCandidate.text, snap, { field: geoCandidate.field });
         resolvedLocationIds = parseRes.resolved;
         zonaUnresolved = parseRes.resolved.length === 0;
       } catch (e) {
