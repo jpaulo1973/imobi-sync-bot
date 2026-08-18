@@ -1,17 +1,32 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
   listConsultoresSemTelefone,
   setConsultorTelefone,
+  bulkSetConsultorTelefone,
+  type BulkPhoneLineResult,
   type ConsultorSemTelefone,
 } from "@/lib/review.functions";
+import {
+  downloadReviewCsv,
+  downloadReviewXlsx,
+  parseFilledReviewFile,
+  type ParsedImportFile,
+} from "@/lib/review-export";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Phone, Save } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { AlertTriangle, Download, Phone, Save, Upload, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/revisao")({
