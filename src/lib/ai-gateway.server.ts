@@ -29,7 +29,9 @@ function resolveTransport(): Transport {
   const explicit = (process.env.AI_PROVIDER ?? "").trim().toLowerCase();
   if (explicit === "openai") return "openai";
   if (explicit === "lovable") return "lovable";
-  // Auto: se existir chave própria OpenAI, usa-a; caso contrário, gateway.
+  // Auto: dentro de Lovable (LOVABLE_API_KEY presente) mantém o gateway;
+  // fora (ex.: Vercel) usa a chave própria OpenAI se existir.
+  if (process.env.LOVABLE_API_KEY) return "lovable";
   return process.env.OPENAI_API_KEY ? "openai" : "lovable";
 }
 
