@@ -11,7 +11,7 @@ const LOVABLE_GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions"
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 
 // Default suportado para o transporte BYOK (OpenAI direto).
-const DEFAULT_OPENAI_MODEL = "gpt-5.6-sol";
+const DEFAULT_OPENAI_MODEL = "gpt-5-nano";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
