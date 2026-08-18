@@ -11,6 +11,11 @@ import { listSupportRequests } from "@/lib/support.functions";
 import { MaintenanceGate } from "@/components/MaintenanceGate";
 import { NotificationBell } from "@/components/NotificationBell";
 import { SupportDialog } from "@/components/SupportDialog";
+import {
+  ProfileCompletionAlert,
+  ProfileCompletionBanner,
+} from "@/components/ProfileCompletionAlert";
+import type { ProfileMissingField } from "@/lib/profile.functions";
 import type { MaintenanceStatus } from "@/lib/maintenance.functions";
 
 export const Route = createFileRoute("/_authenticated")({
@@ -24,6 +29,8 @@ export const Route = createFileRoute("/_authenticated")({
 function Layout() {
   const navigate = useNavigate();
   const [profile, setProfile] = useState<{ fullName: string | null; email: string | null; role: "admin" | "consultor" } | null>(null);
+  const [missingFields, setMissingFields] = useState<ProfileMissingField[]>([]);
+  const [alertOpen, setAlertOpen] = useState(false);
   const isAdmin = profile?.role === "admin";
   const [unseen, setUnseen] = useState(0);
   const countFn = useServerFn(countUnseenOpportunities);
@@ -41,8 +48,14 @@ function Layout() {
             return;
           }
           setProfile({ fullName: p.fullName, email: p.email, role: p.role });
+          const missing = ((p as any).missingFields ?? []) as ProfileMissingField[];
+          setMissingFields(missing);
+          if (missing.length > 0) setAlertOpen(true);
         })
-        .catch(() => setProfile(null));
+        .catch(() => {
+          setProfile(null);
+          setMissingFields([]);
+        });
     load();
     const onUpdated = () => load();
     window.addEventListener("pm:profile-updated", onUpdated);
@@ -203,6 +216,12 @@ function Layout() {
           <strong>Modo de Manutenção activo</strong> — utilizadores não-admin estão bloqueados.
         </div>
       )}
+      <ProfileCompletionBanner missing={missingFields} />
+      <ProfileCompletionAlert
+        missing={missingFields}
+        open={alertOpen}
+        onDismiss={() => setAlertOpen(false)}
+      />
       <main className="flex-1 container mx-auto px-4 py-8">
         <MaintenanceGate isAdmin={isAdmin} onStatusChange={setMaintenance}>
           <Outlet />
