@@ -5,9 +5,16 @@ import {
   listConsultoresSemTelefone,
   setConsultorTelefone,
   bulkSetConsultorTelefone,
+  listSearchesSemLocalizacao,
+  setSearchLocations,
   type BulkPhoneLineResult,
   type ConsultorSemTelefone,
+  type SearchSemLocalizacao,
 } from "@/lib/review.functions";
+import { promoteAlias } from "@/lib/geo/geo.functions";
+import { LocationSelector } from "@/components/entity-selector/LocationSelector";
+import { OriginalMessage } from "@/components/OriginalMessage";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   downloadReviewCsv,
   downloadReviewXlsx,
@@ -26,7 +33,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { AlertTriangle, Download, Phone, Save, Upload, FileSpreadsheet } from "lucide-react";
+import {
+  AlertTriangle,
+  Download,
+  MapPin,
+  Phone,
+  Save,
+  Upload,
+  FileSpreadsheet,
+} from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/revisao")({
