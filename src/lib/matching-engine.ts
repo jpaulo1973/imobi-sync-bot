@@ -686,6 +686,7 @@ export const HARD_FILTERS: HardFilter[] = [
   { name: "localizacao", key: "localizacao", run: (b, p, ctx) => localizacaoFilter(b, p, ctx) },
   { name: "area_min", key: "area", run: areaMinFilter },
   { name: "features", key: "extras", run: featuresFilter },
+  { name: "estado", key: "extras", run: estadoFilter },
   // preço é adicionado dinamicamente por causa da tolerância
 ];
 
