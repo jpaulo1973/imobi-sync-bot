@@ -874,32 +874,76 @@ export type Database = {
           },
         ]
       }
+      support_replies: {
+        Row: {
+          author_id: string
+          created_at: string
+          id: string
+          mensagem: string
+          request_id: string
+        }
+        Insert: {
+          author_id: string
+          created_at?: string
+          id?: string
+          mensagem: string
+          request_id: string
+        }
+        Update: {
+          author_id?: string
+          created_at?: string
+          id?: string
+          mensagem?: string
+          request_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_replies_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "support_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       support_requests: {
         Row: {
+          arquivado: boolean
           autor_email: string | null
           autor_nome: string | null
           created_at: string
           id: string
           mensagem: string
           read_at: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          status: string
           user_id: string
         }
         Insert: {
+          arquivado?: boolean
           autor_email?: string | null
           autor_nome?: string | null
           created_at?: string
           id?: string
           mensagem: string
           read_at?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
           user_id: string
         }
         Update: {
+          arquivado?: boolean
           autor_email?: string | null
           autor_nome?: string | null
           created_at?: string
           id?: string
           mensagem?: string
           read_at?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
           user_id?: string
         }
         Relationships: []
