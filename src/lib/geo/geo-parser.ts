@@ -6,6 +6,7 @@
 
 import type {
   GeoSnapshot,
+  GeoFieldOrigin,
   ParseAuditStep,
   ParseResult,
   ParsedSegment,
@@ -14,11 +15,21 @@ import { normalizeGeoText, splitConnectors, toSlug } from "./geo-context";
 
 /**
  * Resolve um segmento textual usando exclusivamente o snapshot passado.
- * Determinístico. Ordem: alias exato → slug → nome exato → freguesia →
- * concelho → distrito → zona funcional (por nome).
+ * Determinístico. Quando `field` identifica o campo de origem do texto
+ * (distrito / concelho / freguesia), a resolução é restringida a esse
+ * nível administrativo — nunca cai para outro nível (sem fallback
+ * silencioso). Para texto livre (`zona` / `livre`) mantém-se a ordem
+ * alias → slug → freguesia → concelho → distrito → zona funcional.
  */
-function resolveSegment(raw: string, snap: GeoSnapshot, audit: ParseAuditStep[]): ParsedSegment {
+function resolveSegment(
+  raw: string,
+  snap: GeoSnapshot,
+  audit: ParseAuditStep[],
+  field: GeoFieldOrigin,
+): ParsedSegment {
   const normalized = normalizeGeoText(raw);
+  const strictTipo =
+    field === "distrito" || field === "concelho" || field === "freguesia" ? field : null;
   if (!normalized) {
     return {
       raw,
@@ -30,9 +41,9 @@ function resolveSegment(raw: string, snap: GeoSnapshot, audit: ParseAuditStep[])
     };
   }
 
-  // 1) alias exato
+  // 1) alias exato — só aceitável se todos os ids respeitarem o nível pedido.
   const alias = snap.byAlias.get(normalized);
-  if (alias) {
+  if (alias && (!strictTipo || alias.location_ids.every((id) => snap.byId.get(id)?.tipo === strictTipo))) {
     audit.push({ step: "alias_hit", detail: { raw, alias: alias.alias_normalizado, ids: alias.location_ids } });
     return {
       raw,
@@ -48,7 +59,7 @@ function resolveSegment(raw: string, snap: GeoSnapshot, audit: ParseAuditStep[])
   // 2) slug exato
   const slugKey = toSlug(normalized);
   const bySlug = snap.bySlug.get(normalized) ?? snap.bySlug.get(slugKey);
-  if (bySlug) {
+  if (bySlug && (!strictTipo || bySlug.tipo === strictTipo)) {
     audit.push({ step: "slug_hit", detail: { raw, slug: bySlug.slug, id: bySlug.id } });
     return {
       raw,
@@ -61,12 +72,9 @@ function resolveSegment(raw: string, snap: GeoSnapshot, audit: ParseAuditStep[])
   }
 
   // 3) nome exato — por tipo, ordem freguesia → concelho → distrito → zona funcional
-  const tipoPriority: Array<ParsedSegment["matched_via"]> = [
-    "freguesia",
-    "concelho",
-    "distrito",
-    "zona_funcional",
-  ];
+  const tipoPriority: Array<ParsedSegment["matched_via"]> = strictTipo
+    ? [strictTipo]
+    : ["freguesia", "concelho", "distrito", "zona_funcional"];
   for (const tipo of tipoPriority) {
     for (const l of snap.locations) {
       if (l.tipo !== tipo) continue;
@@ -84,7 +92,7 @@ function resolveSegment(raw: string, snap: GeoSnapshot, audit: ParseAuditStep[])
     }
   }
 
-  audit.push({ step: "unresolved", detail: { raw } });
+  audit.push({ step: "unresolved", detail: { raw, field } });
   return {
     raw,
     normalized,
@@ -101,15 +109,20 @@ function resolveSegment(raw: string, snap: GeoSnapshot, audit: ParseAuditStep[])
  *
  * Sem fuzzy. Sem side-effects. Sem UI.
  */
-export function parseLocations(input: string | null | undefined, snap: GeoSnapshot): ParseResult {
+export function parseLocations(
+  input: string | null | undefined,
+  snap: GeoSnapshot,
+  opts?: { field?: GeoFieldOrigin },
+): ParseResult {
+  const field: GeoFieldOrigin = opts?.field ?? "livre";
   const audit: ParseAuditStep[] = [];
   const raw = (input ?? "").toString();
-  audit.push({ step: "input", detail: { raw, version: snap.version } });
+  audit.push({ step: "input", detail: { raw, version: snap.version, field } });
 
   const segments = splitConnectors(raw);
   audit.push({ step: "split", detail: { segments } });
 
-  const parsed: ParsedSegment[] = segments.map((s) => resolveSegment(s, snap, audit));
+  const parsed: ParsedSegment[] = segments.map((s) => resolveSegment(s, snap, audit, field));
 
   const resolvedSet = new Set<string>();
   const aliasSet = new Set<string>();
