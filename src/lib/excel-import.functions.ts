@@ -543,13 +543,20 @@ async function processOneRow(
           zona: spZona ?? spMunicipio ?? spFreguesia,
         });
 
-        const geoCandidates = [spFreguesia, spZona, spMunicipio, distrito]
-          .map((v) => (v ?? "").trim())
-          .filter((v) => v.length > 0);
+        const geoCandidates = (
+          [
+            [spFreguesia, "freguesia"],
+            [spZona, "zona"],
+            [spMunicipio, "concelho"],
+            [distrito, "distrito"],
+          ] as Array<[string | null | undefined, "freguesia" | "concelho" | "zona" | "distrito"]>
+        )
+          .map(([v, field]) => [(v ?? "").trim(), field] as const)
+          .filter(([v]) => v.length > 0);
         const resolvedLocationIds: string[] = [];
         let firstUnresolvedGeoText: string | null = null;
-        for (const text of geoCandidates) {
-          const r = parseLocations(text, geoSnap);
+        for (const [text, field] of geoCandidates) {
+          const r = parseLocations(text, geoSnap, { field });
           if (r.resolved.length > 0) {
             for (const id of r.resolved) if (!resolvedLocationIds.includes(id)) resolvedLocationIds.push(id);
             break;

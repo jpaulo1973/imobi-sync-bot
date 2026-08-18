@@ -264,11 +264,18 @@ export async function resolveLocationIdFromParsed(parsed: ParsedProperty): Promi
   unresolved_text: string | null;
 }> {
   const snap = await LocationRepository.getSnapshot();
-  const candidates = [parsed.freguesia, parsed.concelho, parsed.zona, parsed.distrito]
-    .map((v) => (v ?? "").trim())
-    .filter((v) => v.length > 0);
-  for (const text of candidates) {
-    const res = parseLocations(text, snap);
+  const candidates = (
+    [
+      [parsed.freguesia, "freguesia"],
+      [parsed.concelho, "concelho"],
+      [parsed.zona, "zona"],
+      [parsed.distrito, "distrito"],
+    ] as Array<[string | null | undefined, "freguesia" | "concelho" | "zona" | "distrito"]>
+  )
+    .map(([v, field]) => [(v ?? "").trim(), field] as const)
+    .filter(([v]) => v.length > 0);
+  for (const [text, field] of candidates) {
+    const res = parseLocations(text, snap, { field });
     if (res.resolved.length > 0) {
       return { location_id: res.resolved[0], geo_library_version: snap.version, unresolved_text: null };
     }
@@ -276,7 +283,7 @@ export async function resolveLocationIdFromParsed(parsed: ParsedProperty): Promi
   return {
     location_id: null,
     geo_library_version: snap.version,
-    unresolved_text: candidates[0] ?? null,
+    unresolved_text: candidates[0]?.[0] ?? null,
   };
 }
 

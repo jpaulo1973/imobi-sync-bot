@@ -20,7 +20,7 @@ let snapshotCache: {
 
 const CACHE_TTL_MS = 60_000;
 
-function indexSnapshot(
+export function indexSnapshot(
   version: number,
   locations: Location[],
   aliases: LocationAlias[],
