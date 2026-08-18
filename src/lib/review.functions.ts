@@ -815,3 +815,104 @@ export const setConsultorTelefone = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true, updated: data.search_ids.length };
   });
+export type BulkPhoneLineResult = {
+  linha: number;
+  status: "atualizada" | "erro";
+  procuras_atualizadas: number;
+  motivo?: string;
+};
+
+export const bulkSetConsultorTelefone = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z
+      .object({
+        linhas: z
+          .array(
+            z.object({
+              linha: z.number().int(),
+              search_ids: z.array(z.string().uuid()).min(1),
+              telefone: z.string().trim().min(6),
+            }),
+          )
+          .min(1)
+          .max(500),
+      })
+      .parse(d),
+  )
+  .handler(
+    async ({
+      data,
+      context,
+    }): Promise<{ atualizadas: number; erros: number; resultados: BulkPhoneLineResult[] }> => {
+      const { supabase, userId } = context;
+      await assertAdmin(supabase, userId);
+      const { setRequestClient } = await import("@/lib/privileged.server");
+      setRequestClient(context.supabase);
+      // Políticas de administrador cobrem estas tabelas: sem service_role key.
+      const supabaseAdmin = context.supabase as any;
+      const nowIso = new Date().toISOString();
+
+      const allIds = Array.from(new Set(data.linhas.flatMap((l) => l.search_ids)));
+      const { data: existing, error: exErr } = await supabaseAdmin
+        .from("active_searches")
+        .select("id")
+        .in("id", allIds)
+        .gt("expires_at", nowIso);
+      if (exErr) throw new Error(exErr.message);
+      const valid = new Set<string>((existing ?? []).map((r: any) => r.id as string));
+
+      const resultados: BulkPhoneLineResult[] = [];
+      for (const l of data.linhas) {
+        const norm = normalizePhone(l.telefone);
+        if (!norm || norm.length < 9) {
+          resultados.push({
+            linha: l.linha,
+            status: "erro",
+            procuras_atualizadas: 0,
+            motivo: "Número de telefone inválido (mínimo 9 dígitos).",
+          });
+          continue;
+        }
+        const ids = l.search_ids.filter((id) => valid.has(id));
+        if (ids.length === 0) {
+          resultados.push({
+            linha: l.linha,
+            status: "erro",
+            procuras_atualizadas: 0,
+            motivo: "Nenhuma procura ativa encontrada para os search_ids indicados.",
+          });
+          continue;
+        }
+        const { error } = await supabaseAdmin
+          .from("active_searches")
+          .update({ consultor_telefone: l.telefone.trim(), flagged_for_review: false })
+          .in("id", ids);
+        if (error) {
+          resultados.push({
+            linha: l.linha,
+            status: "erro",
+            procuras_atualizadas: 0,
+            motivo: error.message,
+          });
+          continue;
+        }
+        const desconhecidos = l.search_ids.length - ids.length;
+        resultados.push({
+          linha: l.linha,
+          status: "atualizada",
+          procuras_atualizadas: ids.length,
+          motivo:
+            desconhecidos > 0
+              ? `${desconhecidos} search_id(s) ignorado(s): inexistente(s) ou expirado(s).`
+              : undefined,
+        });
+      }
+
+      return {
+        atualizadas: resultados.filter((r) => r.status === "atualizada").length,
+        erros: resultados.filter((r) => r.status === "erro").length,
+        resultados,
+      };
+    },
+  );
