@@ -948,6 +948,8 @@ export type SearchSemLocalizacao = {
 export type SearchSemLocalizacaoItem = SearchSemLocalizacao & {
   /** Item 4 — país detetado quando a localização é claramente fora de Portugal. */
   foreign: { country: string; marker: string } | null;
+  /** Item 4a — parece um anúncio de imóvel (oferta) e não uma procura. */
+  offer: { marker: string } | null;
 };
 
 export const listSearchesSemLocalizacao = createServerFn({ method: "GET" })
