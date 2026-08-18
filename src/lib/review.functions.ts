@@ -945,9 +945,16 @@ export type SearchSemLocalizacao = {
   };
 };
 
+export type SearchSemLocalizacaoItem = SearchSemLocalizacao & {
+  /** Item 4 — país detetado quando a localização é claramente fora de Portugal. */
+  foreign: { country: string; marker: string } | null;
+  /** Item 4a — parece um anúncio de imóvel (oferta) e não uma procura. */
+  offer: { marker: string } | null;
+};
+
 export const listSearchesSemLocalizacao = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }): Promise<{ items: SearchSemLocalizacao[]; total: number }> => {
+  .handler(async ({ context }): Promise<{ items: SearchSemLocalizacaoItem[]; total: number; foreign_count: number }> => {
     const { supabase, userId } = context;
     await assertAdmin(supabase, userId);
     const { setRequestClient } = await import("@/lib/privileged.server");
@@ -958,6 +965,7 @@ export const listSearchesSemLocalizacao = createServerFn({ method: "GET" })
       .select(
         "id, user_id, origem, created_at, resumo, texto_original, criteria, location_ids, consultor_nome, consultor_telefone, contact_nome, grupo_whatsapp",
       )
+      .eq("descartado", false)
       .gt("expires_at", nowIso)
       .order("created_at", { ascending: false })
       .limit(5000);
@@ -965,7 +973,9 @@ export const listSearchesSemLocalizacao = createServerFn({ method: "GET" })
     const rows = (data ?? []).filter(
       (r: any) => !Array.isArray(r.location_ids) || r.location_ids.length === 0,
     );
-    const items: SearchSemLocalizacao[] = rows.map((r: any) => {
+    const { detectForeignLocation } = await import("@/lib/geo/foreign-detect");
+    const { detectOfferPosing } = await import("@/lib/offer-detect");
+    const items: SearchSemLocalizacaoItem[] = rows.map((r: any) => {
       const c = (r.criteria ?? {}) as any;
       return {
         id: r.id,
@@ -984,9 +994,63 @@ export const listSearchesSemLocalizacao = createServerFn({ method: "GET" })
           municipio: c.municipio ?? null,
           distrito: c.distrito ?? null,
         },
+        foreign: detectForeignLocation(
+          c.zona,
+          c.freguesia,
+          c.municipio,
+          c.distrito,
+          r.resumo,
+          r.texto_original,
+        ),
+        offer: detectOfferPosing(r.resumo, r.texto_original),
       };
     });
-    return { items, total: items.length };
+    return {
+      items,
+      total: items.length,
+      foreign_count: items.filter((i) => i.foreign !== null).length,
+    };
+  });
+
+/**
+ * Item 4 — descarta procuras (soft-delete). Usado para:
+ *  (a) entradas que não são procuras reais (ex. anúncios de venda importados
+ *      por engano como procura);
+ *  (b)/(c) procuras cuja localização está fora de Portugal, logo fora do
+ *      âmbito do motor geográfico.
+ * Nada é apagado: o registo e a mensagem original ficam guardados, apenas
+ * saem das listas e do motor de match.
+ */
+export const discardSearches = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z
+      .object({
+        ids: z.array(z.string().uuid()).min(1).max(2000),
+        motivo: z.string().trim().min(3).max(200),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    await assertAdmin(supabase, userId);
+    const { data: n, error } = await (context.supabase as any).rpc("admin_discard_searches", {
+      p_ids: data.ids,
+      p_motivo: data.motivo,
+    });
+    if (error) throw new Error(error.message);
+    return { ok: true as const, discarded: Number(n ?? 0) };
+  });
+
+export const restoreSearch = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    await assertAdmin(supabase, userId);
+    const { error } = await (context.supabase as any).rpc("admin_restore_search", { p_id: data.id });
+    if (error) throw new Error(error.message);
+    return { ok: true as const };
   });
 
 /**

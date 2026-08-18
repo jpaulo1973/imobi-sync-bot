@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { assertAdminContext } from "./admin-guard.server";
 import { callLovableAI } from "./ai-gateway.server";
 import { scoreMatch, type MatchCategoryResult } from "./matching-engine";
 import { normalizePhone } from "./dedup";
@@ -247,7 +248,8 @@ const AnalyzeInput = z
 export const analyzeWhatsappConversations = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => AnalyzeInput.parse(data))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    await assertAdminContext(context);
     const systemPrompt = `És um consultor imobiliário experiente em Portugal a analisar conversas de grupos de WhatsApp entre consultores.
 
 OBJECTIVO: identificar POTENCIAIS COMPRADORES ou ARRENDATÁRIOS (leads) — pessoas que PROCURAM imóvel. IGNORA ofertas de imóveis para venda/arrendamento, anúncios, partilhas de portais.
@@ -327,6 +329,7 @@ export const createBuyersFromLeads = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => CreateInput.parse(data))
   .handler(async ({ data, context }) => {
+    await assertAdminContext(context);
     const { supabase, userId } = context;
     const rows = data.leads.map((l) => {
       const nome = (l.nome && l.nome.trim()) || (l.resumo ? l.resumo.slice(0, 60) : "Lead WhatsApp");
@@ -424,6 +427,7 @@ export const matchWhatsappConversations = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => AnalyzeInput.parse(data))
   .handler(async ({ data, context }) => {
+    await assertAdminContext(context);
     const { supabase, userId } = context;
 
     // 1) Interpretar conversa via IA — reutiliza o mesmo prompt.

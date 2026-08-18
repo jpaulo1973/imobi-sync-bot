@@ -1,4 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { isCurrentUserAdmin } from "@/lib/admin.functions";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -15,6 +16,13 @@ import { FileSpreadsheet, Upload, CheckCircle2, AlertTriangle } from "lucide-rea
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/importar")({
+  // Item 1 — página exclusiva de Admin. `ssr: false` porque a verificação
+  // depende da sessão do browser.
+  ssr: false,
+  beforeLoad: async () => {
+    const res = await isCurrentUserAdmin();
+    if (!res.isAdmin) throw redirect({ to: "/imoveis" });
+  },
   head: () => ({
     meta: [
       { title: "Importar Procuras (Excel) — Property Match" },

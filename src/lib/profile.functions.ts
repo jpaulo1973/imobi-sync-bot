@@ -2,6 +2,24 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
+// Item 2 — campos obrigatórios em falta, para o alerta na primeira entrada.
+export type ProfileMissingField = "fullName" | "telefone" | "agency" | "whatsapp";
+
+export function computeMissingProfileFields(p: {
+  fullName?: string | null;
+  telefone?: string | null;
+  agency?: string | null;
+  whatsapp?: string | null;
+}): ProfileMissingField[] {
+  const missing: ProfileMissingField[] = [];
+  const empty = (v: string | null | undefined) => !v || v.trim().length < 2;
+  if (empty(p.fullName)) missing.push("fullName");
+  if (empty(p.telefone)) missing.push("telefone");
+  if (empty(p.agency)) missing.push("agency");
+  if (empty(p.whatsapp)) missing.push("whatsapp");
+  return missing;
+}
+
 export const getMyProfile = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
@@ -29,6 +47,13 @@ export const getMyProfile = createServerFn({ method: "GET" })
     const iat = (claims as any)?.iat as number | undefined;
     const lastSignInAt = typeof iat === "number" ? new Date(iat * 1000).toISOString() : null;
 
+    const missingFields = computeMissingProfileFields({
+      fullName: profile?.full_name ?? null,
+      agency: profile?.agency ?? null,
+      telefone: (profile as any)?.telefone ?? null,
+      whatsapp: (profile as any)?.whatsapp ?? null,
+    });
+
     return {
       userId,
       email: (claims as any)?.email ?? null,
@@ -37,6 +62,7 @@ export const getMyProfile = createServerFn({ method: "GET" })
       telefone: (profile as any)?.telefone ?? null,
       whatsapp: (profile as any)?.whatsapp ?? null,
       ami: (profile as any)?.ami ?? null,
+      missingFields,
       // Contas novas nascem inativas: só `true` explícito dá acesso.
       ativo: (profile as any)?.ativo === true,
       role: isAdmin ? ("admin" as const) : ("consultor" as const),

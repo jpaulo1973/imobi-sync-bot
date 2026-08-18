@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { assertAdminContext, isAdminContext } from "./admin-guard.server";
 import { scoreMatch, buildGeoMatchIndex, type BuyerLike } from "./matching-engine";
 import { buildDedupKey, normalizePhone, scoreSimilarity, type SimilarityCriteria } from "./dedup";
 import { LocationRepository } from "./geo";
@@ -55,6 +56,7 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => SaveInput.parse(data))
   .handler(async ({ data, context }) => {
+    await assertAdminContext(context);
     const { supabase, userId } = context;
     const expires = new Date(Date.now() + data.duration_days * 24 * 60 * 60 * 1000).toISOString();
     // Correções 1.3: normalizar telefones ANTES da persistência para que
@@ -749,6 +751,7 @@ async function purgeExpired(supabase: any, userId: string) {
 export const listActiveSearches = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
+    await assertAdminContext(context);
     const { supabase, userId } = context;
     await purgeExpired(supabase, userId);
     const { data, error } = await supabase
@@ -764,6 +767,7 @@ export const deleteActiveSearch = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => z.object({ id: z.string().uuid() }).parse(data))
   .handler(async ({ data, context }) => {
+    await assertAdminContext(context);
     const { supabase, userId } = context;
     const { error } = await supabase.from("active_searches").delete().eq("id", data.id).eq("user_id", userId);
     if (error) throw new Error(error.message);
@@ -888,6 +892,7 @@ export const matchPropertyAgainstActiveSearches = createServerFn({ method: "POST
 export const listOpportunities = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
+    await assertAdminContext(context);
     const { supabase, userId } = context;
     await purgeExpired(supabase, userId);
     const { data, error } = await supabase
@@ -941,6 +946,8 @@ export const listOpportunities = createServerFn({ method: "GET" })
 export const countUnseenOpportunities = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
+    // Radar é exclusivo de Admin: consultores recebem 0 sem erro.
+    if (!(await isAdminContext(context))) return { unseen: 0 };
     const { supabase, userId } = context;
     const { count, error } = await supabase
       .from("match_opportunities")
@@ -955,6 +962,7 @@ export const countUnseenOpportunities = createServerFn({ method: "GET" })
 export const markOpportunitiesViewed = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
+    await assertAdminContext(context);
     const { supabase, userId } = context;
     const { error } = await supabase
       .from("match_opportunities")

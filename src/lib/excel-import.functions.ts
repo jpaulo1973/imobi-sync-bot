@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import * as XLSX from "xlsx";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { assertAdminContext } from "./admin-guard.server";
 import { buildDedupKey } from "./dedup";
 import { upsertOne, recomputeForBatch, type UpsertRow } from "./active-searches.functions";
 import { splitBuyerSearches, mayContainMultipleSearches, type SplitSearch } from "./search-splitter.server";
@@ -461,8 +462,16 @@ async function processOneRow(
       },
     };
       }
-      const flagAsReview = decision.kind === "revisao";
-      const reviewReason = decision.reason;
+      // Item 4a — o ficheiro Excel mistura pedidos de compradores com anúncios
+      // de imóveis à venda. Quando o texto parece uma oferta, a linha entra
+      // marcada para revisão em vez de alimentar o Motor Match às cegas.
+      const { detectOfferPosing } = await import("@/lib/offer-detect");
+      const offerHint = detectOfferPosing(mensagem ?? null, descricao ?? null);
+      const flagAsReview = decision.kind === "revisao" || offerHint !== null;
+      const reviewReason =
+        decision.kind === "revisao"
+          ? decision.reason
+          : `Parece anúncio de imóvel à venda e não uma procura (marcador: "${offerHint?.marker}")`;
 
       const caracExtras: string[] = [...(caract ?? [])];
       if (elevador) caracExtras.push("elevador");
@@ -754,7 +763,8 @@ export type StartExcelImportResult = {
 export const startExcelImport = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => StartInput.parse(data))
-  .handler(async ({ data }): Promise<StartExcelImportResult> => {
+  .handler(async ({ data, context }): Promise<StartExcelImportResult> => {
+    await assertAdminContext(context);
     const { rows, headerIndex } = parseWorkbookRows(data.fileBase64);
     const batch_id = `xlsx_${Date.now()}`;
     const expires = new Date(Date.now() + DURATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
@@ -788,6 +798,7 @@ export const processExcelChunk = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => ChunkInput.parse(data))
   .handler(async ({ data, context }): Promise<ProcessExcelChunkResult> => {
+    await assertAdminContext(context);
     const { supabase, userId } = context;
     const geoSnap = await LocationRepository.getSnapshot();
     const counters: ChunkCounters = {
@@ -843,6 +854,7 @@ export const finalizeExcelImport = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => FinalizeInput.parse(data))
   .handler(async ({ data, context }): Promise<FinalizeExcelImportResult> => {
+    await assertAdminContext(context);
     const { supabase, userId } = context;
     const { data: batchSearches } = await supabase
       .from("active_searches")

@@ -32,6 +32,9 @@ export type Database = {
           data_publicacao: string | null
           decision_reason: string | null
           dedup_key: string | null
+          descartado: boolean
+          descartado_em: string | null
+          descartado_motivo: string | null
           expires_at: string
           flagged_for_review: boolean
           geo_library_version: number | null
@@ -69,6 +72,9 @@ export type Database = {
           data_publicacao?: string | null
           decision_reason?: string | null
           dedup_key?: string | null
+          descartado?: boolean
+          descartado_em?: string | null
+          descartado_motivo?: string | null
           expires_at: string
           flagged_for_review?: boolean
           geo_library_version?: number | null
@@ -106,6 +112,9 @@ export type Database = {
           data_publicacao?: string | null
           decision_reason?: string | null
           dedup_key?: string | null
+          descartado?: boolean
+          descartado_em?: string | null
+          descartado_motivo?: string | null
           expires_at?: string
           flagged_for_review?: boolean
           geo_library_version?: number | null
@@ -921,6 +930,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_discard_searches: {
+        Args: { p_ids: string[]; p_motivo: string }
+        Returns: number
+      }
       admin_list_users: {
         Args: never
         Returns: {
@@ -943,6 +956,7 @@ export type Database = {
         Returns: undefined
       }
       admin_purge_user_data: { Args: { p_user_id: string }; Returns: undefined }
+      admin_restore_search: { Args: { p_id: string }; Returns: undefined }
       admin_set_user_role: {
         Args: {
           p_role: Database["public"]["Enums"]["app_role"]
@@ -1002,6 +1016,9 @@ export type Database = {
           data_publicacao: string | null
           decision_reason: string | null
           dedup_key: string | null
+          descartado: boolean
+          descartado_em: string | null
+          descartado_motivo: string | null
           expires_at: string
           flagged_for_review: boolean
           geo_library_version: number | null

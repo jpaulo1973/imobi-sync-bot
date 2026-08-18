@@ -1,4 +1,5 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { isCurrentUserAdmin } from "@/lib/admin.functions";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -36,6 +37,13 @@ import {
 } from "@/lib/buyer-opportunities.functions";
 
 export const Route = createFileRoute("/_authenticated/radar")({
+  // Item 1 — página exclusiva de Admin. `ssr: false` porque a verificação
+  // depende da sessão do browser.
+  ssr: false,
+  beforeLoad: async () => {
+    const res = await isCurrentUserAdmin();
+    if (!res.isAdmin) throw redirect({ to: "/imoveis" });
+  },
   // Notificações de Procura WhatsApp: `?procura=<id>&property=<id>` abre
   // directamente essa procura (foco + detalhe da oportunidade).
   validateSearch: (search: Record<string, unknown>): { procura?: string; property?: string } => ({

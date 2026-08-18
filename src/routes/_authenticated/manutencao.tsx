@@ -256,13 +256,21 @@ function ManutencaoPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <div className="font-medium">Imóveis</div>
-                <div>Total sem location_id: {backfillResult.properties.total}</div>
+                <div>Imóveis analisados: {backfillResult.properties.total}</div>
+                <div>
+                  Sem localização:{" "}
+                  {backfillResult.properties.resolved + backfillResult.properties.unresolved}
+                </div>
                 <div className="text-green-700">Resolvidos: {backfillResult.properties.resolved}</div>
                 <div className="text-amber-700">Por resolver: {backfillResult.properties.unresolved}</div>
               </div>
               <div>
                 <div className="font-medium">Procuras</div>
-                <div>Total sem location_ids: {backfillResult.searches.total}</div>
+                <div>Procuras analisadas: {backfillResult.searches.total}</div>
+                <div>
+                  Sem localização:{" "}
+                  {backfillResult.searches.resolved + backfillResult.searches.unresolved}
+                </div>
                 <div className="text-green-700">Resolvidas: {backfillResult.searches.resolved}</div>
                 <div className="text-amber-700">Por resolver: {backfillResult.searches.unresolved}</div>
               </div>

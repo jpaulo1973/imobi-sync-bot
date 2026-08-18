@@ -11,6 +11,11 @@ import { listSupportRequests } from "@/lib/support.functions";
 import { MaintenanceGate } from "@/components/MaintenanceGate";
 import { NotificationBell } from "@/components/NotificationBell";
 import { SupportDialog } from "@/components/SupportDialog";
+import {
+  ProfileCompletionAlert,
+  ProfileCompletionBanner,
+} from "@/components/ProfileCompletionAlert";
+import type { ProfileMissingField } from "@/lib/profile.functions";
 import type { MaintenanceStatus } from "@/lib/maintenance.functions";
 
 export const Route = createFileRoute("/_authenticated")({
@@ -24,6 +29,8 @@ export const Route = createFileRoute("/_authenticated")({
 function Layout() {
   const navigate = useNavigate();
   const [profile, setProfile] = useState<{ fullName: string | null; email: string | null; role: "admin" | "consultor" } | null>(null);
+  const [missingFields, setMissingFields] = useState<ProfileMissingField[]>([]);
+  const [alertOpen, setAlertOpen] = useState(false);
   const isAdmin = profile?.role === "admin";
   const [unseen, setUnseen] = useState(0);
   const countFn = useServerFn(countUnseenOpportunities);
@@ -41,19 +48,30 @@ function Layout() {
             return;
           }
           setProfile({ fullName: p.fullName, email: p.email, role: p.role });
+          const missing = ((p as any).missingFields ?? []) as ProfileMissingField[];
+          setMissingFields(missing);
+          if (missing.length > 0) setAlertOpen(true);
         })
-        .catch(() => setProfile(null));
+        .catch(() => {
+          setProfile(null);
+          setMissingFields([]);
+        });
     load();
     const onUpdated = () => load();
     window.addEventListener("pm:profile-updated", onUpdated);
     return () => window.removeEventListener("pm:profile-updated", onUpdated);
   }, [profileFn, navigate]);
   useEffect(() => {
+    // Item 1 — o Radar é exclusivo de Admin: não sondar o contador para consultores.
+    if (!isAdmin) {
+      setUnseen(0);
+      return;
+    }
     const tick = () => countFn().then((r) => setUnseen(r.unseen)).catch(() => {});
     tick();
     const id = setInterval(tick, 60000);
     return () => clearInterval(id);
-  }, [countFn]);
+  }, [countFn, isAdmin]);
   useEffect(() => {
     if (!isAdmin) return;
     const tick = () =>
@@ -120,17 +138,19 @@ function Layout() {
                 </Link>
               </>
             )}
-            <Link
-              to="/radar"
-              className="px-3 py-2 rounded-md text-sm font-medium hover:bg-secondary inline-flex items-center gap-2 [&.active]:bg-secondary [&.active]:text-primary"
-              activeProps={{ className: "active" }}
-              onClick={() => setUnseen(0)}
-            >
-              <Radar className="w-4 h-4" /> Radar
-              {unseen > 0 && (
-                <Badge variant="default" className="ml-1 h-5 min-w-5 px-1.5">{unseen}</Badge>
-              )}
-            </Link>
+            {isAdmin && (
+              <Link
+                to="/radar"
+                className="px-3 py-2 rounded-md text-sm font-medium hover:bg-secondary inline-flex items-center gap-2 [&.active]:bg-secondary [&.active]:text-primary"
+                activeProps={{ className: "active" }}
+                onClick={() => setUnseen(0)}
+              >
+                <Radar className="w-4 h-4" /> Radar
+                {unseen > 0 && (
+                  <Badge variant="default" className="ml-1 h-5 min-w-5 px-1.5">{unseen}</Badge>
+                )}
+              </Link>
+            )}
             {isAdmin && (
               <Link
                 to="/utilizadores"
@@ -196,6 +216,12 @@ function Layout() {
           <strong>Modo de Manutenção activo</strong> — utilizadores não-admin estão bloqueados.
         </div>
       )}
+      <ProfileCompletionBanner missing={missingFields} />
+      <ProfileCompletionAlert
+        missing={missingFields}
+        open={alertOpen}
+        onDismiss={() => setAlertOpen(false)}
+      />
       <main className="flex-1 container mx-auto px-4 py-8">
         <MaintenanceGate isAdmin={isAdmin} onStatusChange={setMaintenance}>
           <Outlet />
