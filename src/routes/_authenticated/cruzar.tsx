@@ -1,4 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { isCurrentUserAdmin } from "@/lib/admin.functions";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useState, useRef } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -25,6 +26,13 @@ import { toast } from "sonner";
 import { PhoneButton, openWhatsApp } from "@/components/PhoneButton";
 
 export const Route = createFileRoute("/_authenticated/cruzar")({
+  // Item 1 — página exclusiva de Admin. `ssr: false` porque a verificação
+  // depende da sessão do browser.
+  ssr: false,
+  beforeLoad: async () => {
+    const res = await isCurrentUserAdmin();
+    if (!res.isAdmin) throw redirect({ to: "/imoveis" });
+  },
   head: () => ({
     meta: [
       { title: "Fazer Match a partir do WhatsApp — Property Match" },
