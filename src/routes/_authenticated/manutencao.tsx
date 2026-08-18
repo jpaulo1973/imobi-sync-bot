@@ -23,6 +23,9 @@ import {
 import {
   listSupportRequests,
   markSupportRequestRead,
+  replyToSupportRequest,
+  resolveAndArchiveSupportRequest,
+  reopenSupportRequest,
   type SupportRequest,
 } from "@/lib/support.functions";
 
@@ -41,8 +44,14 @@ function ManutencaoPage() {
   const recomputeFn = useServerFn(recomputeAllMatches);
   const supportListFn = useServerFn(listSupportRequests);
   const supportReadFn = useServerFn(markSupportRequestRead);
+  const supportReplyFn = useServerFn(replyToSupportRequest);
+  const supportResolveFn = useServerFn(resolveAndArchiveSupportRequest);
+  const supportReopenFn = useServerFn(reopenSupportRequest);
   const [support, setSupport] = useState<SupportRequest[]>([]);
   const [supportUnread, setSupportUnread] = useState(0);
+  const [supportArquivados, setSupportArquivados] = useState(false);
+  const [replyDraft, setReplyDraft] = useState<Record<string, string>>({});
+  const [replyBusy, setReplyBusy] = useState<string | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -65,13 +74,64 @@ function ManutencaoPage() {
   }, [getFn]);
 
   useEffect(() => {
-    supportListFn()
+    supportListFn({ data: { arquivados: supportArquivados } })
       .then((r) => {
         setSupport(r.items);
         setSupportUnread(r.unread);
       })
       .catch(() => {});
-  }, [supportListFn]);
+  }, [supportListFn, supportArquivados]);
+
+  const reloadSupport = async () => {
+    const r = await supportListFn({ data: { arquivados: supportArquivados } });
+    setSupport(r.items);
+    setSupportUnread(r.unread);
+  };
+
+  const sendReply = async (id: string) => {
+    const texto = (replyDraft[id] ?? "").trim();
+    if (texto.length < 2) {
+      toast.error("Escreva uma resposta.");
+      return;
+    }
+    setReplyBusy(id);
+    try {
+      await supportReplyFn({ data: { id, mensagem: texto } });
+      setReplyDraft((p) => ({ ...p, [id]: "" }));
+      await reloadSupport();
+      toast.success("Resposta enviada.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao responder");
+    } finally {
+      setReplyBusy(null);
+    }
+  };
+
+  const resolveArchive = async (id: string) => {
+    setReplyBusy(id);
+    try {
+      await supportResolveFn({ data: { id, arquivar: true } });
+      await reloadSupport();
+      toast.success("Marcado como resolvido e arquivado.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro");
+    } finally {
+      setReplyBusy(null);
+    }
+  };
+
+  const reopen = async (id: string) => {
+    setReplyBusy(id);
+    try {
+      await supportReopenFn({ data: { id } });
+      await reloadSupport();
+      toast.success("Pedido reaberto.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro");
+    } finally {
+      setReplyBusy(null);
+    }
+  };
 
   const markRead = async (id: string) => {
     try {
@@ -312,6 +372,22 @@ function ManutencaoPage() {
             Mensagens enviadas pelos consultores através do botão “Ajuda / Sugestão”.
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant={supportArquivados ? "outline" : "default"}
+            onClick={() => setSupportArquivados(false)}
+          >
+            Activos
+          </Button>
+          <Button
+            size="sm"
+            variant={supportArquivados ? "default" : "outline"}
+            onClick={() => setSupportArquivados(true)}
+          >
+            Arquivados
+          </Button>
+        </div>
         {support.length === 0 ? (
           <p className="text-sm text-muted-foreground">Sem mensagens.</p>
         ) : (
@@ -319,7 +395,7 @@ function ManutencaoPage() {
             {support.map((s) => (
               <div
                 key={s.id}
-                className={`rounded-md border p-3 text-sm space-y-1 ${
+                className={`rounded-md border p-3 text-sm space-y-2 ${
                   s.read_at ? "" : "border-primary/40 bg-primary/5"
                 }`}
               >
@@ -329,6 +405,9 @@ function ManutencaoPage() {
                     {s.autor_email && (
                       <span className="text-xs text-muted-foreground"> · {s.autor_email}</span>
                     )}
+                    <Badge className="ml-2" variant={s.status === "resolvido" ? "outline" : "default"}>
+                      {s.status === "resolvido" ? "Resolvido" : "Aberto"}
+                    </Badge>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">
@@ -342,6 +421,52 @@ function ManutencaoPage() {
                   </div>
                 </div>
                 <p className="whitespace-pre-wrap break-words">{s.mensagem}</p>
+                {(s.replies ?? []).length > 0 && (
+                  <div className="space-y-1 border-l-2 pl-3">
+                    {(s.replies ?? []).map((r) => (
+                      <div key={r.id}>
+                        <div className="text-xs text-muted-foreground">
+                          Resposta · {new Date(r.created_at).toLocaleString("pt-PT")}
+                        </div>
+                        <p className="whitespace-pre-wrap break-words">{r.mensagem}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Textarea
+                    rows={2}
+                    placeholder="Escrever resposta ao consultor..."
+                    value={replyDraft[s.id] ?? ""}
+                    onChange={(e) =>
+                      setReplyDraft((p) => ({ ...p, [s.id]: e.target.value }))
+                    }
+                  />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button size="sm" disabled={replyBusy === s.id} onClick={() => sendReply(s.id)}>
+                      Responder
+                    </Button>
+                    {s.arquivado ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={replyBusy === s.id}
+                        onClick={() => reopen(s.id)}
+                      >
+                        Reabrir
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={replyBusy === s.id}
+                        onClick={() => resolveArchive(s.id)}
+                      >
+                        <CheckCheck className="w-4 h-4 mr-1" /> Marcar resolvido e arquivar
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </div>
             ))}
           </div>
