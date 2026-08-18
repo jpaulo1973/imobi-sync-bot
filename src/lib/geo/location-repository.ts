@@ -91,23 +91,45 @@ export function indexSnapshot(
 async function loadSnapshot(): Promise<GeoSnapshot> {
   const { getRequestClient } = await import("@/lib/privileged.server");
   const sb = (await getRequestClient()) as any;
-  const [versionRes, locationsRes, aliasesRes, relationsRes, membersRes] = await Promise.all([
+  // IMPORTANTE: o Data API devolve no máximo 1000 linhas por pedido. Todas as
+  // tabelas de referência geográfica excedem esse valor (3.6k locations, 7k
+  // aliases), pelo que a leitura tem obrigatoriamente de ser paginada.
+  const [versionRes, locations, aliases, relations, members] = await Promise.all([
     sb.from("geo_library_version").select("version").order("version", { ascending: false }).limit(1),
-    sb.from("locations").select("id, slug, nome, tipo, parent_id, aprovado").eq("aprovado", true),
-    sb.from("location_aliases").select("id, alias_normalizado, location_ids, origem, aprovado, times_used, last_used_at"),
-    sb.from("location_relations").select("from_location_id, to_location_id, relation_type"),
-    sb.from("functional_zone_members").select("functional_zone_id, location_id"),
+    fetchAllRows(sb, "locations", "id, slug, nome, tipo, parent_id, aprovado", (q: any) => q.eq("aprovado", true)),
+    fetchAllRows(sb, "location_aliases", "id, alias_normalizado, location_ids, origem, aprovado, times_used, last_used_at"),
+    fetchAllRows(sb, "location_relations", "from_location_id, to_location_id, relation_type"),
+    fetchAllRows(sb, "functional_zone_members", "functional_zone_id, location_id"),
   ]);
   const version = Number(versionRes.data?.[0]?.version ?? 1);
-  const locations = (locationsRes.data ?? []) as unknown as Location[];
-  const aliases = (aliasesRes.data ?? []) as unknown as LocationAlias[];
   return indexSnapshot(
     version,
-    locations,
-    aliases,
-    (relationsRes.data ?? []) as Array<{ from_location_id: string; to_location_id: string; relation_type: string }>,
-    (membersRes.data ?? []) as Array<{ functional_zone_id: string; location_id: string }>,
+    locations as unknown as Location[],
+    aliases as unknown as LocationAlias[],
+    relations as Array<{ from_location_id: string; to_location_id: string; relation_type: string }>,
+    members as Array<{ functional_zone_id: string; location_id: string }>,
   );
+}
+
+/** Lê a totalidade de uma tabela em páginas de 1000 (limite do Data API). */
+export async function fetchAllRows(
+  sb: any,
+  table: string,
+  columns: string,
+  refine?: (q: any) => any,
+  pageSize = 1000,
+): Promise<any[]> {
+  const out: any[] = [];
+  for (let from = 0; ; from += pageSize) {
+    let q = sb.from(table).select(columns).order("id", { ascending: true }).range(from, from + pageSize - 1);
+    if (refine) q = refine(q);
+    const { data, error } = await q;
+    if (error) throw new Error(`Leitura de ${table} falhou: ${error.message}`);
+    const rows = data ?? [];
+    out.push(...rows);
+    if (rows.length < pageSize) break;
+  }
+  return out;
 }
 
 export const LocationRepository = {
