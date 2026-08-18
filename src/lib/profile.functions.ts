@@ -2,6 +2,24 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
+// Item 2 — campos obrigatórios em falta, para o alerta na primeira entrada.
+export type ProfileMissingField = "fullName" | "telefone" | "agency" | "whatsapp";
+
+export function computeMissingProfileFields(p: {
+  fullName?: string | null;
+  telefone?: string | null;
+  agency?: string | null;
+  whatsapp?: string | null;
+}): ProfileMissingField[] {
+  const missing: ProfileMissingField[] = [];
+  const empty = (v: string | null | undefined) => !v || v.trim().length < 2;
+  if (empty(p.fullName)) missing.push("fullName");
+  if (empty(p.telefone)) missing.push("telefone");
+  if (empty(p.agency)) missing.push("agency");
+  if (empty(p.whatsapp)) missing.push("whatsapp");
+  return missing;
+}
+
 export const getMyProfile = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
