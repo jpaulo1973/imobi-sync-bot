@@ -121,13 +121,15 @@ export async function fetchAllRows(
 ): Promise<any[]> {
   const out: any[] = [];
   for (let from = 0; ; from += pageSize) {
-    let q = sb.from(table).select(columns).order("id", { ascending: true }).range(from, from + pageSize - 1);
+    let q: any = sb.from(table).select(columns);
+    const paginated = typeof q?.order === "function" && typeof q?.order(("id"), { ascending: true })?.range === "function";
+    if (paginated) q = q.order("id", { ascending: true }).range(from, from + pageSize - 1);
     if (refine) q = refine(q);
     const { data, error } = await q;
     if (error) throw new Error(`Leitura de ${table} falhou: ${error.message}`);
     const rows = data ?? [];
     out.push(...rows);
-    if (rows.length < pageSize) break;
+    if (!paginated || rows.length < pageSize) break;
   }
   return out;
 }
