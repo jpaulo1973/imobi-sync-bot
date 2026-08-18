@@ -59,12 +59,19 @@ export const backfillGeoFromText = createServerFn({ method: "POST" })
     const propUpdates: Array<() => Promise<unknown>> = [];
 
     for (const p of (props ?? []) as Array<{ id: string; distrito: string | null; concelho: string | null; freguesia: string | null; zona: string | null }>) {
-      const candidates = [p.freguesia, p.concelho, p.zona, p.distrito]
-        .map((v) => (v ?? "").trim())
-        .filter((v) => v.length > 0);
+      const candidates = (
+        [
+          [p.freguesia, "freguesia"],
+          [p.concelho, "concelho"],
+          [p.zona, "zona"],
+          [p.distrito, "distrito"],
+        ] as Array<[string | null, "freguesia" | "concelho" | "zona" | "distrito"]>
+      )
+        .map(([v, field]) => [(v ?? "").trim(), field] as const)
+        .filter(([v]) => v.length > 0);
       let matched: string | null = null;
-      for (const t of candidates) {
-        const r = parseLocations(t, snap);
+      for (const [t, field] of candidates) {
+        const r = parseLocations(t, snap, { field });
         if (r.resolved.length > 0) { matched = r.resolved[0]; break; }
       }
       if (matched) {
@@ -77,7 +84,7 @@ export const backfillGeoFromText = createServerFn({ method: "POST" })
         );
       } else {
         propsUnresolved++;
-        if (candidates[0]) unresolvedPropTexts.push(candidates[0]);
+        if (candidates[0]) unresolvedPropTexts.push(candidates[0][0]);
       }
     }
     // Executar em paralelo (chunks) para evitar timeout.
@@ -98,12 +105,19 @@ export const backfillGeoFromText = createServerFn({ method: "POST" })
       const current = (s.location_ids ?? []) as string[];
       if (current.length > 0) continue; // já resolvido
       const c = (s.criteria ?? {}) as Record<string, unknown>;
-      const candidates = [c.freguesia, c.zona, c.municipio, c.distrito]
-        .map((v) => (typeof v === "string" ? v.trim() : ""))
-        .filter((v) => v.length > 0);
+      const candidates = (
+        [
+          [c.freguesia, "freguesia"],
+          [c.zona, "zona"],
+          [c.municipio, "concelho"],
+          [c.distrito, "distrito"],
+        ] as Array<[unknown, "freguesia" | "concelho" | "zona" | "distrito"]>
+      )
+        .map(([v, field]) => [typeof v === "string" ? v.trim() : "", field] as const)
+        .filter(([v]) => v.length > 0);
       const acc = new Set<string>();
-      for (const t of candidates) {
-        const r = parseLocations(t, snap);
+      for (const [t, field] of candidates) {
+        const r = parseLocations(t, snap, { field });
         if (r.resolved.length > 0) {
           for (const id of r.resolved) acc.add(id);
           break;
@@ -119,7 +133,7 @@ export const backfillGeoFromText = createServerFn({ method: "POST" })
         );
       } else if (candidates.length > 0) {
         searchesUnresolved++;
-        unresolvedSearchTexts.push(candidates[0]);
+        unresolvedSearchTexts.push(candidates[0][0]);
       }
     }
     await runChunks(searchUpdates, 20);
