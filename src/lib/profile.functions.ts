@@ -37,7 +37,8 @@ export const getMyProfile = createServerFn({ method: "GET" })
       telefone: (profile as any)?.telefone ?? null,
       whatsapp: (profile as any)?.whatsapp ?? null,
       ami: (profile as any)?.ami ?? null,
-      ativo: (profile as any)?.ativo !== false,
+      // Contas novas nascem inativas: só `true` explícito dá acesso.
+      ativo: (profile as any)?.ativo === true,
       role: isAdmin ? ("admin" as const) : ("consultor" as const),
       lastSignInAt,
       counts: {
