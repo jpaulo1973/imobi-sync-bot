@@ -1,44 +1,72 @@
-# Importação por URL fora do Lovable (erro "FIRECRAWL_API_KEY não configurado")
+# Diagnóstico — "LOVABLE_API_KEY not configured" na Importação por URL (Vercel)
 
-## Diagnóstico
+## 1. Onde o código usa LOVABLE_API_KEY
 
-O scraping vive em `src/lib/property-import.server.ts` (`firecrawlScrape`), chamado pela server function `importPropertyFromUrl`. Lê `process.env.FIRECRAWL_API_KEY`.
+Só existe um ponto de leitura da chave:
 
-A ligação Firecrawl deste projeto é **API direta gerida pela Lovable** (não passa pelo gateway). Isso tem duas consequências importantes:
+- `src/lib/ai-gateway.server.ts` — `callLovableAI()` lê `process.env.LOVABLE_API_KEY` e chama
+  `https://ai.gateway.lovable.dev/v1/chat/completions` (modelo `google/gemini-2.5-flash`).
+  Sem a variável, lança exatamente `LOVABLE_API_KEY not configured`.
 
-1. A chave real (`fc-...`) é gerida pela Lovable e **não é visível** — não há forma de a colar manualmente no Vercel.
-2. A chave é injetada no runtime servidor da Lovable. Só existe em deploys Lovable.
+No fluxo "Importar por URL":
 
-## Por que a solução pedida (Edge Function) não resolve
+```text
+URL -> Firecrawl (scrape HTML/markdown)  [FIRECRAWL_API_KEY]
+    -> callLovableAI (estruturar anúncio em JSON)  [LOVABLE_API_KEY]  <-- falha aqui
+    -> validação Zod + merge de áreas + resolução geográfica -> imóvel
+```
 
-Duas razões, ambas bloqueantes:
+Ficheiro/linha: `src/lib/property-import.server.ts` (chamada à IA no fim da extração, para
+converter o texto do anúncio em campos: tipo, tipologia, preço, áreas, localização, extras).
 
-- O ambiente de build deste projeto **não permite criar novas Edge Functions** (o projeto não tem nenhuma; a stack é TanStack Start com server functions). Não é uma escolha de estilo — a criação está vedada.
-- Mesmo que existisse, os secrets dos conectores **não são injetados nos secrets das Edge Functions**. A Edge Function ficaria exatamente com o mesmo `FIRECRAWL_API_KEY` em falta. Este ponto é diferente do caso `SUPABASE_SERVICE_ROLE_KEY`, onde a chave existia mesmo do lado da Supabase.
+O mesmo `callLovableAI` é usado por mais 5 módulos (WhatsApp leads, dedup, splitter de procuras,
+normalização de localizações, matching), logo a decisão aqui afeta todo o produto, não só a
+importação por URL.
 
-Ou seja: mover o código para uma Edge Function não faria a chave aparecer.
+## 2. Formato da chave: gateway vs BYOK
 
-## Opções reais (escolhe uma)
+`LOVABLE_API_KEY` é uma chave interna do Lovable (gateway), emitida automaticamente para o
+projeto e usada para faturação/rate-limit no runtime Lovable. Não é uma chave de fornecedor de
+IA e não é o mesmo caso do Firecrawl:
 
-### Opção 1 — Publicar na Lovable (recomendada, zero código)
-Usar `imobi-sync-bot.lovable.app` (ou domínio próprio apontado à Lovable) como runtime da app. A chave Firecrawl é injetada automaticamente e a importação por URL passa a funcionar. Nada a alterar no código.
+- Firecrawl: a chave `fc-...` é emitida pelo fornecedor, logo pode ser colada no Vercel (BYOK).
+- Lovable AI Gateway: não existe "chave própria" equivalente. O que existe é o caminho BYOK
+  real: falar diretamente com um fornecedor (OpenAI/Anthropic/Google) com chave própria.
 
-### Opção 2 — Firecrawl BYOK + variável no Vercel
-1. Criar uma **nova ligação Firecrawl em modo "própria chave"** com uma API key tua da Firecrawl (assim conheces o valor).
-2. Adicionar `FIRECRAWL_API_KEY=fc-...` nas Environment Variables do projeto Vercel (Production + Preview) e redeploy.
-3. Código: sem alterações funcionais; apenas melhoro a mensagem de erro para indicar exatamente onde configurar a chave em cada ambiente.
+Ou seja: para produção no Vercel sem depender do runtime Lovable, é preciso trocar o transporte
+de IA, não apenas configurar uma variável.
 
-### Opção 3 — Proxy no runtime Lovable
-Criar em `src/routes/api/public/scrape-property.ts` um endpoint que corre no deploy Lovable (onde a chave existe) e que a app no Vercel chama por HTTP, com um segredo partilhado (`SCRAPE_PROXY_SECRET`) definido nos dois lados.
+## 3. Caminhos possíveis
 
-- Novo ficheiro: `src/routes/api/public/scrape-property.ts` (valida `Authorization: Bearer <SCRAPE_PROXY_SECRET>`, valida o URL contra allowlist Century21/Idealista/Imovirtual, chama Firecrawl, devolve o objeto de imóvel extraído).
-- `src/lib/property-import.server.ts`: se `FIRECRAWL_API_KEY` existir → caminho atual; senão, se `SCRAPE_PROXY_URL` + `SCRAPE_PROXY_SECRET` existirem → delega no proxy; senão erro explicativo.
-- Sem alterações no frontend nem em `importPropertyFromUrl`.
+### Opção A — Copiar LOVABLE_API_KEY para o Vercel (mais rápido)
+- Uma variável de ambiente no Vercel, zero alterações de código.
+- Continua a depender do gateway Lovable (disponibilidade + créditos do projeto).
+- Nota: é uma chave gerida pelo Lovable; se for rotacionada, tem de ser reposta no Vercel.
 
-Custo: mantém uma dependência do deploy Lovable estar vivo, e é mais uma superfície pública a proteger.
+### Opção B — Camada de IA com fornecedor próprio (recomendada para produção)
+Transformar `ai-gateway.server.ts` num adaptador com dois transportes, escolhidos por env:
 
-## Recomendação
+```text
+AI_PROVIDER = "lovable" | "openai"
+OPENAI_API_KEY = sk-...        (Vercel: Production + Preview)
+AI_MODEL = openai/gpt-5.6-sol  (default)
+```
 
-Opção 1 se o Vercel não for obrigatório. Se for obrigatório, Opção 2 (mais simples e sem infraestrutura extra). Opção 3 só se não quiseres gerir uma chave Firecrawl própria.
+- `callLovableAI()` mantém a mesma assinatura (`messages`, `response_format`), pelo que os 6
+  módulos consumidores não mudam.
+- Se `AI_PROVIDER=openai` (ou só existir `OPENAI_API_KEY`), usa a API do fornecedor; caso
+  contrário mantém o gateway Lovable. Preview Lovable continua a funcionar sem configuração.
+- Erros passam a indicar claramente qual variável falta em cada ambiente (Lovable Cloud vs
+  Vercel), no mesmo estilo já aplicado ao Firecrawl.
+- Mapeamento de erros preservado: 402 -> `CREDITS_EXHAUSTED`, 429 -> `RATE_LIMITED`.
 
-Diz-me qual segues e implemento.
+### Recomendação
+Opção B, com Opção A como desbloqueio imediato se precisares de testar hoje. A Opção B é a única
+que remove a dependência do runtime Lovable em produção, e é isomórfica à decisão que já tomámos
+para o Firecrawl.
+
+## Âmbito da implementação (se aprovares a Opção B)
+- `src/lib/ai-gateway.server.ts`: adaptador multi-transporte + mensagens de erro por ambiente.
+- Nenhuma alteração nos 6 módulos consumidores nem em regras de negócio/Motor de Match.
+- Pedido da chave `OPENAI_API_KEY` via formulário seguro (não fica em código).
+- Validação: importação por URL end-to-end no preview com cada transporte.
