@@ -916,3 +916,127 @@ export const bulkSetConsultorTelefone = createServerFn({ method: "POST" })
       };
     },
   );
+
+// ---------------------------------------------------------------------------
+// Revisão — Procuras sem localização resolvida
+//
+// Lista as procuras ativas cujo `location_ids` está vazio (o backfill não
+// conseguiu resolver texto geográfico aproveitável). Serve para revisão
+// manual, uma a uma, com a mensagem original visível. A correção é feita
+// exclusivamente pelo LocationSelector (IDs) — nunca por texto livre.
+// ---------------------------------------------------------------------------
+
+export type SearchSemLocalizacao = {
+  id: string;
+  user_id: string;
+  origem: string | null;
+  created_at: string;
+  resumo: string | null;
+  texto_original: string | null;
+  consultor_nome: string | null;
+  consultor_telefone: string | null;
+  contact_nome: string | null;
+  grupo_whatsapp: string | null;
+  criteria_geo: {
+    zona: string | null;
+    freguesia: string | null;
+    municipio: string | null;
+    distrito: string | null;
+  };
+};
+
+export const listSearchesSemLocalizacao = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<{ items: SearchSemLocalizacao[]; total: number }> => {
+    const { supabase, userId } = context;
+    await assertAdmin(supabase, userId);
+    const { setRequestClient } = await import("@/lib/privileged.server");
+    setRequestClient(context.supabase);
+    const nowIso = new Date().toISOString();
+    const { data, error } = await (context.supabase as any)
+      .from("active_searches")
+      .select(
+        "id, user_id, origem, created_at, resumo, texto_original, criteria, location_ids, consultor_nome, consultor_telefone, contact_nome, grupo_whatsapp",
+      )
+      .gt("expires_at", nowIso)
+      .order("created_at", { ascending: false })
+      .limit(5000);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []).filter(
+      (r: any) => !Array.isArray(r.location_ids) || r.location_ids.length === 0,
+    );
+    const items: SearchSemLocalizacao[] = rows.map((r: any) => {
+      const c = (r.criteria ?? {}) as any;
+      return {
+        id: r.id,
+        user_id: r.user_id,
+        origem: r.origem ?? null,
+        created_at: r.created_at,
+        resumo: r.resumo ?? null,
+        texto_original: r.texto_original ?? null,
+        consultor_nome: r.consultor_nome ?? null,
+        consultor_telefone: r.consultor_telefone ?? null,
+        contact_nome: r.contact_nome ?? null,
+        grupo_whatsapp: r.grupo_whatsapp ?? null,
+        criteria_geo: {
+          zona: c.zona ?? null,
+          freguesia: c.freguesia ?? null,
+          municipio: c.municipio ?? null,
+          distrito: c.distrito ?? null,
+        },
+      };
+    });
+    return { items, total: items.length };
+  });
+
+/**
+ * Grava manualmente as localizações de uma procura (IDs da biblioteca) e
+ * recruza imediatamente essa procura no Motor Match.
+ */
+export const setSearchLocations = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z
+      .object({
+        id: z.string().uuid(),
+        location_ids: z.array(z.string().uuid()).min(1).max(50),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    await assertAdmin(supabase, userId);
+    const { setRequestClient } = await import("@/lib/privileged.server");
+    setRequestClient(context.supabase);
+    const { LocationRepository } = await import("@/lib/geo");
+    const snap = await LocationRepository.getSnapshot();
+    const validIds = data.location_ids.filter((id) => snap.byId.has(id));
+    if (validIds.length === 0) throw new Error("Nenhuma localização válida.");
+
+    const supabaseAdmin = context.supabase as any;
+    const { data: existing, error: gErr } = await supabaseAdmin
+      .from("active_searches")
+      .select("id, user_id")
+      .eq("id", data.id)
+      .maybeSingle();
+    if (gErr) throw new Error(gErr.message);
+    if (!existing) throw new Error("Procura não encontrada.");
+
+    const { error } = await supabaseAdmin
+      .from("active_searches")
+      .update({
+        location_ids: validIds,
+        geo_library_version: snap.version,
+        pending_geo: false,
+        decision_reason: "Localização revista manualmente pelo administrador",
+        last_match_at: null,
+      })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+    try {
+      await recomputeForSearch(supabaseAdmin, existing.user_id, data.id);
+    } catch (e) {
+      console.error("setSearchLocations recompute failed", e);
+    }
+    return { ok: true as const, location_ids: validIds };
+  });
