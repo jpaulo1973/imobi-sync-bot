@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import * as XLSX from "xlsx";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { assertAdminContext } from "./admin-guard.server";
 import { buildDedupKey } from "./dedup";
 import { upsertOne, recomputeForBatch, type UpsertRow } from "./active-searches.functions";
 import { splitBuyerSearches, mayContainMultipleSearches, type SplitSearch } from "./search-splitter.server";
@@ -754,7 +755,8 @@ export type StartExcelImportResult = {
 export const startExcelImport = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => StartInput.parse(data))
-  .handler(async ({ data }): Promise<StartExcelImportResult> => {
+  .handler(async ({ data, context }): Promise<StartExcelImportResult> => {
+    await assertAdminContext(context);
     const { rows, headerIndex } = parseWorkbookRows(data.fileBase64);
     const batch_id = `xlsx_${Date.now()}`;
     const expires = new Date(Date.now() + DURATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
@@ -788,6 +790,7 @@ export const processExcelChunk = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => ChunkInput.parse(data))
   .handler(async ({ data, context }): Promise<ProcessExcelChunkResult> => {
+    await assertAdminContext(context);
     const { supabase, userId } = context;
     const geoSnap = await LocationRepository.getSnapshot();
     const counters: ChunkCounters = {
@@ -843,6 +846,7 @@ export const finalizeExcelImport = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => FinalizeInput.parse(data))
   .handler(async ({ data, context }): Promise<FinalizeExcelImportResult> => {
+    await assertAdminContext(context);
     const { supabase, userId } = context;
     const { data: batchSearches } = await supabase
       .from("active_searches")
