@@ -26,6 +26,9 @@ import {
 } from "@/lib/admin.functions";
 
 export const Route = createFileRoute("/_authenticated/utilizadores")({
+  // A verificação de admin depende da sessão no browser: sem isto, um acesso
+  // directo por URL era avaliado no servidor (sem sessão) e redirecionava.
+  ssr: false,
   beforeLoad: async () => {
     const res = await isCurrentUserAdmin();
     if (!res.isAdmin) throw redirect({ to: "/imoveis" });
