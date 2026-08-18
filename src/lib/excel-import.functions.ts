@@ -466,7 +466,7 @@ async function processOneRow(
       // de imóveis à venda. Quando o texto parece uma oferta, a linha entra
       // marcada para revisão em vez de alimentar o Motor Match às cegas.
       const { detectOfferPosing } = await import("@/lib/offer-detect");
-      const offerHint = detectOfferPosing(textoOriginal ?? null, resumo ?? null);
+      const offerHint = detectOfferPosing(rawText ?? null);
       const flagAsReview = decision.kind === "revisao" || offerHint !== null;
       const reviewReason =
         decision.kind === "revisao"
