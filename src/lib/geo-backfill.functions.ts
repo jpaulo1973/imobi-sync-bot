@@ -179,14 +179,16 @@ export const recomputeAllMatches = createServerFn({ method: "POST" })
     setRequestClient(context.supabase);
     const supabaseAdmin = context.supabase as any;
     const { recomputeForBatch } = await import("./active-searches.functions");
+    const { fetchAllRows } = await import("./geo/location-repository");
 
     const nowIso = new Date().toISOString();
     // Reprocessar apenas procuras ativas (não expiradas) de todos os utilizadores.
-    const { data: rows, error } = await supabaseAdmin
-      .from("active_searches")
-      .select("id, user_id")
-      .gt("expires_at", nowIso);
-    if (error) throw new Error(`Leitura de active_searches falhou: ${error.message}`);
+    const rows = await fetchAllRows(
+      supabaseAdmin,
+      "active_searches",
+      "id, user_id",
+      (q: any) => q.gt("expires_at", nowIso),
+    );
 
     const byUser = new Map<string, string[]>();
     for (const r of (rows ?? []) as Array<{ id: string; user_id: string }>) {
