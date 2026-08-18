@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Plus, Trash2, Phone, Mail, MapPin, Euro, Home, Sparkles, Lock } from "lucide-react";
 import { Pencil } from "lucide-react";
 import { LocationSelector } from "@/components/entity-selector/LocationSelector";
+import { resolveCategories } from "@/lib/property-taxonomy";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -83,6 +84,9 @@ const empty = {
   tipo_imovel: [] as string[],
   budget_min: "",
   budget_max: "",
+  budget_max_obras: "",
+  budget_max_pronto: "",
+  estado_desejado: "",
   area_min: "",
   quartos_min: "",
   andar_min: "",
@@ -147,6 +151,11 @@ function ClientesPage() {
       tipo_imovel: form.tipo_imovel.length > 0 ? form.tipo_imovel : null,
       budget_min: form.budget_min ? Number(form.budget_min) : null,
       budget_max: form.budget_max ? Number(form.budget_max) : null,
+      // Item 5e — orçamentos condicionais ao estado do imóvel.
+      budget_max_obras: form.budget_max_obras ? Number(form.budget_max_obras) : null,
+      budget_max_pronto: form.budget_max_pronto ? Number(form.budget_max_pronto) : null,
+      estado_desejado: form.estado_desejado || null,
+      categorias: resolveCategories(form.tipo_imovel),
       area_min: form.area_min ? Number(form.area_min) : null,
       quartos_min: form.quartos_min ? Number(form.quartos_min) : null,
       andar_min: form.andar_min ? Number(form.andar_min) : null,
@@ -182,6 +191,9 @@ function ClientesPage() {
       tipo_imovel: c.tipo_imovel ?? [],
       budget_min: c.budget_min != null ? String(c.budget_min) : "",
       budget_max: c.budget_max != null ? String(c.budget_max) : "",
+      budget_max_obras: (c as any).budget_max_obras != null ? String((c as any).budget_max_obras) : "",
+      budget_max_pronto: (c as any).budget_max_pronto != null ? String((c as any).budget_max_pronto) : "",
+      estado_desejado: (c as any).estado_desejado ?? "",
       area_min: c.area_min != null ? String(c.area_min) : "",
       quartos_min: c.quartos_min != null ? String(c.quartos_min) : "",
       andar_min: c.andar_min != null ? String(c.andar_min) : "",
@@ -319,6 +331,43 @@ function ClientesPage() {
                 <div className="space-y-2">
                   <Label>Budget máx (€)</Label>
                   <Input type="number" value={form.budget_max} onChange={(e) => setForm({ ...form, budget_max: e.target.value })} />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-2">
+                  <Label>Máx. p/ obras (€)</Label>
+                  <Input
+                    type="number"
+                    value={form.budget_max_obras}
+                    onChange={(e) => setForm({ ...form, budget_max_obras: e.target.value })}
+                    placeholder="opcional"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Máx. pronto (€)</Label>
+                  <Input
+                    type="number"
+                    value={form.budget_max_pronto}
+                    onChange={(e) => setForm({ ...form, budget_max_pronto: e.target.value })}
+                    placeholder="opcional"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Estado desejado</Label>
+                  <Select
+                    value={form.estado_desejado || "indefinido"}
+                    onValueChange={(v) =>
+                      setForm({ ...form, estado_desejado: v === "indefinido" ? "" : v })
+                    }
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="indefinido">Indiferente</SelectItem>
+                      <SelectItem value="novo">Novo / pronto a habitar</SelectItem>
+                      <SelectItem value="bom">Bom estado</SelectItem>
+                      <SelectItem value="recuperar">Para recuperar</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-3">
