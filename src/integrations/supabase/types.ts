@@ -934,6 +934,14 @@ export type Database = {
           telefone: string
         }[]
       }
+      admin_provision_user: {
+        Args: {
+          p_ativo?: boolean
+          p_role: Database["public"]["Enums"]["app_role"]
+          p_user_id: string
+        }
+        Returns: undefined
+      }
       admin_purge_user_data: { Args: { p_user_id: string }; Returns: undefined }
       admin_set_user_role: {
         Args: {
