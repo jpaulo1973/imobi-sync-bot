@@ -39,6 +39,7 @@ export const backfillGeoFromText = createServerFn({ method: "POST" })
     await assertAdmin(context.supabase, context.userId);
 
     const { LocationRepository } = await import("./geo/location-repository");
+    const { fetchAllRows } = await import("./geo/location-repository");
     const { parseLocations } = await import("./geo");
     const { setRequestClient } = await import("@/lib/privileged.server");
     setRequestClient(context.supabase);
@@ -47,11 +48,13 @@ export const backfillGeoFromText = createServerFn({ method: "POST" })
     const snap = await LocationRepository.getSnapshot(true);
 
     // -------- Properties --------
-    const { data: props, error: propsErr } = await supabaseAdmin
-      .from("properties")
-      .select("id, distrito, concelho, freguesia, zona")
-      .is("location_id", null);
-    if (propsErr) throw new Error(`Leitura de properties falhou: ${propsErr.message}`);
+    // Paginado: o Data API trunca em 1000 linhas por pedido.
+    const props = await fetchAllRows(
+      supabaseAdmin,
+      "properties",
+      "id, distrito, concelho, freguesia, zona",
+      (q: any) => q.is("location_id", null),
+    );
 
     let propsResolved = 0;
     let propsUnresolved = 0;
@@ -91,10 +94,11 @@ export const backfillGeoFromText = createServerFn({ method: "POST" })
     await runChunks(propUpdates, 20);
 
     // -------- Active searches --------
-    const { data: searches, error: seErr } = await supabaseAdmin
-      .from("active_searches")
-      .select("id, criteria, location_ids");
-    if (seErr) throw new Error(`Leitura de active_searches falhou: ${seErr.message}`);
+    const searches = await fetchAllRows(
+      supabaseAdmin,
+      "active_searches",
+      "id, criteria, location_ids",
+    );
 
     let searchesResolved = 0;
     let searchesUnresolved = 0;
@@ -175,14 +179,16 @@ export const recomputeAllMatches = createServerFn({ method: "POST" })
     setRequestClient(context.supabase);
     const supabaseAdmin = context.supabase as any;
     const { recomputeForBatch } = await import("./active-searches.functions");
+    const { fetchAllRows } = await import("./geo/location-repository");
 
     const nowIso = new Date().toISOString();
     // Reprocessar apenas procuras ativas (não expiradas) de todos os utilizadores.
-    const { data: rows, error } = await supabaseAdmin
-      .from("active_searches")
-      .select("id, user_id")
-      .gt("expires_at", nowIso);
-    if (error) throw new Error(`Leitura de active_searches falhou: ${error.message}`);
+    const rows = await fetchAllRows(
+      supabaseAdmin,
+      "active_searches",
+      "id, user_id",
+      (q: any) => q.gt("expires_at", nowIso),
+    );
 
     const byUser = new Map<string, string[]>();
     for (const r of (rows ?? []) as Array<{ id: string; user_id: string }>) {
