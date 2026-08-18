@@ -16,6 +16,13 @@ export type LocationRelationType =
   | "nearby"
   | "contains";
 
+/**
+ * Campo de origem do texto geográfico. O parser usa esta informação para
+ * respeitar o nível administrativo de origem (nunca resolver o distrito
+ * "Setúbal" para o concelho de Setúbal, por exemplo).
+ */
+export type GeoFieldOrigin = "distrito" | "concelho" | "freguesia" | "zona" | "livre";
+
 /** Registo canónico de uma localização na biblioteca. */
 export interface Location {
   id: string;
