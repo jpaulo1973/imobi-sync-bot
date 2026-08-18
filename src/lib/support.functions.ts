@@ -77,14 +77,14 @@ export const listSupportRequests = createServerFn({ method: "GET" })
   .handler(async ({ data, context }) => {
     const arquivados = data?.arquivados === true;
     // A RLS garante que só o próprio autor ou um admin vê cada linha.
-    const { data, error } = await context.supabase
+    const { data: rows, error } = await context.supabase
       .from("support_requests")
       .select("*")
       .eq("arquivado", arquivados)
       .order("created_at", { ascending: false })
       .limit(200);
     if (error) throw new Error(error.message);
-    const items = (data ?? []) as SupportRequest[];
+    const items = (rows ?? []) as SupportRequest[];
     if (items.length > 0) {
       const { data: replies, error: rErr } = await context.supabase
         .from("support_replies")
