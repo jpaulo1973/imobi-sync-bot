@@ -1,72 +1,56 @@
-# Diagnóstico — "LOVABLE_API_KEY not configured" na Importação por URL (Vercel)
+# Plano — 7 correções/funcionalidades independentes
 
-## 1. Onde o código usa LOVABLE_API_KEY
+Cada item é uma sprint isolada, implementada e validada separadamente. Ordem sugerida por risco: 1 → 7 → 2 → 4 → 3 → 6 → 5.
 
-Só existe um ponto de leitura da chave:
+## 1. Radar (e restantes páginas Admin) exclusivas de Admin
 
-- `src/lib/ai-gateway.server.ts` — `callLovableAI()` lê `process.env.LOVABLE_API_KEY` e chama
-  `https://ai.gateway.lovable.dev/v1/chat/completions` (modelo `google/gemini-2.5-flash`).
-  Sem a variável, lança exatamente `LOVABLE_API_KEY not configured`.
+- **Navegação**: mover o link `Radar` para dentro do bloco `isAdmin` em `src/routes/_authenticated.tsx` (o contador de não vistos também deixa de correr para consultores).
+- **Rota**: o gate actual só verifica sessão. Criar um guard de papel reutilizável: server function `requireAdmin()` (via `has_role(auth.uid(),'admin')`) e usá-la no `beforeLoad` de cada rota Admin (`radar`, `cruzar`, `importar`, `revisao`, `utilizadores`, `manutencao`) com `redirect({ to: "/imoveis" })` quando não for admin. Corrige o acesso por URL directo em todas — hoje todas têm a mesma falha (só o menu esconde).
+- **Backend**: auditar as server functions consumidas por essas páginas e adicionar verificação de admin nas que hoje só exigem sessão (radar/oportunidades globais, importação, revisão, backfill, manutenção). RLS/RPC: garantir que as RPC de pool/oportunidades filtram por `user_id` para não-admin.
+- **Validação**: testes de que as funções admin rejeitam consultor; verificação manual com conta consultor a tentar `/radar` por URL.
 
-No fluxo "Importar por URL":
+## 2. Alerta de perfil incompleto
 
-```text
-URL -> Firecrawl (scrape HTML/markdown)  [FIRECRAWL_API_KEY]
-    -> callLovableAI (estruturar anúncio em JSON)  [LOVABLE_API_KEY]  <-- falha aqui
-    -> validação Zod + merge de áreas + resolução geográfica -> imóvel
-```
+- `getMyProfile` passa a devolver `missingFields` (telemóvel, agência, WhatsApp).
+- Novo componente `ProfileCompletionGate` no layout autenticado: quando há campos em falta, mostra diálogo/banner persistente com CTA para `/perfil`. Bloqueia navegação de forma suave (diálogo não descartável até completar, com opção "Ir para o perfil").
+- Após gravar perfil, o evento `pm:profile-updated` já existente refresca o estado e o alerta desaparece.
 
-Ficheiro/linha: `src/lib/property-import.server.ts` (chamada à IA no fim da extração, para
-converter o texto do anúncio em campos: tipo, tipologia, preço, áreas, localização, extras).
+## 3. Ajuda/Sugestões — estados e respostas
 
-O mesmo `callLovableAI` é usado por mais 5 módulos (WhatsApp leads, dedup, splitter de procuras,
-normalização de localizações, matching), logo a decisão aqui afeta todo o produto, não só a
-importação por URL.
+- **Migração**: em `support_requests` adicionar `status text not null default 'aberto'` (`aberto`|`resolvido`), `arquivado boolean not null default false`, `resolved_at`, `resolved_by`; nova tabela `support_replies` (id, request_id, author_id, mensagem, created_at) com GRANTs + RLS (autor do pedido lê as suas; admin lê/escreve todas). `read_at` mantém-se para compatibilidade mas deixa de ser o estado.
+- **Server functions**: `listSupportRequests` (filtros estado/arquivado, com respostas), `replyToSupportRequest` (admin), `resolveAndArchiveSupportRequest` (soft-delete), `listMySupportRequests` (consultor).
+- **UI**: em Manutenção, lista com badge Aberto/Resolvido, caixa de resposta e botão "Marcar resolvido e arquivar" (substitui eliminar); filtro para ver arquivados. No `SupportDialog` do consultor, aba/histórico das suas mensagens e respostas do admin.
+- **Opcional (incluído)**: inserir `match_notifications`-like entrada no sino quando o admin responde — reutilizar a tabela de notificações com um tipo `suporte`, ou tabela genérica se o esquema actual não permitir sem quebrar o Radar; decisão tomada na implementação para não degradar as notificações de match.
 
-## 2. Formato da chave: gateway vs BYOK
+## 4. Revisão "Sem localização" — eliminar/rejeitar
 
-`LOVABLE_API_KEY` é uma chave interna do Lovable (gateway), emitida automaticamente para o
-projeto e usada para faturação/rate-limit no runtime Lovable. Não é uma chave de fornecedor de
-IA e não é o mesmo caso do Firecrawl:
+- **(a)** Botão "Não é uma procura / descartar" em cada cartão da aba Sem localização: server function `discardSearch(id)` que faz soft-delete (nova coluna `descartado boolean` + `descartado_motivo`) e limpa oportunidades/notificações associadas. Soft-delete preserva auditoria e evita reimportação (fica na chave de dedup).
+- **Origem**: auditar amostra de leads classificados como procura mas que são oferta (anúncios). Se houver padrão, reforçar o prompt do splitter/extração com um classificador oferta-vs-procura e descartar ofertas na ingestão, com contagem no relatório.
+- **(b)** Query de identificação das ~52 procuras `origem = 'excel'` com texto Dubai/EAU → apresentar lista (id, texto, contacto) para confirmação antes de aplicar o descarte em lote.
+- **(c)** Filtro "fora de Portugal" na aba Sem localização (heurística por termos/país não resolvido) com acção de descarte em lote, aplicável a qualquer geografia futura.
 
-- Firecrawl: a chave `fc-...` é emitida pelo fornecedor, logo pode ser colada no Vercel (BYOK).
-- Lovable AI Gateway: não existe "chave própria" equivalente. O que existe é o caminho BYOK
-  real: falar diretamente com um fornecedor (OpenAI/Anthropic/Google) com chave própria.
+## 5. Nova taxonomia de Tipo de imóvel + orçamento condicional
 
-Ou seja: para produção no Vercel sem depender do runtime Lovable, é preciso trocar o transporte
-de IA, não apenas configurar uma variável.
+- **Taxonomia** (`src/lib/property-taxonomy.ts`, fonte única): categorias de topo `casas_apartamentos`, `predios`, `escritorios`, `comercial_armazens`, `trespasses`, `terrenos`, `herdades_quintas`, com subtipos e mapa de sinónimos/normalização (resolve o CamelCase das procuras vs minúsculas dos imóveis).
+- **(a) Migração**: colunas `categoria` em `properties` e `criteria.categorias` nas procuras; script mostra a contagem por categoria nova antes de aplicar; texto original preservado em características/notas.
+- **(b) Motor**: hard filter por categoria de topo (default: só mesma categoria), substituindo a comparação textual actual em `matching-engine.ts`. Elimina o caso T3 vs lar de idosos.
+- **(c)** Correcções pontuais: lar de idosos (`a181fdb7…`) → `trespasses`; prédio de Miragaia mantém `predios` com distrito corrigido para Porto; moradia T2 para recuperar mantém `casas_apartamentos`.
+- **(d)** Campo opcional `estado_desejado` na procura (`novo`|`bom`|`recuperar`|null) + campo equivalente/inferido no imóvel.
+- **(e)** `budget_max_obras` e `budget_max_pronto` opcionais; o motor escolhe conforme o estado do imóvel candidato, com fallback ao orçamento único. Prompts da IA (import por URL, Excel, splitter WhatsApp) actualizados para extrair os dois valores e o estado desejado.
+- **(f)** Testes de regressão por categoria e por orçamento condicional; relatório antes/depois com contagens de mudança de categoria.
 
-## 3. Caminhos possíveis
+## 6. Zona funcional "Costa Vicentina"
 
-### Opção A — Copiar LOVABLE_API_KEY para o Vercel (mais rápido)
-- Uma variável de ambiente no Vercel, zero alterações de código.
-- Continua a depender do gateway Lovable (disponibilidade + créditos do projeto).
-- Nota: é uma chave gerida pelo Lovable; se for rotacionada, tem de ser reposta no Vercel.
+- Selecção por freguesias litorais (não concelhos inteiros), de Sines a Sagres, usando `location_metadata` (centróides) com corte a ~10 km da linha de costa, restrito a Sines, Odemira, Aljezur e Vila do Bispo.
+- Apresentar a lista exacta de freguesias proposta para confirmação; só depois criar a zona (`locations` tipo `zona_funcional` + `functional_zone_members`) e incrementar `geo_library_version`.
 
-### Opção B — Camada de IA com fornecedor próprio (recomendada para produção)
-Transformar `ai-gateway.server.ts` num adaptador com dois transportes, escolhidos por env:
+## 7. Aliases + rótulo do painel
 
-```text
-AI_PROVIDER = "lovable" | "openai"
-OPENAI_API_KEY = sk-...        (Vercel: Production + Preview)
-AI_MODEL = openai/gpt-5.6-sol  (default)
-```
+- **(a)** Inserir aliases aprovados `gaia` → Vila Nova de Gaia e `vilamoura` → Loulé (`origem = 'manual'`), validando que não criam ambiguidade.
+- **(b)** Em `src/routes/_authenticated/manutencao.tsx` linha ~265: rótulo passa a "Total de procuras analisadas" e acrescenta-se "Sem localização: {resolvidas + por resolver}" para os números somarem de forma legível. Só texto, cálculos intactos.
 
-- `callLovableAI()` mantém a mesma assinatura (`messages`, `response_format`), pelo que os 6
-  módulos consumidores não mudam.
-- Se `AI_PROVIDER=openai` (ou só existir `OPENAI_API_KEY`), usa a API do fornecedor; caso
-  contrário mantém o gateway Lovable. Preview Lovable continua a funcionar sem configuração.
-- Erros passam a indicar claramente qual variável falta em cada ambiente (Lovable Cloud vs
-  Vercel), no mesmo estilo já aplicado ao Firecrawl.
-- Mapeamento de erros preservado: 402 -> `CREDITS_EXHAUSTED`, 429 -> `RATE_LIMITED`.
+## Notas técnicas
 
-### Recomendação
-Opção B, com Opção A como desbloqueio imediato se precisares de testar hoje. A Opção B é a única
-que remove a dependência do runtime Lovable em produção, e é isomórfica à decisão que já tomámos
-para o Firecrawl.
-
-## Âmbito da implementação (se aprovares a Opção B)
-- `src/lib/ai-gateway.server.ts`: adaptador multi-transporte + mensagens de erro por ambiente.
-- Nenhuma alteração nos 6 módulos consumidores nem em regras de negócio/Motor de Match.
-- Pedido da chave `OPENAI_API_KEY` via formulário seguro (não fica em código).
-- Validação: importação por URL end-to-end no preview com cada transporte.
+- Itens 3, 4 e 5 exigem migrações de esquema (aprovação de migração); 6 e 7 são dados geográficos.
+- Item 5 é o de maior impacto no Motor de Match: implementado por último, com testes de regressão a correr antes e depois.
+- Nenhum item altera a arquitectura geográfica (Canal → Repo → Parser → IDs → Motor).
