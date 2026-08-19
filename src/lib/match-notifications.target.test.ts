@@ -22,11 +22,19 @@ describe("destino da notificação de match", () => {
     ).toEqual({ to: "/clientes", search: { buyer: B, property: P } });
   });
 
-  it("procura WhatsApp abre directamente a procura no Radar", () => {
+  it("Admin: procura WhatsApp abre directamente a procura no Radar", () => {
+    for (const ownsProperty of [true, false]) {
+      expect(
+        notificationTarget({ buyer_source: "search", buyer_ref: B, property_id: P, ownsProperty, isAdmin: true }),
+      ).toEqual({ to: "/radar", search: { procura: B, property: P } });
+    }
+  });
+
+  it("consultor (não-admin): procura abre o match na ficha do imóvel", () => {
     for (const ownsProperty of [true, false]) {
       expect(
         notificationTarget({ buyer_source: "search", buyer_ref: B, property_id: P, ownsProperty }),
-      ).toEqual({ to: "/radar", search: { procura: B, property: P } });
+      ).toEqual({ to: "/imoveis", search: { open: P, match: `search-${B}` } });
     }
   });
 });

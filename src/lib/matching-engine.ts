@@ -179,6 +179,12 @@ export type MatchCategoryResult = {
   detail: string;
   score: number;
   weight: number;
+  /**
+   * Categoria informativa sem valor de venda (ex.: "não há sinal de
+   * investidor/bulk"). Continua visível na auditoria, mas nunca entra nos
+   * motivos apresentados ao consultor nem nas notificações.
+   */
+  neutral?: boolean;
 };
 
 export type ReviewReason =
@@ -659,7 +665,10 @@ export function isInvestorBulkSearch(buyer: BuyerLike): boolean {
 
 function investorBulkFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResult {
   if (!isInvestorBulkSearch(buyer)) {
-    return { ok: true, category: cat("tipo", "Tipo", true, "Sem sinal de investidor/bulk") };
+    return {
+      ok: true,
+      category: { ...cat("tipo", "Tipo", true, "Sem sinal de investidor/bulk"), neutral: true },
+    };
   }
   const pTipo = (property.tipo_imovel ?? "").toLowerCase();
   const bulkAllowed = new Set(["terreno", "predio", "prédio", "espaco comercial", "espaço comercial"]);
@@ -837,7 +846,7 @@ export function scoreMatch(
   const locScore = categories.find((c) => c.key === "localizacao")?.score ?? 0;
   const total = locScore + tip.score + preco.score + area.score + extras.score;
   const score = Math.max(0, Math.min(100, Math.round(total)));
-  const reasons = categories.filter((c) => c.ok && c.detail).map((c) => c.detail);
+  const reasons = categories.filter((c) => c.ok && c.detail && !c.neutral).map((c) => c.detail);
   // Critério de proximidade — nunca elimina, apenas informa.
   const proximity = (buyer as any).proximity;
   if (Array.isArray(proximity) && proximity.length > 0) {
@@ -1111,7 +1120,7 @@ export function evaluateExhaustive(
   }
 
   const reasons = compatible
-    ? finalCategories.filter((c) => c.ok && c.detail).map((c) => c.detail)
+    ? finalCategories.filter((c) => c.ok && c.detail && !c.neutral).map((c) => c.detail)
     : [];
 
   const passedCount = finalCategories.filter((c) => c.ok).length;

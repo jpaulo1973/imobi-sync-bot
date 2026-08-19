@@ -8,12 +8,14 @@ import {
   bulkSetConsultorTelefone,
   listSearchesSemLocalizacao,
   setSearchLocations,
+  setSearchLocationsBulk,
   discardSearches,
   type BulkPhoneLineResult,
   type ConsultorSemTelefone,
   type SearchSemLocalizacaoItem,
 } from "@/lib/review.functions";
 import { promoteAlias } from "@/lib/geo/geo.functions";
+import { normalizeGeoText } from "@/lib/geo/geo-context";
 import { LocationSelector } from "@/components/entity-selector/LocationSelector";
 import { OriginalMessage } from "@/components/OriginalMessage";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -434,6 +436,23 @@ function SemLocalizacaoPanel() {
     }
   };
 
+  // Item 7 — sugestão automática: agrupa procuras pelo mesmo texto geográfico
+  // não resolvido, para que uma decisão humana resolva o grupo inteiro.
+  const geoTextOf = (it: SearchSemLocalizacaoItem) =>
+    it.criteria_geo.zona ??
+    it.criteria_geo.freguesia ??
+    it.criteria_geo.municipio ??
+    it.criteria_geo.distrito ??
+    null;
+  const groups = new Map<string, string[]>();
+  for (const it of items) {
+    const key = normalizeGeoText(geoTextOf(it));
+    if (!key) continue;
+    const cur = groups.get(key);
+    if (cur) cur.push(it.id);
+    else groups.set(key, [it.id]);
+  }
+
   const q = query.trim().toLowerCase();
   const visible = items.filter((it) => {
     if (onlyWithText && !(it.texto_original ?? "").trim()) return false;
@@ -579,7 +598,10 @@ function SemLocalizacaoPanel() {
           <SemLocalizacaoCard
             key={it.id}
             item={it}
-            onDone={() => setItems((cur) => cur.filter((x) => x.id !== it.id))}
+            sameTextIds={groups.get(normalizeGeoText(geoTextOf(it))) ?? [it.id]}
+            onDone={(resolvedIds) =>
+              setItems((cur) => cur.filter((x) => !resolvedIds.includes(x.id)))
+            }
           />
         ))
       )}
@@ -589,18 +611,24 @@ function SemLocalizacaoPanel() {
 
 function SemLocalizacaoCard({
   item,
+  sameTextIds,
   onDone,
 }: {
   item: SearchSemLocalizacaoItem;
-  onDone: () => void;
+  /** Todas as procuras pendentes com o mesmo texto geográfico (inclui esta). */
+  sameTextIds: string[];
+  onDone: (resolvedIds: string[]) => void;
 }) {
   const saveFn = useServerFn(setSearchLocations);
+  const saveBulkFn = useServerFn(setSearchLocationsBulk);
   const aliasFn = useServerFn(promoteAlias);
   const discardFn = useServerFn(discardSearches);
   const [ids, setIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [learn, setLearn] = useState(true);
   const [discarding, setDiscarding] = useState(false);
+  const others = sameTextIds.filter((id) => id !== item.id);
+  const [applyGroup, setApplyGroup] = useState(true);
 
   const textoGeo =
     item.criteria_geo.zona ??
@@ -615,8 +643,15 @@ function SemLocalizacaoCard({
       return;
     }
     setSaving(true);
+    const groupMode = applyGroup && others.length > 0;
     try {
-      await saveFn({ data: { id: item.id, location_ids: ids } });
+      if (groupMode) {
+        const r = await saveBulkFn({ data: { ids: sameTextIds, location_ids: ids } });
+        toast.success(`Localização aplicada a ${r.updated} procura(s) com o mesmo texto.`);
+      } else {
+        await saveFn({ data: { id: item.id, location_ids: ids } });
+        toast.success("Localização guardada e procura recruzada.");
+      }
       if (learn && textoGeo && textoGeo.trim().length > 1) {
         try {
           await aliasFn({ data: { text: textoGeo, location_ids: ids, origem: "revisao" } });
@@ -624,8 +659,7 @@ function SemLocalizacaoCard({
           // Aprendizagem é complementar — não bloqueia a gravação.
         }
       }
-      toast.success("Localização guardada e procura recruzada.");
-      onDone();
+      onDone(groupMode ? sameTextIds : [item.id]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao guardar");
     } finally {
@@ -640,7 +674,7 @@ function SemLocalizacaoCard({
     try {
       await discardFn({ data: { ids: [item.id], motivo } });
       toast.success("Procura descartada (arquivada).");
-      onDone();
+      onDone([item.id]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao descartar");
     } finally {
@@ -695,6 +729,21 @@ function SemLocalizacaoCard({
           placeholder="Pesquisar concelho, freguesia ou zona…"
         />
       </div>
+
+      {others.length > 0 && (
+        <label className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/5 p-2 text-xs">
+          <input
+            type="checkbox"
+            checked={applyGroup}
+            onChange={(e) => setApplyGroup(e.target.checked)}
+            className="accent-primary mt-0.5"
+          />
+          <span>
+            Existem <strong>{others.length}</strong> outra(s) procura(s) pendentes com o mesmo texto
+            geográfico{textoGeo ? ` (“${textoGeo}”)` : ""}. Aplicar a mesma localização a todas.
+          </span>
+        </label>
+      )}
 
       <div className="flex flex-wrap items-center gap-3">
         <Button size="sm" onClick={save} disabled={saving || ids.length === 0}>
