@@ -29,6 +29,35 @@ export function slug(v?: string | null): string {
     .replace(/(^-|-$)/g, "");
 }
 
+/** Texto normalizado para comparação de identidade (espaços, caixa, acentos). */
+export function normalizeTextKey(v?: string | null): string {
+  if (!v) return "";
+  return String(v)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Jaccard sobre tokens > 3 chars — 0..1. */
+export function textJaccard(a?: string | null, b?: string | null): number {
+  const tok = (s: string) =>
+    new Set(
+      normalizeTextKey(s)
+        .replace(/[^\w\s]/g, " ")
+        .split(/\s+/)
+        .filter((t) => t.length > 3),
+    );
+  if (!a || !b) return 0;
+  const A = tok(a);
+  const B = tok(b);
+  if (A.size === 0 || B.size === 0) return 0;
+  const inter = [...A].filter((x) => B.has(x)).length;
+  const uni = new Set([...A, ...B]).size;
+  return uni ? inter / uni : 0;
+}
+
 export type DedupInput = {
   telefone?: string | null;
   nome?: string | null;
