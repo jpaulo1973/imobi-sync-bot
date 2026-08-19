@@ -62,7 +62,11 @@ function ImportarPage() {
   const finalizeFn = useServerFn(finalizeExcelImport);
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<(Omit<ExcelImportResult, "linhas"> & { linhas: ReportLine[] }) | null>(null);
+  const [result, setResult] = useState<
+    (Omit<ExcelImportResult, "linhas"> & { linhas: ReportLine[]; procuras: number }) | null
+  >(null);
+  // Item E — mostrar só as linhas que originaram mais do que uma procura.
+  const [onlyMulti, setOnlyMulti] = useState(false);
   const [currentFile, setCurrentFile] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [total, setTotal] = useState(0);
@@ -146,7 +150,10 @@ function ImportarPage() {
         removidas: fin.removidas,
         matches: fin.matches,
         batch_id,
-        total_check: somaFinal === analisadas,
+        procuras: somaFinal,
+        // Cada linha do ficheiro produz exatamente uma linha de relatório; os
+        // contadores contam PROCURAS (uma linha pode originar várias).
+        total_check: linhas.length === analisadas,
         linhas,
       });
       setElapsedMs(Date.now() - start);
@@ -273,7 +280,8 @@ function ImportarPage() {
             </div>
             <div className="text-sm">
               <strong>{result.analisadas}</strong> linha(s) analisada(s) em{" "}
-              <strong>{files.length}</strong> ficheiro(s)
+              <strong>{files.length}</strong> ficheiro(s) ·{" "}
+              <strong>{result.procuras}</strong> procura(s) resultante(s)
               {elapsedMs > 0 && (
                 <span className="text-muted-foreground"> · {(elapsedMs / 1000).toFixed(1)}s</span>
               )}
@@ -283,10 +291,24 @@ function ImportarPage() {
               {!result.total_check && (
                 <span className="ml-2 inline-flex items-center gap-1 text-amber-700 text-xs">
                   <AlertTriangle className="w-3.5 h-3.5" />
-                  Contabilização inconsistente — verificar logs
+                  Relatório incompleto — {result.linhas.length} linha(s) no relatório para{" "}
+                  {result.analisadas} analisada(s)
                 </span>
               )}
             </div>
+            {result.procuras !== result.analisadas && (
+              <p className="text-xs text-muted-foreground">
+                Os contadores abaixo contam <strong>procuras</strong>, não linhas: algumas linhas
+                continham mais do que um pedido e foram divididas.{" "}
+                <button
+                  type="button"
+                  className="underline underline-offset-2 text-primary"
+                  onClick={() => setOnlyMulti(true)}
+                >
+                  Ver as linhas que originaram várias procuras
+                </button>
+              </p>
+            )}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
               <SummaryStat label="Novas" value={result.novas} />
               <SummaryStat label="Atualizadas" value={result.atualizadas} />
@@ -305,9 +327,21 @@ function ImportarPage() {
           <Card className="p-0 overflow-hidden">
             <div className="px-6 py-4 border-b">
               <h2 className="font-semibold">Relatório linha-a-linha</h2>
-              <p className="text-xs text-muted-foreground mt-1">
-                Uma classificação final por cada linha do ficheiro.
-              </p>
+              <div className="flex items-center justify-between gap-3 mt-1">
+                <p className="text-xs text-muted-foreground">
+                  Uma classificação final por cada linha do ficheiro.
+                  {onlyMulti && " A mostrar apenas linhas divididas em várias procuras."}
+                </p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs shrink-0"
+                  onClick={() => setOnlyMulti((v) => !v)}
+                >
+                  {onlyMulti ? "Mostrar todas as linhas" : "Só linhas com várias procuras"}
+                </Button>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -322,7 +356,9 @@ function ImportarPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {result.linhas.map((r) => (
+                  {result.linhas
+                    .filter((r) => !onlyMulti || /originou \d+ procuras/.test(r.motivo ?? ""))
+                    .map((r) => (
                     <tr key={`${r.ficheiro}-${r.linha}`} className="border-t">
                       <td className="px-4 py-2 text-xs text-muted-foreground">{r.ficheiro}</td>
                       <td className="px-4 py-2 tabular-nums">{r.linha}</td>
