@@ -15,6 +15,7 @@ import { normContactName, saveContact } from "./contacts.server";
 import { LocationRepository } from "./geo";
 import { extractProximityCriteria } from "./search-splitter.server";
 import { inferFinalidadeFromText } from "./whatsapp-ingestion-normalize";
+import { expiresFromBase } from "./expiry";
 
 const CriteriaSchema = z.object({
   nome: z.string().nullable().optional(),
@@ -477,9 +478,19 @@ async function mergeInto(
   reason: string,
 ): Promise<UpsertResult> {
   const nextCriteria = mergeCriteria(existing.criteria as Record<string, unknown>, row.criteria);
+  // Release 1.2.5 — a fusão NUNCA renova a validade a partir de "agora".
+  // Deriva sempre da data de publicação/origem conhecida; sem base,
+  // mantém a expiração já gravada (reimportar não estende).
+  const mergedExpires =
+    expiresFromBase({
+      data_publicacao: row.data_publicacao ?? existing.data_publicacao ?? null,
+      data_origem: row.data_origem ?? existing.data_origem ?? null,
+    }) ??
+    existing.expires_at ??
+    row.expires_at;
   const update: Record<string, unknown> = {
     criteria: nextCriteria,
-    expires_at: row.expires_at,
+    expires_at: mergedExpires,
     origem: row.origem,
     import_batch_id: row.import_batch_id,
     resumo: row.resumo ?? existing.resumo,
@@ -595,7 +606,7 @@ export async function upsertOne(
   //    apenas para encontrar candidatos, e o caminho "só nome" exige prova
   //    adicional (texto idêntico ou score >= 95) antes de fundir.
   const SELECT_COLS =
-    "id, criteria, contact_nome, contact_email, contact_grupo, contact_telefone, texto_original, resumo, data_publicacao, merged_from_count, consultor_nome, consultor_telefone, flagged_for_review";
+    "id, criteria, contact_nome, contact_email, contact_grupo, contact_telefone, texto_original, resumo, data_publicacao, data_origem, hora_origem, expires_at, merged_from_count, consultor_nome, consultor_telefone, flagged_for_review";
   const phone = effectivePhone(row);
   const incomingName = normContactName(row.contact_nome ?? row.consultor_nome);
 

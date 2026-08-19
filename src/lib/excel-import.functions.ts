@@ -18,6 +18,7 @@ import { normalizeSearchBedrooms } from "./bedrooms-normalize";
 import { LocationRepository } from "./geo/location-repository";
 import { parseLocations } from "./geo";
 import { knownPhoneFor, lookupContacts, type KnownContact } from "./contacts.server";
+import { computeExpiresAt } from "./expiry";
 
 // Re-exportar para manter compatibilidade com consumidores existentes; a
 // implementação vive agora em src/lib/search-acceptance.ts (fonte única).
@@ -594,7 +595,9 @@ async function processOneRow(
           contact_email: email,
           contact_grupo: grupoWhatsapp,
           data_publicacao: dataPub,
-          expires_at: expires,
+          // Release 1.2.5 — 30 dias a contar da publicação, não da importação.
+          // `expires` é apenas fallback quando a linha não traz data.
+          expires_at: computeExpiresAt({ data_publicacao: dataPub, data_origem: dataOrigem }, expires),
           origem: "excel",
           import_batch_id: batch_id,
           consultor_nome: consultorNome,
