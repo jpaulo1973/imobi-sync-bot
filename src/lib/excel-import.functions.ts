@@ -808,6 +808,14 @@ export const processExcelChunk = createServerFn({ method: "POST" })
     await assertAdminContext(context);
     const { supabase, userId } = context;
     const geoSnap = await LocationRepository.getSnapshot();
+    // Uma única query para todos os nomes do chunk.
+    const contactos = await lookupContacts(
+      supabase,
+      data.rows.map((pre: any) => {
+        const r = pre.data as Record<string, unknown>;
+        return s(col(r, "Nome"));
+      }),
+    );
     const counters: ChunkCounters = {
       novas: 0,
       atualizadas: 0,
@@ -830,6 +838,7 @@ export const processExcelChunk = createServerFn({ method: "POST" })
           data.batch_id,
           data.expires_at,
           geoSnap,
+          contactos,
         );
         for (const k of Object.keys(counters) as (keyof ChunkCounters)[]) {
           counters[k] += res.deltas[k];
