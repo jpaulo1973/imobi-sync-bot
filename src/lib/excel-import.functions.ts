@@ -17,6 +17,7 @@ import {
 import { normalizeSearchBedrooms } from "./bedrooms-normalize";
 import { LocationRepository } from "./geo/location-repository";
 import { parseLocations } from "./geo";
+import { knownPhoneFor, lookupContacts, type KnownContact } from "./contacts.server";
 
 // Re-exportar para manter compatibilidade com consumidores existentes; a
 // implementação vive agora em src/lib/search-acceptance.ts (fonte única).
@@ -381,6 +382,7 @@ async function processOneRow(
   batch_id: string,
   expires: string,
   geoSnap: Awaited<ReturnType<typeof LocationRepository.getSnapshot>>,
+  contactos: Map<string, KnownContact>,
 ): Promise<OneRowOutcome> {
   const deltas: ChunkCounters = {
     novas: 0,
@@ -394,7 +396,12 @@ async function processOneRow(
   };
   const upsertedIds: string[] = [];
       const nome = s(col(raw, "Nome"));
-      const telefone = s(col(raw, "WhatsApp", "Telefone", "Telemovel", "Telemóvel"));
+      const telefoneFicheiro = s(col(raw, "WhatsApp", "Telefone", "Telemovel", "Telemóvel"));
+      // Contactos persistentes: se o ficheiro não traz número mas já
+      // conhecemos esta pessoa de uma importação/revisão anterior, herdamos o
+      // telefone guardado. Evita que a mesma pessoa volte a cair na Revisão
+      // "sem telefone" a cada reimportação.
+      const telefone = telefoneFicheiro ?? knownPhoneFor(contactos, nome);
       const email = s(col(raw, "Email", "E-mail"));
       const finalidade = parseFinalidade(col(raw, "tipo_operacao", "operacao", "operação"));
       const tipoImovel = parseTipoImovel(col(raw, "tipo_imovel", "tipo"));
@@ -801,6 +808,14 @@ export const processExcelChunk = createServerFn({ method: "POST" })
     await assertAdminContext(context);
     const { supabase, userId } = context;
     const geoSnap = await LocationRepository.getSnapshot();
+    // Uma única query para todos os nomes do chunk.
+    const contactos = await lookupContacts(
+      supabase,
+      data.rows.map((pre: any) => {
+        const r = pre.data as Record<string, unknown>;
+        return s(col(r, "Nome"));
+      }),
+    );
     const counters: ChunkCounters = {
       novas: 0,
       atualizadas: 0,
@@ -823,6 +838,7 @@ export const processExcelChunk = createServerFn({ method: "POST" })
           data.batch_id,
           data.expires_at,
           geoSnap,
+          contactos,
         );
         for (const k of Object.keys(counters) as (keyof ChunkCounters)[]) {
           counters[k] += res.deltas[k];

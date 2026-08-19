@@ -3,7 +3,15 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertAdminContext, isAdminContext } from "./admin-guard.server";
 import { scoreMatch, buildGeoMatchIndex, type BuyerLike } from "./matching-engine";
-import { buildDedupKey, normalizePhone, scoreSimilarity, type SimilarityCriteria } from "./dedup";
+import {
+  buildDedupKey,
+  normalizePhone,
+  normalizeTextKey,
+  scoreSimilarity,
+  textJaccard,
+  type SimilarityCriteria,
+} from "./dedup";
+import { normContactName, saveContact } from "./contacts.server";
 import { LocationRepository } from "./geo";
 import { extractProximityCriteria } from "./search-splitter.server";
 import { inferFinalidadeFromText } from "./whatsapp-ingestion-normalize";
@@ -423,6 +431,20 @@ function criteriaSignature(c: Record<string, unknown> | null | undefined): strin
     caracteristicas: normArr(x.caracteristicas),
   });
 }
+/** Telefone efetivo de uma linha nova: comprador primeiro, consultor a seguir. */
+function effectivePhone(row: UpsertRow): string | null {
+  return normalizePhone(row.contact_telefone) ?? normalizePhone(row.consultor_telefone) ?? null;
+}
+
+/** Telefone efetivo de um registo já existente. */
+function effectivePhoneOf(candidate: any): string | null {
+  return (
+    normalizePhone(candidate?.contact_telefone) ??
+    normalizePhone(candidate?.consultor_telefone) ??
+    null
+  );
+}
+
 function isExactDuplicate(candidate: any, incoming: UpsertRow): boolean {
   // Consultor — se ambos os lados o têm, tem de ser o mesmo. Se um lado
   // não o tem, não bloqueia (evita perder o auto-merge por falta de dados).
@@ -562,26 +584,92 @@ export async function upsertOne(
   const incomingCriteria = row.criteria as SimilarityCriteria;
   const incomingText = row.texto_original ?? row.resumo ?? null;
 
-  // 1) Candidate lookup: só procuras do mesmo user que partilham telefone.
-  //    Sem telefone não há candidatos → cria como nova (regra de segurança).
-  const phone = normalizePhone(row.contact_telefone);
-  if (!phone) {
-    return await insertNew(supabase, userId, row, 0, "sem telefone — criada como nova", "created");
+  // 1) Candidate lookup.
+  //
+  // Contactos persistentes + dedup reforçada:
+  //  - o telefone efetivo é `contact_telefone` OU `consultor_telefone` (o
+  //    número da mesma pessoa aparece indistintamente numa das colunas,
+  //    dependendo do canal/ficheiro de origem);
+  //  - quando não existe telefone nenhum, deixamos de desistir: procuramos
+  //    candidatos pelo NOME normalizado. O nome sozinho NUNCA funde — serve
+  //    apenas para encontrar candidatos, e o caminho "só nome" exige prova
+  //    adicional (texto idêntico ou score >= 95) antes de fundir.
+  const SELECT_COLS =
+    "id, criteria, contact_nome, contact_email, contact_grupo, contact_telefone, texto_original, resumo, data_publicacao, merged_from_count, consultor_nome, consultor_telefone, flagged_for_review";
+  const phone = effectivePhone(row);
+  const incomingName = normContactName(row.contact_nome ?? row.consultor_nome);
+
+  // Aprendizagem de contacto: se esta linha traz nome + telefone, guardamos o
+  // par para que importações futuras da mesma pessoa (sem número no ficheiro)
+  // fiquem automaticamente preenchidas.
+  if (phone && incomingName) {
+    await saveContact(supabase, {
+      nome: row.contact_nome ?? row.consultor_nome,
+      telefone: phone,
+      email: row.contact_email ?? null,
+      origem: "import",
+    });
   }
 
-  const { data: rawCandidates } = await supabase
-    .from("active_searches")
-    .select("id, criteria, contact_nome, contact_email, contact_grupo, contact_telefone, texto_original, resumo, data_publicacao, merged_from_count, consultor_nome, consultor_telefone, flagged_for_review")
-    .eq("user_id", userId)
-    .ilike("contact_telefone", `%${phone}%`)
-    .limit(100);
+  let candidates: any[] = [];
+  let matchedBy: "telefone" | "nome" = "telefone";
 
-  const candidates = (rawCandidates ?? []).filter(
-    (c: any) => normalizePhone(c.contact_telefone) === phone,
-  );
+  if (phone) {
+    const { data: rawCandidates } = await supabase
+      .from("active_searches")
+      .select(SELECT_COLS)
+      .eq("user_id", userId)
+      .or(`contact_telefone.ilike.%${phone}%,consultor_telefone.ilike.%${phone}%`)
+      .limit(200);
+    candidates = (rawCandidates ?? []).filter((c: any) => effectivePhoneOf(c) === phone);
+  } else if (incomingName) {
+    matchedBy = "nome";
+    const like = (row.contact_nome ?? row.consultor_nome ?? "").trim();
+    const { data: rawCandidates } = await supabase
+      .from("active_searches")
+      .select(SELECT_COLS)
+      .eq("user_id", userId)
+      .or(`contact_nome.ilike.%${like}%,consultor_nome.ilike.%${like}%`)
+      .limit(200);
+    candidates = (rawCandidates ?? []).filter(
+      (c: any) =>
+        normContactName(c.contact_nome ?? c.consultor_nome) === incomingName &&
+        !effectivePhoneOf(c),
+    );
+  }
 
   if (candidates.length === 0) {
-    return await insertNew(supabase, userId, row, 0, "sem candidato compatível", "created");
+    return await insertNew(
+      supabase,
+      userId,
+      row,
+      0,
+      phone ? "sem candidato compatível" : "sem telefone nem contacto conhecido — criada como nova",
+      "created",
+    );
+  }
+
+  // Correção do bug das "primárias paralelas": quando o telefone efetivo e o
+  // texto original coincidem exatamente, é o MESMO pedido — mesmo que a
+  // assinatura de critérios divirja (o splitter é não-determinístico e produz
+  // variações para o mesmo texto). Antes, essa divergência fazia nascer duas
+  // linhas primárias, cada uma a absorver as suas cópias.
+  if (phone && normalizeTextKey(incomingText)) {
+    const sameText = candidates.find(
+      (c: any) =>
+        normalizeTextKey(c.texto_original ?? c.resumo) === normalizeTextKey(incomingText),
+    );
+    if (sameText) {
+      return await mergeInto(
+        supabase,
+        userId,
+        sameText.id,
+        sameText,
+        row,
+        100,
+        "mesmo telefone e mesmo texto original (auto-merge) — critérios fundidos",
+      );
+    }
   }
 
   // Curto-circuito determinístico — duplicado exato.
@@ -631,6 +719,43 @@ export async function upsertOne(
   }
 
   const reasonSummary = bestReasons.join("; ").slice(0, 700);
+
+  // Caminho "só nome" (sem telefone em nenhum dos lados): exige prova
+  // adicional antes de fundir, para que nomes comuns não colapsem pessoas
+  // diferentes. Texto praticamente idêntico OU score >= 95 funde; a zona
+  // cinzenta 80-94 vai para Revisão; abaixo de 80 é procura nova.
+  if (matchedBy === "nome") {
+    const jac = textJaccard(best?.texto_original ?? best?.resumo, incomingText);
+    if (jac >= 0.95 || bestScore >= 95) {
+      return await mergeInto(
+        supabase,
+        userId,
+        best.id,
+        best,
+        row,
+        Math.max(bestScore, Math.round(jac * 100)),
+        `mesma pessoa por nome, sem telefone — evidência forte (texto j=${jac.toFixed(2)}, score ${bestScore}%): ${reasonSummary}`,
+      );
+    }
+    if (bestScore >= 80) {
+      return await insertNew(
+        supabase,
+        userId,
+        row,
+        bestScore,
+        `nome coincide sem telefone e evidência insuficiente (${bestScore}%, texto j=${jac.toFixed(2)}) — rever manualmente: ${reasonSummary}`,
+        "flagged",
+      );
+    }
+    return await insertNew(
+      supabase,
+      userId,
+      row,
+      bestScore,
+      `nome coincide mas necessidade distinta (${bestScore}%): ${reasonSummary}`,
+      "created",
+    );
+  }
 
   // 3) Regras de negócio + IA
   //
