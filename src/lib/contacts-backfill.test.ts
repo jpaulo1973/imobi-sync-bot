@@ -31,6 +31,16 @@ describe("normalização", () => {
 });
 
 describe("agregação", () => {
+  it("exclui pares de consultores com conta apagada e reporta-os à parte", () => {
+    const res = aggregateContacts([
+      row({ contact_nome: "Ana", contact_telefone: "912000000" }),
+      row({ contact_nome: "Orfa", contact_telefone: "913000000", user_exists: false }),
+    ]);
+    expect(res.pares.map((p) => p.nome_normalizado)).toEqual(["ana"]);
+    expect(res.orfaos_pares).toBe(1);
+    expect(res.orfaos_nomes).toEqual(["orfa"]);
+  });
+
   it("colapsa acentos/caixa/formatos num único par com contagem certa", () => {
     const res = aggregateContacts([
       row({ contact_nome: "CASA BELLA", consultor_telefone: "+351 920 505 485" }),
