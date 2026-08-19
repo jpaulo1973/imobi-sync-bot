@@ -53,6 +53,12 @@ export interface ParsedSegment {
   alias_id?: string | null;
   confidence: number; // 0..100
   unresolved: boolean;
+  /**
+   * Candidatos quando o segmento é ambíguo (alias que aponta para várias
+   * localizações sem relação hierárquica). Nunca são aceites como resolvidos:
+   * o segmento fica `unresolved` para revisão manual do consultor.
+   */
+  ambiguous_ids?: string[];
 }
 
 /** Passo do audit trail — determinístico, reprodutível. */
