@@ -29,6 +29,11 @@ import {
   type SupportRequest,
 } from "@/lib/support.functions";
 import { DuplicatesPanel } from "@/components/DuplicatesPanel";
+import { ContactsBackfillPanel } from "@/components/ContactsBackfillPanel";
+import {
+  backfillContactsFromSearches,
+  type ContactsBackfillResult,
+} from "@/lib/contacts-backfill.functions";
 
 export const Route = createFileRoute("/_authenticated/manutencao")({
   beforeLoad: async () => {
@@ -62,6 +67,9 @@ function ManutencaoPage() {
   const [backfillResult, setBackfillResult] = useState<BackfillGeoResult | null>(null);
   const [recomputeLoading, setRecomputeLoading] = useState(false);
   const [recomputeResult, setRecomputeResult] = useState<RecomputeAllResult | null>(null);
+  const contactsFn = useServerFn(backfillContactsFromSearches);
+  const [contactsLoading, setContactsLoading] = useState<"dry" | "apply" | null>(null);
+  const [contactsResult, setContactsResult] = useState<ContactsBackfillResult | null>(null);
 
   useEffect(() => {
     getFn()
@@ -193,6 +201,23 @@ function ManutencaoPage() {
       toast.error(e instanceof Error ? e.message : "Erro no recompute");
     } finally {
       setRecomputeLoading(false);
+    }
+  };
+
+  const runContactsBackfill = async (dry: boolean) => {
+    setContactsLoading(dry ? "dry" : "apply");
+    try {
+      const res = await contactsFn({ data: { dry_run: dry } });
+      setContactsResult(res);
+      toast.success(
+        dry
+          ? `Simulação: ${res.pares_elegiveis} pares elegíveis · ${res.nomes_ambiguos} nomes ambíguos excluídos.`
+          : `${res.semeados} contactos semeados · ${res.reforcados} reforçados · ${res.nomes_ambiguos} nomes ambíguos por decidir.`,
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro no backfill de contactos");
+    } finally {
+      setContactsLoading(null);
     }
   };
 
@@ -361,6 +386,12 @@ function ManutencaoPage() {
           </div>
         )}
       </Card>
+
+      <ContactsBackfillPanel
+        result={contactsResult}
+        loading={contactsLoading}
+        onRun={runContactsBackfill}
+      />
 
       <Card id="ajuda-sugestoes" className="p-6 space-y-4 scroll-mt-20">
         <div>
