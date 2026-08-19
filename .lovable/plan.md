@@ -1,61 +1,62 @@
-# Backfill único da tabela `contacts` (regra restrita)
+# Correção de nome em lote na Revisão (`nome_novo`)
 
-Semear `contacts` com os pares (nome, telefone) do histórico de `active_searches`, **apenas quando o nome normalizado tem um único telefone distinto em todo o histórico**. Nomes ambíguos não são escritos — são devolvidos numa lista para decisão manual.
+Adicionar ao ficheiro de exportação/reimportação da Revisão uma coluna `nome_novo`, ao lado de `telefone_novo`, para corrigir o nome do contacto em lote — com a aprendizagem em `contacts` a usar sempre o nome já corrigido.
 
-## 1. Números confirmados (medidos na base de dados)
+## 1. Impacto medido no lote atual (só leitura, hoje)
 
 | Métrica | Valor |
 |---|---|
-| Linhas com nome + telefone válido (9 dígitos) | 2 570 |
-| Nomes normalizados distintos | 920 |
-| Nomes com **um único** telefone → elegíveis | **900** |
-| Nomes com mais do que um telefone → excluídos | **20** |
-| **Pares a semear em `contacts`** | **1 272** |
-| Linhas de histórico cobertas por esses pares | 2 039 |
-| Pares que ficariam de fora vs. plano anterior | 440 (1 712 → 1 272) |
+| Linhas (procuras) na Revisão — telefone efetivo inválido | 56 |
+| Grupos/linhas do ficheiro exportado | 53 |
+| Grupos cujo nome traz ruído (agência, equipa, código, rótulo) | **25** (27 procuras) |
+| Grupos com nome de pessoa aparentemente limpo | 28 |
 
-O total é 1 272 (e não 900) porque o mesmo nome pode existir para consultores diferentes — `contacts` é por utilizador, e a chave é (utilizador, nome normalizado, telefone).
+Exemplos reais de nomes onde `nome_novo` seria aplicável: `Sofia Vaz C21N`, `Ângela Silva C21N5`, `Jorge humberto imobiliaria`, `Anabela Fonseca consultora Imobiliária`, `Joao Ferreira mais consultores`, `Predimed Like`, `Tiago Mixage Comprador`, `Baixa da Banheira` (nome de zona no campo de contacto).
 
-Estado atual de `contacts`: 8 registos (`origem='revisao'`). O backfill acrescenta os que faltam e reforça contadores dos existentes, sem sobrescrever telefone ou nome de exibição já gravados pela Revisão.
+Nota: os rótulos genéricos de grande volume (`club member`, `colega`, `item`) não aparecem neste lote porque essas procuras têm telefone válido e por isso não entram na Revisão. Continuam a ser corrigíveis por este mesmo caminho quando entrarem na lista, e são o motivo pelo qual o backfill de `contacts` os excluiu.
 
-Exclusões automáticas: linha sem nome utilizável, sem telefone em nenhuma das duas colunas, telefone que normaliza para menos de 9 dígitos, ou nome que tenha mais do que um telefone distinto no histórico.
+## 2. Ficheiro (exportação)
 
-## 2. Regra única de segurança
+Nova coluna `nome_novo`, vazia, imediatamente depois de `nome` e antes de `telefone_atual`:
 
-**Um nome só é semeado se tiver exactamente um telefone distinto em todo o histórico.** Não há desempate por frequência nem por recência — a ambiguidade nunca é resolvida automaticamente.
+`id_linha | nome | nome_novo | telefone_atual | telefone_novo | email | agencia | procuras_afetadas | search_ids | exportado_em`
 
-Motivo (validado nos dados de hoje): a regra "mais frequente" erraria mesmo sem empate. `bernardo santos` e `cristina oliveira` têm dois telefones com emails de domínios diferentes (pessoas distintas), e em `rui ferreirinha` o número mais frequente é o que **não** tem email confirmado. Os rótulos genéricos `club member` (163 telefones), `colega` (50) e `item` (41) envenenariam o lookup com números de terceiros.
+A leitura aceita `nome_novo` / `novo_nome` / `nome_corrigido` (tolerante a acentos e maiúsculas, como as restantes colunas).
 
-Consequência prática: para os nomes excluídos, uma importação sem telefone continua a cair na Revisão — comportamento actual, sem regressão.
+## 3. Regras da reimportação
 
-## 3. O que o backfill faz
+Por linha, com `search_ids` como chave (comportamento atual):
 
-- Server function de administração invocada do painel de Manutenção: botão "Semear contactos do histórico", com contadores no fim (linhas lidas, pares semeados, pares reforçados, linhas ignoradas, nomes ambíguos excluídos).
-- Lê `active_searches` em páginas (paginação já usada no backfill geográfico, para não truncar às 1 000 linhas).
-- Por linha: nome = `contact_nome` ?? `consultor_nome`; telefone = `contact_telefone` ?? `consultor_telefone` (o mesmo "telefone efetivo" da deduplicação).
-- Agrega em memória por (utilizador, nome normalizado, telefone); depois **descarta todos os nomes com mais de um telefone** e só então grava — uma escrita por par.
-- `times_seen` = nº de procuras históricas do par; `last_seen_at` = data mais recente (`greatest(created_at, updated_at)`).
-- Escrita via RPC `SECURITY DEFINER` (`contacts_upsert`) com `origem='backfill'`. **Não altera nenhuma coluna de `active_searches`.**
+| `nome_novo` | `telefone_novo` | Efeito |
+|---|---|---|
+| vazio | preenchido | Comportamento atual, inalterado: grava telefone, aprende com o nome que está na base de dados |
+| preenchido | vazio | Atualiza `contact_nome` das procuras e recalcula `dedup_key`; **não toca no telefone**; sem escrita em `contacts` (não há telefone para aprender) |
+| preenchido | preenchido | Atualiza nome e telefone; a aprendizagem em `contacts` usa o **nome novo** |
+| vazio | vazio | Linha ignorada (atual) |
 
-## 4. Relatório de nomes ambíguos (em vez de escrita)
+Regras adicionais:
+- `nome_novo` igual ao nome atual (comparado pela chave normalizada de contacto) → **nenhuma escrita**; a linha é reportada como "sem alteração de nome".
+- `nome_novo` demasiado curto (menos de 2 caracteres úteis após normalização) → linha inválida, reportada, nada gravado.
+- Uma linha só é resolvida (`flagged_for_review = false`) quando o telefone fica válido — corrigir apenas o nome mantém a procura na Revisão, como hoje.
+- A `dedup_key` é recalculada por procura, com o telefone efetivo final e os critérios já gravados, usando a mesma `buildDedupKey` da correção individual.
 
-A mesma função devolve, sem gravar nada, a lista dos nomes excluídos com: nome normalizado, nome como aparece no texto, cada telefone distinto, nº de procuras por telefone, primeira/última data, e as pistas disponíveis (emails de contacto distintos, zonas dos pedidos). Mostrada numa tabela no painel de Manutenção e exportável, para resolução manual caso a caso via Revisão → telefone novo.
+## 4. Ordem de operações (ponto 3 do pedido)
 
-## 5. Idempotência
+A sequência por linha passa a ser explícita: **1)** gravar `contact_nome` + `dedup_key` → **2)** gravar telefone → **3)** aprender em `contacts` com `nome_novo ?? nome_na_bd`. Hoje a aprendizagem lê o nome do snapshot carregado antes das escritas, o que gravaria o par `nome antigo + telefone certo`; passa a receber o nome corrigido em memória, sem depender de nova leitura.
 
-Correr duas vezes não duplica: o índice único (utilizador, nome normalizado, telefone) força `ON CONFLICT DO UPDATE`. O upsert de backfill grava `times_seen` como valor **absoluto** (`GREATEST(existente, contagem_histórica)`) em vez de incrementar, e `last_seen_at` como o mais recente dos dois — segunda execução deixa a tabela byte-a-byte igual.
+## 5. Testes de regressão
 
-## 6. Testes de regressão
-
-- Agregador puro: acentos/caixa diferentes e formatos PT distintos (`+351…`, `00351…`, `9…`) colapsam num único par.
-- Nome com dois telefones (com e sem empate nas contagens) → **zero** escritas e uma entrada no relatório de ambíguos.
-- Rótulo genérico com dezenas de telefones → excluído pela mesma regra, sem lista especial de nomes.
-- Idempotência: aplicar duas vezes mantém nº de registos e `times_seen`.
-- Linhas sem telefone ou com telefone curto contam como ignoradas e não escrevem.
-- Suite existente (131 testes) continua verde.
+- `nome_novo` sozinho: atualiza `contact_nome` e `dedup_key`, telefone intacto, zero escritas em `contacts`.
+- `telefone_novo` sozinho: idêntico ao comportamento atual, nome inalterado.
+- Ambos: nome e telefone atualizados e o par aprendido em `contacts` usa o nome novo (assert explícito de que não usa o antigo).
+- `nome_novo` igual ao atual (com acentos/caixa diferentes): nenhuma alteração.
+- `nome_novo` inválido/vazio de conteúdo: linha reportada, nada gravado.
+- Parser do ficheiro: cabeçalhos alternativos e coluna ausente (ficheiros antigos sem `nome_novo` continuam a funcionar).
+- Suite completa (143 testes) continua verde.
 
 ## Detalhes técnicos
 
-- Migração: `contacts_upsert` passa a aceitar `p_times_seen integer default null` e `p_last_seen_at timestamptz default null`; com valores presentes aplica-os em absoluto, sem eles mantém o `times_seen + 1` actual (importação e Revisão inalteradas).
-- Novo `src/lib/contacts-backfill.functions.ts`: server function com `requireSupabaseAuth` + guarda de admin; agregador e regra de exclusão num módulo puro testável.
-- `src/routes/_authenticated/manutencao.tsx`: cartão com o botão, resumo de contadores e tabela de nomes ambíguos.
+- `src/lib/review-export.ts`: `nome_novo` nos headers e larguras, alias de cabeçalho, `ParsedImportRow.nome_novo`, e o estado `pronto` passa a aceitar linha com só nome.
+- `src/lib/review.functions.ts`: `bulkSetConsultorTelefone` passa a aceitar `{ linha, search_ids, telefone?, nome_novo? }` (telefone deixa de ser obrigatório) e devolve por linha também `nome_atualizado`. Reutiliza `buildDedupKey` e `saveContact`; sem service role key (continua no cliente autenticado com políticas de admin).
+- `src/routes/_authenticated/revisao.tsx`: envia `nome_novo`, atualiza o texto de ajuda e o resumo de resultados.
+- Sem alterações à base de dados nem ao motor de match. Fluxo do backfill de `contacts` não é tocado.
