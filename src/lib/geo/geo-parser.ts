@@ -13,6 +13,45 @@ import type {
 } from "./geo-types";
 import { normalizeGeoText, splitConnectors, toSlug } from "./geo-context";
 
+/** Cadeia de ancestrais (inclui o próprio id). */
+function ancestorsOf(id: string, snap: GeoSnapshot): Set<string> {
+  const out = new Set<string>([id]);
+  let cur = snap.byId.get(id)?.parent_id ?? null;
+  let guard = 0;
+  while (cur && guard++ < 20) {
+    if (out.has(cur)) break;
+    out.add(cur);
+    cur = snap.byId.get(cur)?.parent_id ?? null;
+  }
+  return out;
+}
+
+/**
+ * Verdadeiro quando todos os ids pertencem à mesma hierarquia: existe um id
+ * que é ancestral (ou o próprio) de todos os outros, ou todos são membros da
+ * mesma zona funcional. Caso contrário o conjunto é ambíguo (ex.: "Miragaia"
+ * → freguesia da Lourinhã e freguesia do Porto).
+ */
+function isSameHierarchy(ids: string[], snap: GeoSnapshot): boolean {
+  if (ids.length <= 1) return true;
+  for (const candidate of ids) {
+    if (ids.every((other) => ancestorsOf(other, snap).has(candidate))) return true;
+  }
+  // Zona funcional explícita entre os ids.
+  for (const id of ids) {
+    if (snap.byId.get(id)?.tipo === "zona_funcional") {
+      const members = new Set(snap.functionalZoneMembers.get(id) ?? []);
+      if (ids.every((other) => other === id || members.has(other))) return true;
+    }
+  }
+  // Todos membros de uma mesma zona funcional.
+  for (const members of snap.functionalZoneMembers.values()) {
+    const set = new Set(members);
+    if (ids.every((id) => set.has(id))) return true;
+  }
+  return false;
+}
+
 /**
  * Resolve um segmento textual usando exclusivamente o snapshot passado.
  * Determinístico. Quando `field` identifica o campo de origem do texto
@@ -44,6 +83,25 @@ function resolveSegment(
   // 1) alias exato — só aceitável se todos os ids respeitarem o nível pedido.
   const alias = snap.byAlias.get(normalized);
   if (alias && (!strictTipo || alias.location_ids.every((id) => snap.byId.get(id)?.tipo === strictTipo))) {
+    // Alias ambíguo: várias localizações sem relação hierárquica. Nunca
+    // escolher silenciosamente — o segmento vai para revisão manual com o
+    // texto original preservado.
+    if (!isSameHierarchy(alias.location_ids, snap)) {
+      audit.push({
+        step: "alias_ambiguous",
+        detail: { raw, alias: alias.alias_normalizado, ids: alias.location_ids },
+      });
+      return {
+        raw,
+        normalized,
+        location_ids: [],
+        matched_via: null,
+        alias_id: alias.id,
+        confidence: 0,
+        unresolved: true,
+        ambiguous_ids: [...alias.location_ids],
+      };
+    }
     audit.push({ step: "alias_hit", detail: { raw, alias: alias.alias_normalizado, ids: alias.location_ids } });
     return {
       raw,
@@ -129,7 +187,8 @@ export function parseLocations(
   const unresolved: string[] = [];
   for (const p of parsed) {
     for (const id of p.location_ids) resolvedSet.add(id);
-    if (p.alias_id) aliasSet.add(p.alias_id);
+    // Alias ambíguo não conta como "usado" (não deve incrementar times_used).
+    if (p.alias_id && !p.unresolved) aliasSet.add(p.alias_id);
     if (p.unresolved) unresolved.push(p.raw);
   }
 
