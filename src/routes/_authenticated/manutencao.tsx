@@ -220,22 +220,6 @@ function ManutencaoPage() {
     }
   };
 
-  const runRecomputeLegacy = async () => {
-    setRecomputeLoading(true);
-    setRecomputeResult(null);
-    try {
-      const res = await recomputeFn();
-      setRecomputeResult(res);
-      toast.success(
-        `Motor Match: ${res.searches_processed} procuras · ${res.opportunities_created} novos matches.`,
-      );
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erro no recompute");
-    } finally {
-      setRecomputeLoading(false);
-    }
-  };
-
   return (
     <div className="space-y-6 max-w-2xl">
       {support.length > 0 && (
