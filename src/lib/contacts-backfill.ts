@@ -118,6 +118,7 @@ export function aggregateContacts(rows: BackfillSourceRow[]): AggregateResult {
     count: number;
     first: string;
     last: string;
+    orphan?: boolean;
   };
   const byPair = new Map<string, Acc>();
   // Telefones distintos por NOME (independente do utilizador): a ambiguidade
