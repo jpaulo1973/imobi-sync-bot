@@ -3,6 +3,7 @@ import type { ConsultorSemTelefone } from "@/lib/review.functions";
 export const REVIEW_EXPORT_HEADERS = [
   "id_linha",
   "nome",
+  "nome_novo",
   "telefone_atual",
   "telefone_novo",
   "email",
@@ -19,6 +20,7 @@ export function buildReviewRows(items: ConsultorSemTelefone[]): ReviewExportRow[
   return items.map((it) => ({
     id_linha: it.key,
     nome: it.nome ?? "",
+    nome_novo: "",
     telefone_atual: it.telefone_bruto ?? "",
     telefone_novo: "",
     email: it.email ?? "",
@@ -69,6 +71,7 @@ export async function downloadReviewXlsx(items: ConsultorSemTelefone[]) {
   ws["!cols"] = [
     { wch: 24 },
     { wch: 26 },
+    { wch: 26 },
     { wch: 16 },
     { wch: 16 },
     { wch: 28 },
@@ -112,6 +115,10 @@ const HEADER_ALIASES: Record<string, string> = {
   procuras: "search_ids",
   ids_procuras: "search_ids",
   nome: "nome",
+  nome_novo: "nome_novo",
+  novo_nome: "nome_novo",
+  nome_corrigido: "nome_novo",
+  nome_real: "nome_novo",
 };
 
 export type ParsedImportRow = {
@@ -120,6 +127,7 @@ export type ParsedImportRow = {
   nome: string;
   search_ids: string[];
   telefone_novo: string;
+  nome_novo: string;
   status: "pronto" | "ignorado" | "invalido";
   motivo?: string;
 };
@@ -133,6 +141,16 @@ export type ParsedImportFile = {
 
 function digitsCount(s: string) {
   return (s.match(/\d/g) ?? []).length;
+}
+
+/** Conteúdo útil de um nome, para comparar/validar (sem acentos nem pontuação). */
+function nameKey(s: string) {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 export async function parseFilledReviewFile(file: File): Promise<ParsedImportFile> {
@@ -157,14 +175,27 @@ export async function parseFilledReviewFile(file: File): Promise<ParsedImportFil
     const id_linha = mapped["id_linha"] ?? "";
     const nome = mapped["nome"] ?? "";
     const telefone_novo = mapped["telefone_novo"] ?? "";
+    const nome_novo = mapped["nome_novo"] ?? "";
     const search_ids = (mapped["search_ids"] ?? "")
       .split(/[;,\s]+/)
       .map((s) => s.trim())
       .filter(Boolean);
 
-    const base = { linha, id_linha, nome, search_ids, telefone_novo };
-    if (!telefone_novo) {
-      return { ...base, status: "ignorado" as const, motivo: "Sem telefone_novo preenchido" };
+    const base = { linha, id_linha, nome, search_ids, telefone_novo, nome_novo };
+    const querNome = nameKey(nome_novo).length > 0 && nameKey(nome_novo) !== nameKey(nome);
+    if (!telefone_novo && !nome_novo) {
+      return {
+        ...base,
+        status: "ignorado" as const,
+        motivo: "Sem telefone_novo nem nome_novo preenchidos",
+      };
+    }
+    if (!telefone_novo && !querNome) {
+      return {
+        ...base,
+        status: "ignorado" as const,
+        motivo: "nome_novo igual ao nome atual — sem alteração",
+      };
     }
     if (search_ids.length === 0) {
       return { ...base, status: "invalido" as const, motivo: "Coluna search_ids vazia" };
@@ -172,7 +203,10 @@ export async function parseFilledReviewFile(file: File): Promise<ParsedImportFil
     if (search_ids.some((id) => !UUID_RE.test(id))) {
       return { ...base, status: "invalido" as const, motivo: "search_ids com formato inválido" };
     }
-    if (digitsCount(telefone_novo) < 9) {
+    if (nome_novo && nameKey(nome_novo).length < 2) {
+      return { ...base, status: "invalido" as const, motivo: "nome_novo sem conteúdo utilizável" };
+    }
+    if (telefone_novo && digitsCount(telefone_novo) < 9) {
       return { ...base, status: "invalido" as const, motivo: "Telefone com menos de 9 dígitos" };
     }
     return { ...base, status: "pronto" as const };

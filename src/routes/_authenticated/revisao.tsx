@@ -279,7 +279,8 @@ function ReimportPanel({ onDone }: { onDone: () => void }) {
             linhas: slice.map((r) => ({
               linha: r.linha,
               search_ids: r.search_ids,
-              telefone: r.telefone_novo,
+              telefone: r.telefone_novo || undefined,
+              nome_novo: r.nome_novo || undefined,
             })),
           },
         });
@@ -308,9 +309,11 @@ function ReimportPanel({ onDone }: { onDone: () => void }) {
         <h2 className="font-semibold">Reimportar ficheiro preenchido</h2>
       </div>
       <p className="text-xs text-muted-foreground">
-        Exporta a lista, preenche a coluna <span className="font-mono">telefone_novo</span> e volta a
-        carregar aqui o ficheiro (CSV ou Excel). As procuras são atualizadas pelos{" "}
-        <span className="font-mono">search_ids</span> de cada linha.
+        Exporta a lista, preenche as colunas <span className="font-mono">telefone_novo</span> e/ou{" "}
+        <span className="font-mono">nome_novo</span> e volta a carregar aqui o ficheiro (CSV ou
+        Excel). As procuras são atualizadas pelos <span className="font-mono">search_ids</span> de
+        cada linha; corrigir o nome também atualiza a chave de deduplicação e a aprendizagem de
+        contactos.
       </p>
 
       <input

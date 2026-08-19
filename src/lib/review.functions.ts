@@ -819,6 +819,7 @@ export type BulkPhoneLineResult = {
   linha: number;
   status: "atualizada" | "erro";
   procuras_atualizadas: number;
+  nome_atualizado?: boolean;
   motivo?: string;
 };
 
@@ -832,7 +833,8 @@ export const bulkSetConsultorTelefone = createServerFn({ method: "POST" })
             z.object({
               linha: z.number().int(),
               search_ids: z.array(z.string().uuid()).min(1),
-              telefone: z.string().trim().min(6),
+              telefone: z.string().trim().min(6).optional(),
+              nome_novo: z.string().trim().optional(),
             }),
           )
           .min(1)
@@ -856,72 +858,69 @@ export const bulkSetConsultorTelefone = createServerFn({ method: "POST" })
       const allIds = Array.from(new Set(data.linhas.flatMap((l) => l.search_ids)));
       const { data: existing, error: exErr } = await supabaseAdmin
         .from("active_searches")
-        .select("id, contact_nome, consultor_nome, contact_email")
+        .select(
+          "id, contact_nome, consultor_nome, contact_email, contact_telefone, consultor_telefone, criteria",
+        )
         .in("id", allIds)
         .gt("expires_at", nowIso);
       if (exErr) throw new Error(exErr.message);
       const valid = new Set<string>((existing ?? []).map((r: any) => r.id as string));
       const byId = new Map<string, any>((existing ?? []).map((r: any) => [r.id as string, r]));
 
+      const { planBulkLine } = await import("./review-bulk");
+      const { saveContact } = await import("./contacts.server");
       const resultados: BulkPhoneLineResult[] = [];
       for (const l of data.linhas) {
-        const norm = normalizePhone(l.telefone);
-        if (!norm || norm.length < 9) {
-          resultados.push({
-            linha: l.linha,
-            status: "erro",
-            procuras_atualizadas: 0,
-            motivo: "Número de telefone inválido (mínimo 9 dígitos).",
-          });
-          continue;
-        }
         const ids = l.search_ids.filter((id) => valid.has(id));
-        if (ids.length === 0) {
+        const rows = ids.map((id) => byId.get(id)).filter(Boolean);
+        const plan = planBulkLine(
+          { linha: l.linha, search_ids: ids, telefone: l.telefone, nome_novo: l.nome_novo },
+          rows,
+        );
+        if (plan.error) {
           resultados.push({
             linha: l.linha,
             status: "erro",
             procuras_atualizadas: 0,
-            motivo: "Nenhuma procura ativa encontrada para os search_ids indicados.",
+            motivo: plan.error,
           });
           continue;
         }
-        const { error } = await supabaseAdmin
-          .from("active_searches")
-          .update({ consultor_telefone: l.telefone.trim(), flagged_for_review: false })
-          .in("id", ids);
-        if (error) {
+        // 1) Escritas por procura (nome + dedup_key e/ou telefone).
+        let failed: string | null = null;
+        for (const p of plan.patches) {
+          const { error } = await supabaseAdmin
+            .from("active_searches")
+            .update(p.patch as any)
+            .eq("id", p.id);
+          if (error) {
+            failed = error.message;
+            break;
+          }
+        }
+        if (failed) {
           resultados.push({
             linha: l.linha,
             status: "erro",
             procuras_atualizadas: 0,
-            motivo: error.message,
+            motivo: failed,
           });
           continue;
         }
         const desconhecidos = l.search_ids.length - ids.length;
-        // Aprendizagem de contacto: guardar o par (nome, telefone) para que
-        // importações futuras da mesma pessoa já venham preenchidas, mesmo que
-        // o ficheiro de origem não traga o número.
-        {
-          const { saveContact } = await import("./contacts.server");
-          const nomes = new Set<string>();
-          for (const id of ids) {
-            const r = byId.get(id);
-            const nm = (r?.contact_nome ?? r?.consultor_nome ?? "").trim();
-            if (nm) nomes.add(nm);
-          }
-          for (const nm of nomes) {
-            await saveContact(supabaseAdmin, {
-              nome: nm,
-              telefone: norm,
-              origem: "revisao",
-            });
-          }
+        // 2) Aprendizagem em `contacts` — o plano já usa o nome corrigido.
+        for (const pair of plan.learn) {
+          await saveContact(supabaseAdmin, {
+            nome: pair.nome,
+            telefone: pair.telefone,
+            origem: "revisao",
+          });
         }
         resultados.push({
           linha: l.linha,
           status: "atualizada",
-          procuras_atualizadas: ids.length,
+          procuras_atualizadas: plan.patches.length,
+          nome_atualizado: plan.nome_aplicado,
           motivo:
             desconhecidos > 0
               ? `${desconhecidos} search_id(s) ignorado(s): inexistente(s) ou expirado(s).`
