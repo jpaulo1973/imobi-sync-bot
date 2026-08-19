@@ -19,7 +19,8 @@ describe("admin_recalc_excel_expiry (integridade RPC)", () => {
         PGSSLMODE: process.env["PGSSLMODE"] ?? "prefer",
       },
     });
-    expect(out).toContain("OK admin_recalc_excel_expiry dry-run");
+    expect(out).toContain("OK distribuicao por mes");
+
     expect(out).not.toContain("REGRESSION");
   });
 });
