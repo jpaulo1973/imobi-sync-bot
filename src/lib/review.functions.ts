@@ -1104,3 +1104,62 @@ export const setSearchLocations = createServerFn({ method: "POST" })
     }
     return { ok: true as const, location_ids: validIds };
   });
+
+/**
+ * Item 7 — aplica a mesma interpretação geográfica a todas as procuras que
+ * partilham o mesmo texto original não resolvido. Uma decisão humana passa a
+ * resolver o grupo inteiro, em vez de repetir a mesma escolha N vezes.
+ */
+export const setSearchLocationsBulk = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z
+      .object({
+        ids: z.array(z.string().uuid()).min(1).max(500),
+        location_ids: z.array(z.string().uuid()).min(1).max(50),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    await assertAdmin(supabase, userId);
+    const { setRequestClient } = await import("@/lib/privileged.server");
+    setRequestClient(context.supabase);
+    const { LocationRepository } = await import("@/lib/geo");
+    const snap = await LocationRepository.getSnapshot();
+    const validIds = data.location_ids.filter((id) => snap.byId.has(id));
+    if (validIds.length === 0) throw new Error("Nenhuma localização válida.");
+
+    const supabaseAdmin = context.supabase as any;
+    const { data: rows, error: gErr } = await supabaseAdmin
+      .from("active_searches")
+      .select("id, user_id")
+      .in("id", data.ids);
+    if (gErr) throw new Error(gErr.message);
+    const targets = (rows ?? []) as Array<{ id: string; user_id: string }>;
+    if (targets.length === 0) throw new Error("Nenhuma procura encontrada.");
+
+    const { error } = await supabaseAdmin
+      .from("active_searches")
+      .update({
+        location_ids: validIds,
+        geo_library_version: snap.version,
+        pending_geo: false,
+        decision_reason: "Localização revista manualmente pelo administrador (grupo de texto igual)",
+        last_match_at: null,
+      })
+      .in(
+        "id",
+        targets.map((t) => t.id),
+      );
+    if (error) throw new Error(error.message);
+
+    for (const t of targets) {
+      try {
+        await recomputeForSearch(supabaseAdmin, t.user_id, t.id);
+      } catch (e) {
+        console.error("setSearchLocationsBulk recompute failed", t.id, e);
+      }
+    }
+    return { ok: true as const, updated: targets.length, location_ids: validIds };
+  });

@@ -38,6 +38,9 @@ export const Route = createFileRoute("/_authenticated/importar")({
 
 const CHUNK_SIZE = 25;
 
+/** Linha do relatório com a origem (ficheiro) — item 10, importação múltipla. */
+type ReportLine = ExcelImportResult["linhas"][number] & { ficheiro: string };
+
 type Phase = "idle" | "parse" | "processing" | "finalizing" | "done" | "error";
 
 function emptyCounters(): ChunkCounters {
@@ -57,9 +60,10 @@ function ImportarPage() {
   const startFn = useServerFn(startExcelImport);
   const chunkFn = useServerFn(processExcelChunk);
   const finalizeFn = useServerFn(finalizeExcelImport);
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<ExcelImportResult | null>(null);
+  const [result, setResult] = useState<(Omit<ExcelImportResult, "linhas"> & { linhas: ReportLine[] }) | null>(null);
+  const [currentFile, setCurrentFile] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [total, setTotal] = useState(0);
   const [processed, setProcessed] = useState(0);
@@ -77,7 +81,7 @@ function ImportarPage() {
     });
 
   const submit = async () => {
-    if (!file) return toast.error("Escolhe um ficheiro Excel primeiro.");
+    if (files.length === 0) return toast.error("Escolhe pelo menos um ficheiro Excel.");
     setLoading(true);
     setResult(null);
     setProcessed(0);
@@ -85,35 +89,48 @@ function ImportarPage() {
     setRunning(emptyCounters());
     setElapsedMs(0);
     setHeaderRow(null);
+    setCurrentFile(null);
     setPhase("parse");
     const start = Date.now();
     try {
-      const b64 = await fileToB64(file);
-      const startRes = await startFn({ data: { fileBase64: b64, filename: file.name } });
-      setHeaderRow(startRes.header_row);
-      setTotal(startRes.total);
-      setPhase("processing");
-      const counters = emptyCounters();
-      const linhas: ExcelImportResult["linhas"] = [];
-      for (let i = 0; i < startRes.rows.length; i += CHUNK_SIZE) {
-        const slice = startRes.rows.slice(i, i + CHUNK_SIZE);
-        const chunkRes = await chunkFn({
-          data: {
-            batch_id: startRes.batch_id,
-            expires_at: startRes.expires_at,
-            rows: slice,
-          },
-        });
-        (Object.keys(counters) as (keyof ChunkCounters)[]).forEach((k) => {
-          counters[k] += chunkRes.counters[k];
-        });
-        linhas.push(...chunkRes.linhas);
-        setProcessed((p) => p + slice.length);
-        setRunning({ ...counters });
+      // Todos os ficheiros do lote partilham o MESMO batch_id: a deduplicação
+      // do upsert vê as linhas dos ficheiros anteriores e a finalização só
+      // remove procuras que não constam de nenhum dos ficheiros escolhidos.
+      const parsed: Array<{ file: File; res: Awaited<ReturnType<typeof startFn>> }> = [];
+      for (const f of files) {
+        setCurrentFile(f.name);
+        const b64 = await fileToB64(f);
+        const res = await startFn({ data: { fileBase64: b64, filename: f.name } });
+        parsed.push({ file: f, res });
       }
+      const batch_id = parsed[0].res.batch_id;
+      const expires_at = parsed[0].res.expires_at;
+      setHeaderRow(parsed[0].res.header_row);
+      const analisadas = parsed.reduce((acc, p) => acc + p.res.total, 0);
+      setTotal(analisadas);
+      setPhase("processing");
+
+      const counters = emptyCounters();
+      const linhas: ReportLine[] = [];
+      for (const p of parsed) {
+        setCurrentFile(p.file.name);
+        for (let i = 0; i < p.res.rows.length; i += CHUNK_SIZE) {
+          const slice = p.res.rows.slice(i, i + CHUNK_SIZE);
+          const chunkRes = await chunkFn({
+            data: { batch_id, expires_at, rows: slice },
+          });
+          (Object.keys(counters) as (keyof ChunkCounters)[]).forEach((k) => {
+            counters[k] += chunkRes.counters[k];
+          });
+          linhas.push(...chunkRes.linhas.map((l) => ({ ...l, ficheiro: p.file.name })));
+          setProcessed((n) => n + slice.length);
+          setRunning({ ...counters });
+        }
+      }
+
       setPhase("finalizing");
-      const fin = await finalizeFn({ data: { batch_id: startRes.batch_id } });
-      const analisadas = startRes.total;
+      setCurrentFile(null);
+      const fin = await finalizeFn({ data: { batch_id } });
       const somaFinal =
         counters.novas +
         counters.atualizadas +
@@ -123,26 +140,26 @@ function ImportarPage() {
         counters.ignoradas_sem_contacto +
         counters.descartadas_anuncio +
         counters.erros;
-      const res: ExcelImportResult = {
+      setResult({
         analisadas,
         ...counters,
         removidas: fin.removidas,
         matches: fin.matches,
-        batch_id: startRes.batch_id,
+        batch_id,
         total_check: somaFinal === analisadas,
         linhas,
-      };
-      setResult(res);
+      });
       setElapsedMs(Date.now() - start);
       setPhase("done");
       toast.success(
-        `${res.novas} novas · ${res.atualizadas} atualizadas · ${res.duplicados_exatos_fundidos} duplicados · ${res.sinalizadas_revisao} revisão · ${res.ignoradas_sem_contacto} ignoradas · ${res.descartadas_anuncio} descartadas · ${res.erros} erro(s)`,
+        `${files.length} ficheiro(s) · ${counters.novas} novas · ${counters.atualizadas} atualizadas · ${counters.duplicados_exatos_fundidos} duplicados · ${counters.sinalizadas_revisao} revisão · ${counters.ignoradas_sem_contacto} ignoradas · ${counters.descartadas_anuncio} descartadas · ${counters.erros} erro(s)`,
       );
     } catch (e) {
       setPhase("error");
       toast.error(e instanceof Error ? e.message : "Erro na importação.");
     } finally {
       setLoading(false);
+      setCurrentFile(null);
     }
   };
 
@@ -170,7 +187,7 @@ function ImportarPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Importar Procuras</h1>
           <p className="text-muted-foreground mt-1">
-            Carrega o teu Excel de compradores. Cada linha vira uma Procura Ativa e cruza
+            Carrega um ou vários Excel de compradores de uma só vez. Cada linha vira uma Procura Ativa e cruza
             imediatamente com a carteira. Procuras já existentes são <strong>atualizadas</strong>{" "}
             e as que deixarem de constar do novo ficheiro são <strong>removidas</strong> — sem
             duplicados.
@@ -184,9 +201,9 @@ function ImportarPage() {
           type="file"
           accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           className="hidden"
+          multiple
           onChange={(e) => {
-            const f = e.target.files?.[0] ?? null;
-            setFile(f);
+            setFiles(Array.from(e.target.files ?? []));
           }}
         />
         <div className="border-2 border-dashed rounded-lg p-6 text-center space-y-3">
@@ -194,17 +211,21 @@ function ImportarPage() {
           <div>
             <Button type="button" variant="outline" onClick={() => inputRef.current?.click()}>
               <Upload className="w-4 h-4 mr-2" />
-              {file ? "Escolher outro ficheiro" : "Escolher Excel"}
+              {files.length > 0 ? "Escolher outros ficheiros" : "Escolher Excel (pode escolher vários)"}
             </Button>
           </div>
-          {file && (
-            <p className="text-sm text-muted-foreground">
-              <strong>{file.name}</strong> · {(file.size / 1024).toFixed(0)} KB
-            </p>
+          {files.length > 0 && (
+            <ul className="text-sm text-muted-foreground space-y-1">
+              {files.map((f) => (
+                <li key={f.name}>
+                  <strong>{f.name}</strong> · {(f.size / 1024).toFixed(0)} KB
+                </li>
+              ))}
+            </ul>
           )}
         </div>
 
-        <Button onClick={submit} disabled={!file || loading} size="lg" className="w-full">
+        <Button onClick={submit} disabled={files.length === 0 || loading} size="lg" className="w-full">
           {loading ? "A importar e a cruzar..." : "Importar e cruzar com a carteira"}
         </Button>
 
@@ -212,7 +233,10 @@ function ImportarPage() {
           <div className="space-y-2">
             <Progress value={progressPct} />
             <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>{phaseLabel[phase]}</span>
+              <span>
+                {phaseLabel[phase]}
+                {currentFile ? ` — ${currentFile}` : ""}
+              </span>
               <span className="tabular-nums">
                 {phase === "processing" || phase === "finalizing" || phase === "done"
                   ? `${processed}/${total} · ${progressPct}%`
@@ -248,7 +272,8 @@ function ImportarPage() {
               <CheckCircle2 className="w-5 h-5" /> Importação concluída
             </div>
             <div className="text-sm">
-              <strong>{result.analisadas}</strong> linha(s) analisada(s)
+              <strong>{result.analisadas}</strong> linha(s) analisada(s) em{" "}
+              <strong>{files.length}</strong> ficheiro(s)
               {elapsedMs > 0 && (
                 <span className="text-muted-foreground"> · {(elapsedMs / 1000).toFixed(1)}s</span>
               )}
@@ -288,6 +313,7 @@ function ImportarPage() {
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
                   <tr>
+                    <th className="text-left px-4 py-2">Ficheiro</th>
                     <th className="text-left px-4 py-2">Linha</th>
                     <th className="text-left px-4 py-2">Comprador</th>
                     <th className="text-left px-4 py-2">Consultor</th>
@@ -297,7 +323,8 @@ function ImportarPage() {
                 </thead>
                 <tbody>
                   {result.linhas.map((r) => (
-                    <tr key={r.linha} className="border-t">
+                    <tr key={`${r.ficheiro}-${r.linha}`} className="border-t">
+                      <td className="px-4 py-2 text-xs text-muted-foreground">{r.ficheiro}</td>
                       <td className="px-4 py-2 tabular-nums">{r.linha}</td>
                       <td className="px-4 py-2">{r.comprador ?? "—"}</td>
                       <td className="px-4 py-2">{r.consultor ?? "—"}</td>

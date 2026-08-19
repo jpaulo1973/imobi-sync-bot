@@ -39,12 +39,20 @@ export function notificationTarget(args: {
   buyer_ref: string;
   property_id: string;
   ownsProperty: boolean;
+  /** O Radar é exclusivo de Admin; consultores abrem o match pelo imóvel. */
+  isAdmin?: boolean;
 }): MatchNotificationTarget {
-  // Procuras (WhatsApp/Lead) vivem no Radar: abrimos directamente a procura
-  // específica (cartão em foco + detalhe da oportunidade), em vez de a
-  // destacar numa lista completa.
-  if (args.buyer_source === "search") {
+  // Procuras (WhatsApp/Lead) vivem no Radar, mas o Radar é restrito a Admin.
+  // Para consultores abrimos o match directamente na ficha do imóvel, com o
+  // cartão da procura em foco.
+  if (args.buyer_source === "search" && args.isAdmin) {
     return { to: "/radar", search: { procura: args.buyer_ref, property: args.property_id } };
+  }
+  if (args.buyer_source === "search") {
+    return {
+      to: "/imoveis",
+      search: { open: args.property_id, match: matchCardKey("search", args.buyer_ref) },
+    };
   }
   // Comprador próprio (cliente) sem posse do imóvel → abre o drawer do cliente
   // com o imóvel destacado. Nos restantes casos abre o match do imóvel.
@@ -92,6 +100,11 @@ export const listMatchNotifications = createServerFn({ method: "POST" })
       .limit(30);
     if (error) throw new Error(error.message);
     const rows = data ?? [];
+    const { data: isAdminData } = await supabase.rpc("has_role", {
+      _user_id: userId,
+      _role: "admin",
+    });
+    const isAdmin = isAdminData === true;
     const propIds = Array.from(new Set(rows.map((r: any) => r.property_id as string)));
     const ownProps = new Set<string>();
     if (propIds.length > 0) {
@@ -118,6 +131,7 @@ export const listMatchNotifications = createServerFn({ method: "POST" })
         buyer_ref: r.buyer_ref,
         property_id: r.property_id,
         ownsProperty: ownProps.has(r.property_id as string),
+        isAdmin,
       }),
     }));
     const unread = items.filter((i) => i.read_at == null).length;
