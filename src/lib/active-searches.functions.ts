@@ -598,6 +598,19 @@ export async function upsertOne(
     "id, criteria, contact_nome, contact_email, contact_grupo, contact_telefone, texto_original, resumo, data_publicacao, merged_from_count, consultor_nome, consultor_telefone, flagged_for_review";
   const phone = effectivePhone(row);
   const incomingName = normContactName(row.contact_nome ?? row.consultor_nome);
+
+  // Aprendizagem de contacto: se esta linha traz nome + telefone, guardamos o
+  // par para que importações futuras da mesma pessoa (sem número no ficheiro)
+  // fiquem automaticamente preenchidas.
+  if (phone && incomingName) {
+    await saveContact(supabase, {
+      nome: row.contact_nome ?? row.consultor_nome,
+      telefone: phone,
+      email: row.contact_email ?? null,
+      origem: "import",
+    });
+  }
+
   let candidates: any[] = [];
   let matchedBy: "telefone" | "nome" = "telefone";
 
