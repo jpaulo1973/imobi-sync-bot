@@ -248,6 +248,51 @@ export type Database = {
         }
         Relationships: []
       }
+      contacts: {
+        Row: {
+          agency: string | null
+          created_at: string
+          email: string | null
+          id: string
+          last_seen_at: string
+          nome_display: string | null
+          nome_normalizado: string
+          origem: string
+          telefone: string
+          times_seen: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          agency?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          last_seen_at?: string
+          nome_display?: string | null
+          nome_normalizado: string
+          origem?: string
+          telefone: string
+          times_seen?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          agency?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          last_seen_at?: string
+          nome_display?: string | null
+          nome_normalizado?: string
+          origem?: string
+          telefone?: string
+          times_seen?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       functional_zone_members: {
         Row: {
           created_at: string
@@ -1039,6 +1084,29 @@ export type Database = {
           telefone: string
           whatsapp: string
         }[]
+      }
+      contacts_lookup: {
+        Args: { p_nomes: string[] }
+        Returns: {
+          agency: string
+          email: string
+          last_seen_at: string
+          nome_display: string
+          nome_normalizado: string
+          telefone: string
+          times_seen: number
+        }[]
+      }
+      contacts_normalize_name: { Args: { raw: string }; Returns: string }
+      contacts_upsert: {
+        Args: {
+          p_agency?: string
+          p_email?: string
+          p_nome: string
+          p_origem?: string
+          p_telefone: string
+        }
+        Returns: string
       }
       has_role: {
         Args: {
