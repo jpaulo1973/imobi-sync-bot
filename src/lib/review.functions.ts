@@ -247,7 +247,10 @@ export const splitReviewSearch = createServerFn({ method: "POST" })
         dedup_key: firstDedup,
         flagged_for_review: false,
         decision_reason: "Dividido manualmente pelo administrador",
-        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        expires_at: computeExpiresAt(
+          { data_publicacao: source.data_publicacao, data_origem: source.data_origem },
+          source.expires_at,
+        ),
         last_match_at: null,
         ...(first.location_ids ? { location_ids: first.location_ids } : {}),
       })
