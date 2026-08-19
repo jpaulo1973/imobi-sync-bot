@@ -3,7 +3,15 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertAdminContext, isAdminContext } from "./admin-guard.server";
 import { scoreMatch, buildGeoMatchIndex, type BuyerLike } from "./matching-engine";
-import { buildDedupKey, normalizePhone, scoreSimilarity, type SimilarityCriteria } from "./dedup";
+import {
+  buildDedupKey,
+  normalizePhone,
+  normalizeTextKey,
+  scoreSimilarity,
+  textJaccard,
+  type SimilarityCriteria,
+} from "./dedup";
+import { normContactName, saveContact } from "./contacts.server";
 import { LocationRepository } from "./geo";
 import { extractProximityCriteria } from "./search-splitter.server";
 import { inferFinalidadeFromText } from "./whatsapp-ingestion-normalize";
