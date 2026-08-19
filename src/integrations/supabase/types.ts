@@ -1085,6 +1085,7 @@ export type Database = {
           whatsapp: string
         }[]
       }
+      contacts_backfill_apply: { Args: { p_rows: Json }; Returns: Json }
       contacts_lookup: {
         Args: { p_nomes: string[] }
         Returns: {
