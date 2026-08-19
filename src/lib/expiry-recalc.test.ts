@@ -7,7 +7,8 @@ const sqlPath = resolve(__dirname, "../../supabase/tests/expiry_recalc_regressio
 
 describe("admin_recalc_excel_expiry (integridade RPC)", () => {
   it.skipIf(!hasDb)("não gera erro de GROUP BY e devolve distribuição por mês", () => {
-    const out = execSync(`psql -v ON_ERROR_STOP=1 -f "${sqlPath}"`, {
+    const out = execSync(`psql -v ON_ERROR_STOP=1 -f "${sqlPath}" 2>&1`, {
+
       encoding: "utf-8",
       env: {
         ...process.env,
