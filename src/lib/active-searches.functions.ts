@@ -707,6 +707,43 @@ export async function upsertOne(
 
   const reasonSummary = bestReasons.join("; ").slice(0, 700);
 
+  // Caminho "só nome" (sem telefone em nenhum dos lados): exige prova
+  // adicional antes de fundir, para que nomes comuns não colapsem pessoas
+  // diferentes. Texto praticamente idêntico OU score >= 95 funde; a zona
+  // cinzenta 80-94 vai para Revisão; abaixo de 80 é procura nova.
+  if (matchedBy === "nome") {
+    const jac = textJaccard(best?.texto_original ?? best?.resumo, incomingText);
+    if (jac >= 0.95 || bestScore >= 95) {
+      return await mergeInto(
+        supabase,
+        userId,
+        best.id,
+        best,
+        row,
+        Math.max(bestScore, Math.round(jac * 100)),
+        `mesma pessoa por nome, sem telefone — evidência forte (texto j=${jac.toFixed(2)}, score ${bestScore}%): ${reasonSummary}`,
+      );
+    }
+    if (bestScore >= 80) {
+      return await insertNew(
+        supabase,
+        userId,
+        row,
+        bestScore,
+        `nome coincide sem telefone e evidência insuficiente (${bestScore}%, texto j=${jac.toFixed(2)}) — rever manualmente: ${reasonSummary}`,
+        "flagged",
+      );
+    }
+    return await insertNew(
+      supabase,
+      userId,
+      row,
+      bestScore,
+      `nome coincide mas necessidade distinta (${bestScore}%): ${reasonSummary}`,
+      "created",
+    );
+  }
+
   // 3) Regras de negócio + IA
   //
   // Correção deduplicação (Sprint WhatsApp re-importação):
