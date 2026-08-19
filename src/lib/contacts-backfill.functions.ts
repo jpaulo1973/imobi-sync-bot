@@ -43,16 +43,22 @@ export const backfillContactsFromSearches = createServerFn({ method: "POST" })
     if (roleErr) throw new Error(`Falha a validar permissões: ${roleErr.message}`);
     if (!isAdmin) throw new Error("Apenas administradores podem executar o backfill.");
 
-    const { fetchAllRows } = await import("./geo/location-repository");
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    // Leitura via RPC SECURITY DEFINER (admin-gated) — nunca com service role
+    // key, que não existe no runtime de produção.
+    const PAGE = 1000;
+    const rows: any[] = [];
+    for (let offset = 0; ; offset += PAGE) {
+      const { data: page, error } = await (supabase.rpc as any)("contacts_backfill_source", {
+        p_limit: PAGE,
+        p_offset: offset,
+      });
+      if (error) throw new Error(`Falha a ler o histórico de procuras: ${error.message}`);
+      const batch = (page ?? []) as any[];
+      rows.push(...batch);
+      if (batch.length < PAGE) break;
+    }
 
-    const rows = await fetchAllRows(
-      supabaseAdmin as any,
-      "active_searches",
-      "user_id, contact_nome, consultor_nome, contact_telefone, consultor_telefone, contact_email, created_at, updated_at",
-    );
-
-    const agg = aggregateContacts((rows ?? []) as any[]);
+    const agg = aggregateContacts(rows);
 
     let semeados = 0;
     let reforcados = 0;

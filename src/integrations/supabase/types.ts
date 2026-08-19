@@ -1086,6 +1086,19 @@ export type Database = {
         }[]
       }
       contacts_backfill_apply: { Args: { p_rows: Json }; Returns: Json }
+      contacts_backfill_source: {
+        Args: { p_limit?: number; p_offset?: number }
+        Returns: {
+          consultor_nome: string
+          consultor_telefone: string
+          contact_email: string
+          contact_nome: string
+          contact_telefone: string
+          created_at: string
+          updated_at: string
+          user_id: string
+        }[]
+      }
       contacts_lookup: {
         Args: { p_nomes: string[] }
         Returns: {
