@@ -62,7 +62,7 @@ function ImportarPage() {
   const finalizeFn = useServerFn(finalizeExcelImport);
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<(ExcelImportResult & { linhas: ReportLine[] }) | null>(null);
+  const [result, setResult] = useState<(Omit<ExcelImportResult, "linhas"> & { linhas: ReportLine[] }) | null>(null);
   const [currentFile, setCurrentFile] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [total, setTotal] = useState(0);
