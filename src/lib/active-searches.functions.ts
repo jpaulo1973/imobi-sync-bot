@@ -570,26 +570,79 @@ export async function upsertOne(
   const incomingCriteria = row.criteria as SimilarityCriteria;
   const incomingText = row.texto_original ?? row.resumo ?? null;
 
-  // 1) Candidate lookup: só procuras do mesmo user que partilham telefone.
-  //    Sem telefone não há candidatos → cria como nova (regra de segurança).
-  const phone = normalizePhone(row.contact_telefone);
-  if (!phone) {
-    return await insertNew(supabase, userId, row, 0, "sem telefone — criada como nova", "created");
+  // 1) Candidate lookup.
+  //
+  // Contactos persistentes + dedup reforçada:
+  //  - o telefone efetivo é `contact_telefone` OU `consultor_telefone` (o
+  //    número da mesma pessoa aparece indistintamente numa das colunas,
+  //    dependendo do canal/ficheiro de origem);
+  //  - quando não existe telefone nenhum, deixamos de desistir: procuramos
+  //    candidatos pelo NOME normalizado. O nome sozinho NUNCA funde — serve
+  //    apenas para encontrar candidatos, e o caminho "só nome" exige prova
+  //    adicional (texto idêntico ou score >= 95) antes de fundir.
+  const SELECT_COLS =
+    "id, criteria, contact_nome, contact_email, contact_grupo, contact_telefone, texto_original, resumo, data_publicacao, merged_from_count, consultor_nome, consultor_telefone, flagged_for_review";
+  const phone = effectivePhone(row);
+  const incomingName = normContactName(row.contact_nome ?? row.consultor_nome);
+  let candidates: any[] = [];
+  let matchedBy: "telefone" | "nome" = "telefone";
+
+  if (phone) {
+    const { data: rawCandidates } = await supabase
+      .from("active_searches")
+      .select(SELECT_COLS)
+      .eq("user_id", userId)
+      .or(`contact_telefone.ilike.%${phone}%,consultor_telefone.ilike.%${phone}%`)
+      .limit(200);
+    candidates = (rawCandidates ?? []).filter((c: any) => effectivePhoneOf(c) === phone);
+  } else if (incomingName) {
+    matchedBy = "nome";
+    const like = (row.contact_nome ?? row.consultor_nome ?? "").trim();
+    const { data: rawCandidates } = await supabase
+      .from("active_searches")
+      .select(SELECT_COLS)
+      .eq("user_id", userId)
+      .or(`contact_nome.ilike.%${like}%,consultor_nome.ilike.%${like}%`)
+      .limit(200);
+    candidates = (rawCandidates ?? []).filter(
+      (c: any) =>
+        normContactName(c.contact_nome ?? c.consultor_nome) === incomingName &&
+        !effectivePhoneOf(c),
+    );
   }
 
-  const { data: rawCandidates } = await supabase
-    .from("active_searches")
-    .select("id, criteria, contact_nome, contact_email, contact_grupo, contact_telefone, texto_original, resumo, data_publicacao, merged_from_count, consultor_nome, consultor_telefone, flagged_for_review")
-    .eq("user_id", userId)
-    .ilike("contact_telefone", `%${phone}%`)
-    .limit(100);
-
-  const candidates = (rawCandidates ?? []).filter(
-    (c: any) => normalizePhone(c.contact_telefone) === phone,
-  );
-
   if (candidates.length === 0) {
-    return await insertNew(supabase, userId, row, 0, "sem candidato compatível", "created");
+    return await insertNew(
+      supabase,
+      userId,
+      row,
+      0,
+      phone ? "sem candidato compatível" : "sem telefone nem contacto conhecido — criada como nova",
+      "created",
+    );
+  }
+
+  // Correção do bug das "primárias paralelas": quando o telefone efetivo e o
+  // texto original coincidem exatamente, é o MESMO pedido — mesmo que a
+  // assinatura de critérios divirja (o splitter é não-determinístico e produz
+  // variações para o mesmo texto). Antes, essa divergência fazia nascer duas
+  // linhas primárias, cada uma a absorver as suas cópias.
+  if (phone && normalizeTextKey(incomingText)) {
+    const sameText = candidates.find(
+      (c: any) =>
+        normalizeTextKey(c.texto_original ?? c.resumo) === normalizeTextKey(incomingText),
+    );
+    if (sameText) {
+      return await mergeInto(
+        supabase,
+        userId,
+        sameText.id,
+        sameText,
+        row,
+        100,
+        "mesmo telefone e mesmo texto original (auto-merge) — critérios fundidos",
+      );
+    }
   }
 
   // Curto-circuito determinístico — duplicado exato.
