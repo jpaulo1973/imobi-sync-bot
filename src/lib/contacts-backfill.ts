@@ -15,7 +15,20 @@
 // Esses nomes saem num relatório para decisão manual.
 // ---------------------------------------------------------------------------
 
-import { normContactName } from "./contacts.server";
+// Nota: a normalização de nome é replicada aqui (em vez de importada de
+// `contacts.server.ts`) porque este módulo é alcançável pelo bundle do
+// cliente através de `contacts-backfill.functions.ts`, e ficheiros
+// `*.server.ts` estão bloqueados nesse bundle. O teste
+// `contacts-backfill.test.ts` garante paridade com `normContactName`.
+export function normNameForBackfill(raw?: string | null): string {
+  if (!raw) return "";
+  return String(raw)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
 
 export type BackfillSourceRow = {
   user_id: string;
@@ -110,7 +123,7 @@ export function aggregateContacts(rows: BackfillSourceRow[]): AggregateResult {
 
   for (const row of rows) {
     const nomeRaw = (row.contact_nome ?? "").trim() || (row.consultor_nome ?? "").trim();
-    const key = normContactName(nomeRaw);
+    const key = normNameForBackfill(nomeRaw);
     const tel = normalizePhoneStrict(effectivePhoneRaw(row));
     if (!key || !tel || !row.user_id) {
       ignoradas++;
