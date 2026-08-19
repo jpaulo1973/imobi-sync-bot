@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Database, RefreshCw, LifeBuoy, CheckCheck } from "lucide-react";
+import { AlertTriangle, Database, RefreshCw, LifeBuoy, CheckCheck, Contact } from "lucide-react";
 import { toast } from "sonner";
 import { isCurrentUserAdmin } from "@/lib/admin.functions";
 import {
@@ -29,6 +29,10 @@ import {
   type SupportRequest,
 } from "@/lib/support.functions";
 import { DuplicatesPanel } from "@/components/DuplicatesPanel";
+import {
+  backfillContactsFromSearches,
+  type ContactsBackfillResult,
+} from "@/lib/contacts-backfill.functions";
 
 export const Route = createFileRoute("/_authenticated/manutencao")({
   beforeLoad: async () => {
@@ -62,6 +66,9 @@ function ManutencaoPage() {
   const [backfillResult, setBackfillResult] = useState<BackfillGeoResult | null>(null);
   const [recomputeLoading, setRecomputeLoading] = useState(false);
   const [recomputeResult, setRecomputeResult] = useState<RecomputeAllResult | null>(null);
+  const contactsFn = useServerFn(backfillContactsFromSearches);
+  const [contactsLoading, setContactsLoading] = useState<"dry" | "apply" | null>(null);
+  const [contactsResult, setContactsResult] = useState<ContactsBackfillResult | null>(null);
 
   useEffect(() => {
     getFn()
@@ -181,6 +188,39 @@ function ManutencaoPage() {
   };
 
   const runRecompute = async () => {
+    setRecomputeLoading(true);
+    setRecomputeResult(null);
+    try {
+      const res = await recomputeFn();
+      setRecomputeResult(res);
+      toast.success(
+        `Motor Match: ${res.searches_processed} procuras · ${res.opportunities_created} novos matches.`,
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro no recompute");
+    } finally {
+      setRecomputeLoading(false);
+    }
+  };
+
+  const runContactsBackfill = async (dry: boolean) => {
+    setContactsLoading(dry ? "dry" : "apply");
+    try {
+      const res = await contactsFn({ data: { dry_run: dry } });
+      setContactsResult(res);
+      toast.success(
+        dry
+          ? `Simulação: ${res.pares_elegiveis} pares elegíveis · ${res.nomes_ambiguos} nomes ambíguos excluídos.`
+          : `${res.semeados} contactos semeados · ${res.reforcados} reforçados · ${res.nomes_ambiguos} nomes ambíguos por decidir.`,
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro no backfill de contactos");
+    } finally {
+      setContactsLoading(null);
+    }
+  };
+
+  const runRecomputeLegacy = async () => {
     setRecomputeLoading(true);
     setRecomputeResult(null);
     try {
