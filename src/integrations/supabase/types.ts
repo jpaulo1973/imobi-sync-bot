@@ -1063,6 +1063,7 @@ export type Database = {
         Returns: undefined
       }
       admin_purge_user_data: { Args: { p_user_id: string }; Returns: undefined }
+      admin_recalc_excel_expiry: { Args: { p_apply?: boolean }; Returns: Json }
       admin_restore_search: { Args: { p_id: string }; Returns: undefined }
       admin_set_user_role: {
         Args: {
