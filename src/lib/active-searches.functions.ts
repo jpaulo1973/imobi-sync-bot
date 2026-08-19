@@ -477,9 +477,19 @@ async function mergeInto(
   reason: string,
 ): Promise<UpsertResult> {
   const nextCriteria = mergeCriteria(existing.criteria as Record<string, unknown>, row.criteria);
+  // Release 1.2.5 — a fusão NUNCA renova a validade a partir de "agora".
+  // Deriva sempre da data de publicação/origem conhecida; sem base,
+  // mantém a expiração já gravada (reimportar não estende).
+  const mergedExpires =
+    expiresFromBase({
+      data_publicacao: row.data_publicacao ?? existing.data_publicacao ?? null,
+      data_origem: row.data_origem ?? existing.data_origem ?? null,
+    }) ??
+    existing.expires_at ??
+    row.expires_at;
   const update: Record<string, unknown> = {
     criteria: nextCriteria,
-    expires_at: row.expires_at,
+    expires_at: mergedExpires,
     origem: row.origem,
     import_batch_id: row.import_batch_id,
     resumo: row.resumo ?? existing.resumo,
