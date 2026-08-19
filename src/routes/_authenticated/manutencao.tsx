@@ -387,8 +387,13 @@ function ManutencaoPage() {
         )}
       </Card>
 
+      <ContactsBackfillPanel
+        result={contactsResult}
+        loading={contactsLoading}
+        onRun={runContactsBackfill}
+      />
+
       <Card id="ajuda-sugestoes" className="p-6 space-y-4 scroll-mt-20">
-        <div>
         <div>
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <LifeBuoy className="w-5 h-5 text-primary" />
