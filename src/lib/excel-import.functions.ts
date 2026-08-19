@@ -18,6 +18,7 @@ import { normalizeSearchBedrooms } from "./bedrooms-normalize";
 import { LocationRepository } from "./geo/location-repository";
 import { parseLocations } from "./geo";
 import { knownPhoneFor, lookupContacts, type KnownContact } from "./contacts.server";
+import { computeExpiresAt } from "./expiry";
 
 // Re-exportar para manter compatibilidade com consumidores existentes; a
 // implementação vive agora em src/lib/search-acceptance.ts (fonte única).

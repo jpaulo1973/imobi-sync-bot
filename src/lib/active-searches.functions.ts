@@ -15,6 +15,7 @@ import { normContactName, saveContact } from "./contacts.server";
 import { LocationRepository } from "./geo";
 import { extractProximityCriteria } from "./search-splitter.server";
 import { inferFinalidadeFromText } from "./whatsapp-ingestion-normalize";
+import { expiresFromBase } from "./expiry";
 
 const CriteriaSchema = z.object({
   nome: z.string().nullable().optional(),
