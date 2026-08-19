@@ -1,85 +1,55 @@
-# Contactos persistentes + dedup mais forte na importação Excel
+# Backfill único da tabela `contacts`
 
-## Diagnóstico (feito agora, sobre dados de produção)
+Semear `contacts` com os pares (nome, telefone) já presentes no histórico de `active_searches`, para que o preenchimento automático do telefone na importação passe a cobrir contactos conhecidos desde sempre — e não apenas os vistos depois do deploy de ontem.
 
-**Porque é que a dedup não apanhou o caso Casa Bella**
-
-O `buildDedupKey` não decide nada — é só um *hint* guardado em `dedup_key`. A decisão real está em `upsertOne()`:
-
-1. Candidatos são procurados **exclusivamente por `contact_telefone` normalizado** (telefone do comprador).
-2. Sem `contact_telefone` → devolve imediatamente `"sem telefone — criada como nova"`. Nunca compara nada.
-3. Com telefone: curto-circuito `isExactDuplicate` (nome + texto + assinatura de critérios), depois score 0-100, depois IA entre 80-94.
-
-O caso Casa Bella cai no ponto 2: as 4 procuras têm `contact_telefone` vazio e o número (920505485) está em `consultor_telefone`, que a dedup **ignora por completo**. Não há janela de tempo envolvida — o problema é a chave.
-
-Nota importante que encontrei: as 4 linhas "Casa Bella" **não são o mesmo pedido** (Torres Vedras / espaço comercial Lisboa / moradia Lisboa / prédio Fontes). São procuras distintas do mesmo consultor — logo não devem ser fundidas entre si. O que falta é o telefone ser reconhecido como já conhecido, não uma fusão.
-
-**Volume de duplicados hoje em produção** (procuras não descartadas: 2.971)
+## 1. Números confirmados (medidos agora na base de dados)
 
 | Métrica | Valor |
 |---|---|
-| Grupos com mesmo nome + mesmo texto original | 390 |
-| Linhas nesses grupos | 983 |
-| **Linhas excedentes (candidatas a fusão)** | **593** |
-| Grupos gerados em datas de importação diferentes | 49 |
-| Excedentes em linhas sem `contact_telefone` | 21 |
-| Procuras sem `contact_telefone` | 115 |
-| Nomes distintos (consultor/contacto) | 965 |
+| Linhas de `active_searches` com nome + telefone válido (9 dígitos) | 2 570 |
+| Pares distintos (utilizador + nome normalizado + telefone) → registos em `contacts` | **1 712** |
+| Nomes normalizados distintos | 1 309 |
+| Nomes com mais do que um telefone no histórico | **24** |
 
-Causas dos **593 excedentes** (linha primária de cada grupo excluída; a listagem anterior estava errada — contava as 983 linhas dos grupos e vinha truncada no top-10, daí a soma de 612 não fechar):
+Estado atual de `contacts`: 8 registos (todos `origem='revisao'`). O backfill cria ~1 704 novos e reforça os 8 existentes (incremento de `times_seen`), sem os sobrescrever.
 
-- 173 "duplicado exato (auto-merge)" — cada linha é primária de uma fusão anterior, mas ficaram duas primárias paralelas no mesmo grupo
-- 71 "Procura ambígua e dados insuficientes — rever manualmente"
-- 21 "sem telefone — criada como nova" ← o gap do ponto (a)
-- ~110 "Zona por interpretar: X" (dispersas por ~60 zonas distintas: Gaia, Espinho, Vilamoura, Telheiras…)
-- 9 "necessidade distinta (tipologia divergente)"
-- 3 IA indisponível (CREDITS_EXHAUSTED) → mantidas separadas por segurança
-- restantes: sem motivo registado (criadas antes da telemetria de decisão)
+Regras de exclusão: linhas sem nome utilizável, sem telefone em nenhuma das duas colunas, ou com telefone que normaliza para menos de 9 dígitos são ignoradas.
 
-**Bug adicional confirmado nos 173 "auto-merge"** — não é fusão incompleta: `mergeInto` é não-destrutivo por design (atualiza o registo que sobrevive, nunca apaga o irmão). O que acontece é outro: no mesmo ficheiro e no mesmo dia, com o **mesmo telefone e o mesmo texto original**, o curto-circuito `isExactDuplicate` exige `criteriaSignature` idêntica. Quando o splitter produz critérios ligeiramente diferentes para o mesmo texto, nascem **duas primárias paralelas**, cada uma a absorver as suas cópias. Verificado em amostra: pares com 1 telefone distinto, 1 data, texto idêntico.
+## 2. Regra de desempate quando o mesmo nome tem vários telefones
 
-Correção incluída neste pedido (é a mesma porta de entrada, `upsertOne`): quando telefone efetivo **e** `texto_original` normalizado são idênticos, funde independentemente da assinatura de critérios (os critérios passam a ser fundidos, não usados como desempate). Os 173 já existentes continuam a ser tratados no painel retroativo, com aprovação visual.
+O lookup existente (`contacts_lookup`) devolve as linhas ordenadas por **`times_seen` desc, depois `last_seen_at` desc**, e `knownPhoneFor` fica com a primeira. Ou seja, hoje a regra é:
 
-## (a) Tabela de contactos persistente
+1. **Mais frequente** (o telefone que aparece em mais procuras desse nome);
+2. **Empate → mais recente** (`last_seen_at` mais alto).
 
-Nova tabela `public.contacts`:
+O backfill alimenta exatamente esta regra:
+- `times_seen` = número de procuras históricas em que aquele par (nome, telefone) aparece;
+- `last_seen_at` = data mais recente (`greatest(created_at, updated_at)`) dessas procuras.
 
-- `id`, `user_id`, `nome_normalizado` (chave), `nome_display`, `telefone` (normalizado 9 dígitos), `email`, `agency`, `origem` (`import` | `revisao` | `manual`), `times_seen`, `last_seen_at`, `created_at`, `updated_at`
-- Único: `(user_id, nome_normalizado, telefone)`; índice adicional em `(user_id, nome_normalizado)`
-- GRANTs para `authenticated` + `service_role`; RLS por `user_id` e leitura para admin via `has_role`
-- RPC `SECURITY DEFINER` `contacts_upsert(p_nome text, p_telefone text, p_email text, p_agency text, p_origem text)` para escrita idempotente com incremento de `times_seen`
-- RPC `contacts_lookup(p_nomes text[])` para leitura em lote (uma query por batch de importação, não por linha)
+Consequência para os 24 nomes ambíguos: ganha o número usado mais vezes; só quando há empate decide a recência. Nenhum telefone é apagado — todos os variantes ficam gravados, o lookup apenas escolhe o preferido. O ranking não é alterado por este plano.
 
-Integração:
-1. **Importação Excel** — antes do loop, carregar `contacts_lookup` para todos os nomes do ficheiro; quando a linha não traz telefone, preencher a partir do contacto conhecido e registar em `decision_reason` (`telefone recuperado do contacto conhecido`). Quando a linha traz telefone novo, gravar/atualizar em `contacts`.
-2. **Revisão → `telefone_novo`** — `bulkSetConsultorTelefone` passa a escrever também em `contacts`, para o número ficar disponível em importações futuras.
-3. **Directory existente** (`consultor_directory` sobre `profiles`) mantém prioridade: `profiles` → `contacts` → ficheiro.
+## 3. O que o backfill faz
 
-## (b) Dedup mais forte na importação
+- Nova server function de administração, invocada do painel de Manutenção (mesmo padrão da deduplicação já aprovada): botão "Semear contactos do histórico" com contadores no fim (linhas lidas, pares criados, pares reforçados, ignorados).
+- Percorre `active_searches` em páginas (paginação já usada no backfill geográfico, para não bater no limite de 1 000 linhas).
+- Para cada linha: nome = `contact_nome` ?? `consultor_nome`; telefone = `contact_telefone` ?? `consultor_telefone` (o mesmo "telefone efetivo" que a deduplicação usa).
+- Agrega em memória por (utilizador, nome normalizado, telefone) somando ocorrências e guardando a data mais recente, e só depois grava — uma escrita por par, não uma por linha.
+- Escrita via RPC `SECURITY DEFINER` (`contacts_upsert`, estendida com `origem='backfill'`, `p_times_seen` e `p_last_seen_at`), respeitando o `ON CONFLICT` existente. Não altera nenhuma coluna de `active_searches`.
 
-Alterações em `upsertOne()` (afeta Excel, WhatsApp, texto e captura — mesma porta de entrada):
+## 4. Idempotência
 
-1. **Telefone efetivo**: chave passa a ser `contact_telefone` **ou** `consultor_telefone` normalizado (o primeiro válido), depois de enriquecido por `contacts`.
-2. **Segundo caminho de candidatos**: quando não há telefone nenhum, procurar por `(user_id, nome normalizado)` em vez de desistir. Removido o atalho `"sem telefone — criada como nova"`. **Nome a bater nunca funde por si só**: o nome serve apenas para encontrar candidatos; a decisão passa integralmente pelo pipeline existente — `isExactDuplicate` → score determinístico → IA (80-94) → `<80` cria nova. Além disso, candidatos encontrados só por nome (sem telefone em nenhum dos lados) exigem uma condição extra: texto original idêntico (Jaccard ≥ 0,95) **ou** score ≥ 95; entre 80 e 94 sem telefone a linha é marcada para Revisão em vez de fundida. Nomes comuns como "Ana Costa" sem telefone não geram fusão automática.
-3. **Chave de identidade da pessoa** = `nome normalizado + telefone efetivo`; o scoring de similaridade dos critérios continua a decidir se é a **mesma procura** (fusão) ou uma **procura nova da mesma pessoa** (linha nova, sem duplicar). Isto preserva o caso Casa Bella: mesma pessoa, 4 necessidades diferentes → 4 linhas legítimas.
-4. **Sem janela de tempo**: fusão passa a ser independente da data de importação; `data_origem`/`hora_origem` mais recentes ganham no merge.
-5. **Fallback quando a IA está indisponível**: hoje `CREDITS_EXHAUSTED` mantém separado. Passa a fundir quando o texto original é idêntico (Jaccard ≥ 0,95), evitando duplicados por indisponibilidade.
-6. **Mesmo texto, critérios divergentes** (bug das primárias paralelas acima): funde quando telefone efetivo + texto original coincidem.
-7. Testes de regressão em `src/lib/dedup*.test.ts`: reimportação sem telefone funde; mesma pessoa com procura diferente não funde; telefone só em `consultor_telefone` entra na dedup; nome igual sem telefone e com textos diferentes **não** funde; mesmo texto com critérios divergentes funde.
+Correr duas vezes não duplica: o índice único (utilizador, nome normalizado, telefone) força `ON CONFLICT DO UPDATE`. Para que a segunda execução não inflacione contagens, o upsert de backfill grava `times_seen` como **valor absoluto** (`GREATEST(existente, contagem_histórica)`) em vez de incrementar, e `last_seen_at` como o mais recente dos dois. Contactos aprendidos pela Revisão mantêm o telefone e o nome de exibição já gravados.
 
-## Duplicados já existentes — proposta (nada é apagado sem aprovação visual)
+## 5. Testes de regressão
 
-Sem qualquer alteração de dados nesta fase. Proposta:
+- Agregador puro: nome com acentos/caixa diferentes e telefones em formatos PT distintos (`+351…`, `00351…`, `9…`) colapsam num único par.
+- Nome com dois telefones históricos: gera dois registos, e a ordenação `times_seen desc, last_seen_at desc` devolve o mais frequente; com empate, devolve o mais recente.
+- Idempotência: aplicar o mesmo conjunto duas vezes mantém `times_seen` e o número de registos.
+- Linhas sem telefone ou com telefone curto são contadas como ignoradas e não escrevem nada.
+- Suite completa existente (131 testes) tem de continuar verde.
 
-1. Novo painel **"Duplicados"** em Manutenção, listando os 390 grupos (593 linhas excedentes) (mesmo nome + mesmo texto), com contagem, datas, origem e o texto original de cada linha.
-2. Cada grupo mostra o **registo primário sugerido** (o mais antigo com mais dados preenchidos) e os irmãos a fundir.
-3. Ações **por grupo**, uma a uma: `Fundir` (aplica o mesmo `mergeInto`, preservando telefone/localizações/notificações e apontando `match_opportunities` para o primário) ou `Manter separados` (marca o grupo como revisto e não volta a aparecer).
-4. Ação em massa **"Fundir todos os grupos revistos"** só depois de percorridos manualmente — e mesmo essa com diálogo de confirmação e contagem exata.
-5. Nenhum `DELETE`: os irmãos são fundidos e marcados `descartado = true` com `descartado_motivo = 'fundido em <id>'`, recuperáveis pelo `admin_restore_search` já existente.
+## Detalhes técnicos
 
-## Notas técnicas
-
-- Migração: `contacts` + 2 RPCs `SECURITY DEFINER` com `search_path = public` e GRANTs no mesmo ficheiro.
-- `contacts_lookup` em lote evita N+1 na importação (o gargalo já corrigido em sprints anteriores).
-- `dedup_key` mantém-se como hint; não passa a identificador único.
-- O painel de duplicados reutiliza `mergeInto` para não duplicar lógica de fusão.
+- Migração: `contacts_upsert` passa a aceitar `p_times_seen integer default null` e `p_last_seen_at timestamptz default null`; quando presentes, aplica valores absolutos em vez de `times_seen + 1`. Sem argumentos novos, o comportamento atual mantém-se intacto (importação/revisão continuam a incrementar).
+- Novo ficheiro `src/lib/contacts-backfill.functions.ts` com a server function protegida por `requireSupabaseAuth` + guarda de admin, e o agregador puro num módulo testável.
+- `src/routes/_authenticated/manutencao.tsx`: cartão novo com o botão e o resumo dos contadores.
