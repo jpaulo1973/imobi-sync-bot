@@ -606,7 +606,7 @@ export async function upsertOne(
   //    apenas para encontrar candidatos, e o caminho "só nome" exige prova
   //    adicional (texto idêntico ou score >= 95) antes de fundir.
   const SELECT_COLS =
-    "id, criteria, contact_nome, contact_email, contact_grupo, contact_telefone, texto_original, resumo, data_publicacao, merged_from_count, consultor_nome, consultor_telefone, flagged_for_review";
+    "id, criteria, contact_nome, contact_email, contact_grupo, contact_telefone, texto_original, resumo, data_publicacao, data_origem, hora_origem, expires_at, merged_from_count, consultor_nome, consultor_telefone, flagged_for_review";
   const phone = effectivePhone(row);
   const incomingName = normContactName(row.contact_nome ?? row.consultor_nome);
 
