@@ -26,12 +26,19 @@ Nota importante que encontrei: as 4 linhas "Casa Bella" **não são o mesmo pedi
 | Procuras sem `contact_telefone` | 115 |
 | Nomes distintos (consultor/contacto) | 965 |
 
-Causas dos 593 excedentes, por `decision_reason`:
-- 331 sem motivo (criadas antes da telemetria de decisão)
-- 177 já marcadas "duplicado exato (auto-merge)" — fundidas mas o irmão ficou
-- 72 "Procura ambígua — rever manualmente"
-- 29 "sem telefone — criada como nova" ← o gap deste pedido
+Causas dos **593 excedentes** (linha primária de cada grupo excluída; a listagem anterior estava errada — contava as 983 linhas dos grupos e vinha truncada no top-10, daí a soma de 612 não fechar):
+
+- 173 "duplicado exato (auto-merge)" — cada linha é primária de uma fusão anterior, mas ficaram duas primárias paralelas no mesmo grupo
+- 71 "Procura ambígua e dados insuficientes — rever manualmente"
+- 21 "sem telefone — criada como nova" ← o gap do ponto (a)
+- ~110 "Zona por interpretar: X" (dispersas por ~60 zonas distintas: Gaia, Espinho, Vilamoura, Telheiras…)
+- 9 "necessidade distinta (tipologia divergente)"
 - 3 IA indisponível (CREDITS_EXHAUSTED) → mantidas separadas por segurança
+- restantes: sem motivo registado (criadas antes da telemetria de decisão)
+
+**Bug adicional confirmado nos 173 "auto-merge"** — não é fusão incompleta: `mergeInto` é não-destrutivo por design (atualiza o registo que sobrevive, nunca apaga o irmão). O que acontece é outro: no mesmo ficheiro e no mesmo dia, com o **mesmo telefone e o mesmo texto original**, o curto-circuito `isExactDuplicate` exige `criteriaSignature` idêntica. Quando o splitter produz critérios ligeiramente diferentes para o mesmo texto, nascem **duas primárias paralelas**, cada uma a absorver as suas cópias. Verificado em amostra: pares com 1 telefone distinto, 1 data, texto idêntico.
+
+Correção incluída neste pedido (é a mesma porta de entrada, `upsertOne`): quando telefone efetivo **e** `texto_original` normalizado são idênticos, funde independentemente da assinatura de critérios (os critérios passam a ser fundidos, não usados como desempate). Os 173 já existentes continuam a ser tratados no painel retroativo, com aprovação visual.
 
 ## (a) Tabela de contactos persistente
 
@@ -53,17 +60,18 @@ Integração:
 Alterações em `upsertOne()` (afeta Excel, WhatsApp, texto e captura — mesma porta de entrada):
 
 1. **Telefone efetivo**: chave passa a ser `contact_telefone` **ou** `consultor_telefone` normalizado (o primeiro válido), depois de enriquecido por `contacts`.
-2. **Segundo caminho de candidatos**: quando não há telefone nenhum, procurar por `(user_id, nome normalizado)` em vez de desistir. Removido o atalho `"sem telefone — criada como nova"`.
+2. **Segundo caminho de candidatos**: quando não há telefone nenhum, procurar por `(user_id, nome normalizado)` em vez de desistir. Removido o atalho `"sem telefone — criada como nova"`. **Nome a bater nunca funde por si só**: o nome serve apenas para encontrar candidatos; a decisão passa integralmente pelo pipeline existente — `isExactDuplicate` → score determinístico → IA (80-94) → `<80` cria nova. Além disso, candidatos encontrados só por nome (sem telefone em nenhum dos lados) exigem uma condição extra: texto original idêntico (Jaccard ≥ 0,95) **ou** score ≥ 95; entre 80 e 94 sem telefone a linha é marcada para Revisão em vez de fundida. Nomes comuns como "Ana Costa" sem telefone não geram fusão automática.
 3. **Chave de identidade da pessoa** = `nome normalizado + telefone efetivo`; o scoring de similaridade dos critérios continua a decidir se é a **mesma procura** (fusão) ou uma **procura nova da mesma pessoa** (linha nova, sem duplicar). Isto preserva o caso Casa Bella: mesma pessoa, 4 necessidades diferentes → 4 linhas legítimas.
 4. **Sem janela de tempo**: fusão passa a ser independente da data de importação; `data_origem`/`hora_origem` mais recentes ganham no merge.
 5. **Fallback quando a IA está indisponível**: hoje `CREDITS_EXHAUSTED` mantém separado. Passa a fundir quando o texto original é idêntico (Jaccard ≥ 0,95), evitando duplicados por indisponibilidade.
-6. Testes de regressão em `src/lib/dedup*.test.ts`: reimportação sem telefone funde; mesma pessoa com procura diferente não funde; telefone só em `consultor_telefone` entra na dedup.
+6. **Mesmo texto, critérios divergentes** (bug das primárias paralelas acima): funde quando telefone efetivo + texto original coincidem.
+7. Testes de regressão em `src/lib/dedup*.test.ts`: reimportação sem telefone funde; mesma pessoa com procura diferente não funde; telefone só em `consultor_telefone` entra na dedup; nome igual sem telefone e com textos diferentes **não** funde; mesmo texto com critérios divergentes funde.
 
 ## Duplicados já existentes — proposta (nada é apagado sem aprovação visual)
 
 Sem qualquer alteração de dados nesta fase. Proposta:
 
-1. Novo painel **"Duplicados"** em Manutenção, listando os 390 grupos (mesmo nome + mesmo texto), com contagem, datas, origem e o texto original de cada linha.
+1. Novo painel **"Duplicados"** em Manutenção, listando os 390 grupos (593 linhas excedentes) (mesmo nome + mesmo texto), com contagem, datas, origem e o texto original de cada linha.
 2. Cada grupo mostra o **registo primário sugerido** (o mais antigo com mais dados preenchidos) e os irmãos a fundir.
 3. Ações **por grupo**, uma a uma: `Fundir` (aplica o mesmo `mergeInto`, preservando telefone/localizações/notificações e apontando `match_opportunities` para o primário) ou `Manter separados` (marca o grupo como revisto e não volta a aparecer).
 4. Ação em massa **"Fundir todos os grupos revistos"** só depois de percorridos manualmente — e mesmo essa com diálogo de confirmação e contagem exata.
