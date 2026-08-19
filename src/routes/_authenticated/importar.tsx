@@ -62,7 +62,11 @@ function ImportarPage() {
   const finalizeFn = useServerFn(finalizeExcelImport);
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<(Omit<ExcelImportResult, "linhas"> & { linhas: ReportLine[] }) | null>(null);
+  const [result, setResult] = useState<
+    (Omit<ExcelImportResult, "linhas"> & { linhas: ReportLine[]; procuras: number }) | null
+  >(null);
+  // Item E — mostrar só as linhas que originaram mais do que uma procura.
+  const [onlyMulti, setOnlyMulti] = useState(false);
   const [currentFile, setCurrentFile] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [total, setTotal] = useState(0);
@@ -146,7 +150,10 @@ function ImportarPage() {
         removidas: fin.removidas,
         matches: fin.matches,
         batch_id,
-        total_check: somaFinal === analisadas,
+        procuras: somaFinal,
+        // Cada linha do ficheiro produz exatamente uma linha de relatório; os
+        // contadores contam PROCURAS (uma linha pode originar várias).
+        total_check: linhas.length === analisadas,
         linhas,
       });
       setElapsedMs(Date.now() - start);
