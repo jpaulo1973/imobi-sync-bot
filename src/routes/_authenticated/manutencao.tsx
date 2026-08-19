@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Database, RefreshCw, LifeBuoy, CheckCheck, Contact } from "lucide-react";
+import { AlertTriangle, Database, RefreshCw, LifeBuoy, CheckCheck } from "lucide-react";
 import { toast } from "sonner";
 import { isCurrentUserAdmin } from "@/lib/admin.functions";
 import {
@@ -29,6 +29,7 @@ import {
   type SupportRequest,
 } from "@/lib/support.functions";
 import { DuplicatesPanel } from "@/components/DuplicatesPanel";
+import { ContactsBackfillPanel } from "@/components/ContactsBackfillPanel";
 import {
   backfillContactsFromSearches,
   type ContactsBackfillResult,
