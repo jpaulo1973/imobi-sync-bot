@@ -1097,6 +1097,7 @@ export type Database = {
           contact_telefone: string
           created_at: string
           updated_at: string
+          user_exists: boolean
           user_id: string
         }[]
       }

@@ -18,6 +18,8 @@ export type ContactsBackfillResult = {
   nomes_distintos: number;
   nomes_ambiguos: number;
   pares_elegiveis: number;
+  orfaos_pares: number;
+  orfaos_nomes: string[];
   semeados: number;
   reforcados: number;
   ignorados_servidor: number;
@@ -84,6 +86,8 @@ export const backfillContactsFromSearches = createServerFn({ method: "POST" })
       nomes_distintos: agg.nomes_distintos,
       nomes_ambiguos: agg.nomes_ambiguos,
       pares_elegiveis: agg.pares.length,
+      orfaos_pares: agg.orfaos_pares,
+      orfaos_nomes: agg.orfaos_nomes,
       semeados,
       reforcados,
       ignorados_servidor: ignorados,

@@ -56,7 +56,24 @@ export function ContactsBackfillPanel({ result, loading, onRun }: Props) {
             <Stat label="Semeados" value={result.semeados} />
             <Stat label="Reforçados" value={result.reforcados} />
             <Stat label="Nomes ambíguos" value={result.nomes_ambiguos} />
+            <Stat label="Pares de contas apagadas" value={result.orfaos_pares} />
           </div>
+
+          {result.orfaos_nomes.length > 0 && (
+            <div className="space-y-1">
+              <div className="font-medium">
+                Excluídos — procuras de consultores com conta apagada ({result.orfaos_nomes.length}{" "}
+                nomes)
+              </div>
+              <p className="text-muted-foreground">
+                Nunca são gravados: a tabela de contactos exige um consultor válido. Ficam aqui
+                listados para decisão manual.
+              </p>
+              <div className="max-h-40 overflow-y-auto border rounded p-2 leading-5">
+                {result.orfaos_nomes.join(" · ")}
+              </div>
+            </div>
+          )}
 
           {result.ambiguos.length > 0 && (
             <div className="space-y-2">

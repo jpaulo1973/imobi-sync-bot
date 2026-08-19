@@ -32,6 +32,8 @@ export function normNameForBackfill(raw?: string | null): string {
 
 export type BackfillSourceRow = {
   user_id: string;
+  /** false quando o consultor da procura já não existe (conta apagada). */
+  user_exists?: boolean | null;
   contact_nome?: string | null;
   consultor_nome?: string | null;
   contact_telefone?: string | null;
@@ -68,6 +70,9 @@ export type AggregateResult = {
   linhas_ignoradas: number;
   nomes_distintos: number;
   nomes_ambiguos: number;
+  /** Pares de consultores apagados: nunca gravados (FK contacts→auth.users). */
+  orfaos_pares: number;
+  orfaos_nomes: string[];
   pares: SeedPair[];
   ambiguos: AmbiguousName[];
 };
@@ -113,6 +118,7 @@ export function aggregateContacts(rows: BackfillSourceRow[]): AggregateResult {
     count: number;
     first: string;
     last: string;
+    orphan?: boolean;
   };
   const byPair = new Map<string, Acc>();
   // Telefones distintos por NOME (independente do utilizador): a ambiguidade
@@ -120,6 +126,8 @@ export function aggregateContacts(rows: BackfillSourceRow[]): AggregateResult {
   const phonesByName = new Map<string, Set<string>>();
   const displaysByName = new Map<string, Set<string>>();
   let ignoradas = 0;
+  let orfaosPares = 0;
+  const orfaosNomes = new Set<string>();
 
   for (const row of rows) {
     const nomeRaw = (row.contact_nome ?? "").trim() || (row.consultor_nome ?? "").trim();
@@ -155,6 +163,10 @@ export function aggregateContacts(rows: BackfillSourceRow[]): AggregateResult {
       if (!displaysByName.has(key)) displaysByName.set(key, new Set());
       displaysByName.get(key)!.add(nomeRaw);
     }
+    if (row.user_exists === false) {
+      orfaosNomes.add(key);
+      byPair.get(pairId)!.orphan = true;
+    }
   }
 
   const ambiguousKeys = new Set(
@@ -164,6 +176,11 @@ export function aggregateContacts(rows: BackfillSourceRow[]): AggregateResult {
   const pares: SeedPair[] = [];
   const ambMap = new Map<string, AmbiguousName>();
   for (const acc of byPair.values()) {
+    // Consultor apagado: a FK contacts→auth.users rejeitaria a linha.
+    if (acc.orphan) {
+      orfaosPares++;
+      continue;
+    }
     if (ambiguousKeys.has(acc.key)) {
       let entry = ambMap.get(acc.key);
       if (!entry) {
@@ -214,6 +231,8 @@ export function aggregateContacts(rows: BackfillSourceRow[]): AggregateResult {
     linhas_ignoradas: ignoradas,
     nomes_distintos: phonesByName.size,
     nomes_ambiguos: ambiguousKeys.size,
+    orfaos_pares: orfaosPares,
+    orfaos_nomes: [...orfaosNomes].sort(),
     pares: pares.sort((a, b) => b.times_seen - a.times_seen),
     ambiguos,
   };
