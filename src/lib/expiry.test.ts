@@ -33,3 +33,28 @@ describe("expiry", () => {
     expect(expiryBase({ data_publicacao: "não é data" })).toBeNull();
   });
 });
+
+// Regra da fusão (mergeInto): expires_at deriva sempre da base conhecida;
+// sem base, mantém a expiração já gravada — reimportar não estende.
+function mergedExpires(existing: any, row: any): string {
+  return (
+    expiresFromBase({
+      data_publicacao: row.data_publicacao ?? existing.data_publicacao ?? null,
+      data_origem: row.data_origem ?? existing.data_origem ?? null,
+    }) ?? existing.expires_at ?? row.expires_at
+  );
+}
+
+describe("expiração na reimportação", () => {
+  it("reimportar o mesmo ficheiro não estende expires_at", () => {
+    const existing = { data_publicacao: "2026-06-21T10:00:00.000Z", expires_at: "2026-07-21T10:00:00.000Z" };
+    const row = { data_publicacao: "2026-06-21T10:00:00.000Z", expires_at: new Date().toISOString() };
+    expect(mergedExpires(existing, row)).toBe("2026-07-21T10:00:00.000Z");
+  });
+
+  it("sem data conhecida mantém a expiração gravada", () => {
+    const existing = { expires_at: "2026-07-21T10:00:00.000Z" };
+    const row = { expires_at: "2026-12-01T00:00:00.000Z" };
+    expect(mergedExpires(existing, row)).toBe("2026-07-21T10:00:00.000Z");
+  });
+});
