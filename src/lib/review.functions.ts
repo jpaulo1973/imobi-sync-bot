@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { recomputeForSearch } from "./active-searches.functions";
 import { buildDedupKey } from "./dedup";
+import { computeExpiresAt } from "./expiry";
 import { scoreMatch, type BuyerLike } from "./matching-engine";
 import { normalizeGeoText } from "./geo";
 import { loadConsultorDirectory, resolveConsultor } from "./opportunity-privacy";
