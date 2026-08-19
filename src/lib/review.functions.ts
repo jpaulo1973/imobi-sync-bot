@@ -856,11 +856,12 @@ export const bulkSetConsultorTelefone = createServerFn({ method: "POST" })
       const allIds = Array.from(new Set(data.linhas.flatMap((l) => l.search_ids)));
       const { data: existing, error: exErr } = await supabaseAdmin
         .from("active_searches")
-        .select("id")
+        .select("id, contact_nome, consultor_nome, contact_email")
         .in("id", allIds)
         .gt("expires_at", nowIso);
       if (exErr) throw new Error(exErr.message);
       const valid = new Set<string>((existing ?? []).map((r: any) => r.id as string));
+      const byId = new Map<string, any>((existing ?? []).map((r: any) => [r.id as string, r]));
 
       const resultados: BulkPhoneLineResult[] = [];
       for (const l of data.linhas) {
@@ -898,6 +899,25 @@ export const bulkSetConsultorTelefone = createServerFn({ method: "POST" })
           continue;
         }
         const desconhecidos = l.search_ids.length - ids.length;
+        // Aprendizagem de contacto: guardar o par (nome, telefone) para que
+        // importações futuras da mesma pessoa já venham preenchidas, mesmo que
+        // o ficheiro de origem não traga o número.
+        {
+          const { saveContact } = await import("./contacts.server");
+          const nomes = new Set<string>();
+          for (const id of ids) {
+            const r = byId.get(id);
+            const nm = (r?.contact_nome ?? r?.consultor_nome ?? "").trim();
+            if (nm) nomes.add(nm);
+          }
+          for (const nm of nomes) {
+            await saveContact(supabaseAdmin, {
+              nome: nm,
+              telefone: norm,
+              origem: "revisao",
+            });
+          }
+        }
         resultados.push({
           linha: l.linha,
           status: "atualizada",
