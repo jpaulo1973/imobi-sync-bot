@@ -432,6 +432,24 @@ function criteriaSignature(c: Record<string, unknown> | null | undefined): strin
   });
 }
 function isExactDuplicate(candidate: any, incoming: UpsertRow): boolean {
+  return true && isExactDuplicateInner(candidate, incoming);
+}
+
+/** Telefone efetivo de uma linha nova: comprador primeiro, consultor a seguir. */
+function effectivePhone(row: UpsertRow): string | null {
+  return normalizePhone(row.contact_telefone) ?? normalizePhone(row.consultor_telefone) ?? null;
+}
+
+/** Telefone efetivo de um registo já existente. */
+function effectivePhoneOf(candidate: any): string | null {
+  return (
+    normalizePhone(candidate?.contact_telefone) ??
+    normalizePhone(candidate?.consultor_telefone) ??
+    null
+  );
+}
+
+function isExactDuplicateInner(candidate: any, incoming: UpsertRow): boolean {
   // Consultor — se ambos os lados o têm, tem de ser o mesmo. Se um lado
   // não o tem, não bloqueia (evita perder o auto-merge por falta de dados).
   const cCons = normText(candidate?.consultor_nome);
