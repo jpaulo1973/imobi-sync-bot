@@ -41,6 +41,8 @@ export const listDuplicateGroups = createServerFn({ method: "GET" })
           "id, user_id, criteria, contact_nome, contact_telefone, consultor_nome, consultor_telefone, texto_original, resumo, created_at, data_origem, origem, matches_count, location_ids",
         )
         .eq("descartado", false)
+        // Release 1.2.5 — procuras expiradas não entram na vista de duplicados.
+        .gt("expires_at", new Date().toISOString())
         .order("created_at", { ascending: true })
         .range(from, from + PAGE - 1);
       if (error) throw new Error(error.message);

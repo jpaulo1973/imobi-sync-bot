@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { recomputeForSearch } from "./active-searches.functions";
 import { buildDedupKey } from "./dedup";
+import { computeExpiresAt } from "./expiry";
 import { scoreMatch, type BuyerLike } from "./matching-engine";
 import { normalizeGeoText } from "./geo";
 import { loadConsultorDirectory, resolveConsultor } from "./opportunity-privacy";
@@ -100,7 +101,9 @@ export const updateReviewSearch = createServerFn({ method: "POST" })
     await assertAdmin(supabase, userId);
     const { data: existing, error: gErr } = await supabase
       .from("active_searches")
-      .select("id, user_id, criteria, contact_telefone, contact_nome, location_ids")
+      .select(
+        "id, user_id, criteria, contact_telefone, contact_nome, location_ids, data_publicacao, data_origem, expires_at",
+      )
       .eq("id", data.id)
       .maybeSingle();
     if (gErr) throw new Error(gErr.message);
@@ -126,10 +129,16 @@ export const updateReviewSearch = createServerFn({ method: "POST" })
     if (data.resolve) {
       patch.flagged_for_review = false;
       patch.decision_reason = "Revisto manualmente pelo administrador";
-      // Correções 1.3: reintegrar coloca a procura imediatamente em produção.
-      // Renovamos o TTL (30 dias) para que o Motor Match volte a considerá-la
-      // e limpamos last_match_at para forçar reavaliação em novas contagens.
-      patch.expires_at = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      // Release 1.2.5: reintegrar não renova a validade — a expiração deriva
+      // sempre da data de publicação/origem (mesma regra da importação Excel).
+      // Só quando não existe data conhecida se mantém o fallback antigo.
+      patch.expires_at = computeExpiresAt(
+        {
+          data_publicacao: (existing as any).data_publicacao,
+          data_origem: (existing as any).data_origem,
+        },
+        (existing as any).expires_at,
+      );
       patch.last_match_at = null;
     }
     const { error } = await supabase.from("active_searches").update(patch as any).eq("id", data.id);
@@ -239,7 +248,10 @@ export const splitReviewSearch = createServerFn({ method: "POST" })
         dedup_key: firstDedup,
         flagged_for_review: false,
         decision_reason: "Dividido manualmente pelo administrador",
-        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        expires_at: computeExpiresAt(
+          { data_publicacao: source.data_publicacao, data_origem: source.data_origem },
+          source.expires_at,
+        ),
         last_match_at: null,
         ...(first.location_ids ? { location_ids: first.location_ids } : {}),
       })
