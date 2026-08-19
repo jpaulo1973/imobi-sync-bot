@@ -18,7 +18,7 @@ describe("parseFilledReviewFile — nome_novo", () => {
 
   it("ignora nome_novo igual ao nome atual e mantém ficheiros antigos a funcionar", async () => {
     const igual = await parseFilledReviewFile(
-      csv(`k1,Sofia Vaz,sofia váz,,${ID}`, "id_linha,nome,nome_novo,telefone_novo,search_ids"),
+      csv(`k1,Sofia Vaz,SOFIA  vaz,,${ID}`, "id_linha,nome,nome_novo,telefone_novo,search_ids"),
     );
     expect(igual.ignorados).toBe(1);
     const antigo = await parseFilledReviewFile(
