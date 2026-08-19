@@ -28,6 +28,7 @@ import {
   reopenSupportRequest,
   type SupportRequest,
 } from "@/lib/support.functions";
+import { DuplicatesPanel } from "@/components/DuplicatesPanel";
 
 export const Route = createFileRoute("/_authenticated/manutencao")({
   beforeLoad: async () => {
@@ -472,6 +473,8 @@ function ManutencaoPage() {
           </div>
         )}
       </Card>
+
+      <DuplicatesPanel />
     </div>
   );
 }
