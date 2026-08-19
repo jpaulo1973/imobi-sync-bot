@@ -187,7 +187,8 @@ export function parseLocations(
   const unresolved: string[] = [];
   for (const p of parsed) {
     for (const id of p.location_ids) resolvedSet.add(id);
-    if (p.alias_id) aliasSet.add(p.alias_id);
+    // Alias ambíguo não conta como "usado" (não deve incrementar times_used).
+    if (p.alias_id && !p.unresolved) aliasSet.add(p.alias_id);
     if (p.unresolved) unresolved.push(p.raw);
   }
 
