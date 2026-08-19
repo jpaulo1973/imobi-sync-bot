@@ -1,56 +1,46 @@
-# Plano — 7 correções/funcionalidades independentes
+# Lote 19/08 — 6 zonas novas, 2 bugs, sugestões na Revisão, importação múltipla
 
-Cada item é uma sprint isolada, implementada e validada separadamente. Ordem sugerida por risco: 1 → 7 → 2 → 4 → 3 → 6 → 5.
+Cada item é independente e será implementado e validado isoladamente, pela ordem abaixo.
 
-## 1. Radar (e restantes páginas Admin) exclusivas de Admin
+## A. Zonas geográficas (itens 1-6)
 
-- **Navegação**: mover o link `Radar` para dentro do bloco `isAdmin` em `src/routes/_authenticated.tsx` (o contador de não vistos também deixa de correr para consultores).
-- **Rota**: o gate actual só verifica sessão. Criar um guard de papel reutilizável: server function `requireAdmin()` (via `has_role(auth.uid(),'admin')`) e usá-la no `beforeLoad` de cada rota Admin (`radar`, `cruzar`, `importar`, `revisao`, `utilizadores`, `manutencao`) com `redirect({ to: "/imoveis" })` quando não for admin. Corrige o acesso por URL directo em todas — hoje todas têm a mesma falha (só o menu esconde).
-- **Backend**: auditar as server functions consumidas por essas páginas e adicionar verificação de admin nas que hoje só exigem sessão (radar/oportunidades globais, importação, revisão, backfill, manutenção). RLS/RPC: garantir que as RPC de pool/oportunidades filtram por `user_id` para não-admin.
-- **Validação**: testes de que as funções admin rejeitam consultor; verificação manual com conta consultor a tentar `/radar` por URL.
+Todas as zonas entram como `locations` de tipo `zona_funcional` (mesmo padrão da Costa Vicentina), com membros em `functional_zone_members` e aliases em `location_aliases`. Uma única migração por zona, seguida de um incremento final de `geo_library_version` para **5**.
 
-## 2. Alerta de perfil incompleto
+1. **Centro** — membros: os 6 distritos inteiros (Aveiro, Coimbra, Leiria, Viseu, Guarda, Castelo Branco). Aliases: `centro`, `zona centro`, `regiao centro`.
+2. **Vale do Sousa** — membros: 6 concelhos (Castelo de Paiva, Felgueiras, Lousada, Paços de Ferreira, Paredes, Penafiel). Aliases: `vale do sousa`, `vale sousa`.
+3. **Margens do Rio Douro** — zona ao nível de freguesia, com as 22 freguesias exatas indicadas (8 margem norte, 14 margem sul). Cada nome é resolvido contra `locations` pelo par (freguesia, concelho) antes de inserir; qualquer freguesia que não exista com esse nome exato é reportada no relatório final em vez de ser inventada. Aliases: `margens do rio douro`, `margens do douro`, `rio douro`.
+   - Notas de mapeamento: "Cinfães", "Castelo de Paiva", "Souselo", "Espadanedo", "Barrô", "Paus", "Samodães", "Penajóia" etc. são resolvidos como freguesia do respetivo concelho (nunca como concelho homónimo).
+4. **Costa da Prata** — concelhos: Nazaré, Caldas da Rainha, Óbidos, Peniche, Lourinhã, Torres Vedras, Bombarral, Alcobaça, Marinha Grande, Figueira da Foz, Mira. **São Martinho do Porto** e **Vieira de Leiria** são freguesias (de Alcobaça e Marinha Grande), já cobertas pelos concelhos; entram como membros de nível freguesia apenas se quiseres granularidade — por omissão ficam cobertas pelo concelho. Aliases: `costa da prata`.
+5. **Algarve** — membros: os 16 concelhos do distrito de Faro. Aliases: `algarve`, `sul`, `barlavento`/`sotavento` não são adicionados (ambíguos). Só `algarve`.
+6. **Portugal Continental** — zona nacional cujos membros são os 18 distritos do continente (exclui Açores e Madeira). Aliases: `portugal continental`, `continente`, `todo o pais`, `qualquer zona do continente`, `portugal`. Fica selecionável no `LocationSelector` como qualquer outra zona; o Motor Match já expande membros de zona funcional, pelo que uma procura marcada com esta zona passa o filtro de localização para qualquer imóvel do continente.
 
-- `getMyProfile` passa a devolver `missingFields` (telemóvel, agência, WhatsApp).
-- Novo componente `ProfileCompletionGate` no layout autenticado: quando há campos em falta, mostra diálogo/banner persistente com CTA para `/perfil`. Bloqueia navegação de forma suave (diálogo não descartável até completar, com opção "Ir para o perfil").
-- Após gravar perfil, o evento `pm:profile-updated` já existente refresca o estado e o alerta desaparece.
+Validação das zonas: testes de matching por ID (procura com a zona ↔ imóvel numa freguesia membro = OK; imóvel fora = FAIL), e contagem de membros por zona confirmada em base de dados.
 
-## 3. Ajuda/Sugestões — estados e respostas
+## B. Bug — notificação não abre o cartão da procura (item 8)
 
-- **Migração**: em `support_requests` adicionar `status text not null default 'aberto'` (`aberto`|`resolvido`), `arquivado boolean not null default false`, `resolved_at`, `resolved_by`; nova tabela `support_replies` (id, request_id, author_id, mensagem, created_at) com GRANTs + RLS (autor do pedido lê as suas; admin lê/escreve todas). `read_at` mantém-se para compatibilidade mas deixa de ser o estado.
-- **Server functions**: `listSupportRequests` (filtros estado/arquivado, com respostas), `replyToSupportRequest` (admin), `resolveAndArchiveSupportRequest` (soft-delete), `listMySupportRequests` (consultor).
-- **UI**: em Manutenção, lista com badge Aberto/Resolvido, caixa de resposta e botão "Marcar resolvido e arquivar" (substitui eliminar); filtro para ver arquivados. No `SupportDialog` do consultor, aba/histórico das suas mensagens e respostas do admin.
-- **Opcional (incluído)**: inserir `match_notifications`-like entrada no sino quando o admin responde — reutilizar a tabela de notificações com um tipo `suporte`, ou tabela genérica se o esquema actual não permitir sem quebrar o Radar; decisão tomada na implementação para não degradar as notificações de match.
+Causa: notificações de procuras (`buyer_source = "search"`) apontam para `/radar`, mas o Radar passou a ser exclusivo de Admin — o consultor é redirecionado para `/imoveis` sem parâmetros e nada abre.
 
-## 4. Revisão "Sem localização" — eliminar/rejeitar
+Correção: o destino passa a depender do perfil de quem lê a notificação. Em `listMatchNotifications`, quando o utilizador não é Admin, uma notificação de procura aponta para `/imoveis?open=<property_id>&match=search-<buyer_ref>` (o par abre no diálogo Property Match do imóvel dele, com o cartão da procura destacado). Admins continuam a ir para o Radar. Teste novo em `match-notifications.target.test.ts` a cobrir admin vs não-admin.
 
-- **(a)** Botão "Não é uma procura / descartar" em cada cartão da aba Sem localização: server function `discardSearch(id)` que faz soft-delete (nova coluna `descartado boolean` + `descartado_motivo`) e limpa oportunidades/notificações associadas. Soft-delete preserva auditoria e evita reimportação (fica na chave de dedup).
-- **Origem**: auditar amostra de leads classificados como procura mas que são oferta (anúncios). Se houver padrão, reforçar o prompt do splitter/extração com um classificador oferta-vs-procura e descartar ofertas na ingestão, com contagem no relatório.
-- **(b)** Query de identificação das ~52 procuras `origem = 'excel'` com texto Dubai/EAU → apresentar lista (id, texto, contacto) para confirmação antes de aplicar o descarte em lote.
-- **(c)** Filtro "fora de Portugal" na aba Sem localização (heurística por termos/país não resolvido) com acção de descarte em lote, aplicável a qualquer geografia futura.
+## C. Bug — "Sem sinal de investidor/bulk" nas notificações (item 9)
 
-## 5. Nova taxonomia de Tipo de imóvel + orçamento condicional
+O filtro de investidor devolve essa frase como motivo positivo, e ela entra no `reason_summary` das notificações. Correção: o filtro deixa de produzir texto quando não há sinal (categoria neutra sem descrição), e o `reasonSummary` filtra motivos vazios. Não altera decisões de match, apenas o texto. Regressão coberta por teste.
 
-- **Taxonomia** (`src/lib/property-taxonomy.ts`, fonte única): categorias de topo `casas_apartamentos`, `predios`, `escritorios`, `comercial_armazens`, `trespasses`, `terrenos`, `herdades_quintas`, com subtipos e mapa de sinónimos/normalização (resolve o CamelCase das procuras vs minúsculas dos imóveis).
-- **(a) Migração**: colunas `categoria` em `properties` e `criteria.categorias` nas procuras; script mostra a contagem por categoria nova antes de aplicar; texto original preservado em características/notas.
-- **(b) Motor**: hard filter por categoria de topo (default: só mesma categoria), substituindo a comparação textual actual em `matching-engine.ts`. Elimina o caso T3 vs lar de idosos.
-- **(c)** Correcções pontuais: lar de idosos (`a181fdb7…`) → `trespasses`; prédio de Miragaia mantém `predios` com distrito corrigido para Porto; moradia T2 para recuperar mantém `casas_apartamentos`.
-- **(d)** Campo opcional `estado_desejado` na procura (`novo`|`bom`|`recuperar`|null) + campo equivalente/inferido no imóvel.
-- **(e)** `budget_max_obras` e `budget_max_pronto` opcionais; o motor escolhe conforme o estado do imóvel candidato, com fallback ao orçamento único. Prompts da IA (import por URL, Excel, splitter WhatsApp) actualizados para extrair os dois valores e o estado desejado.
-- **(f)** Testes de regressão por categoria e por orçamento condicional; relatório antes/depois com contagens de mudança de categoria.
+## D. Sugestão automática de localizações semelhantes na Revisão (item 7)
 
-## 6. Zona funcional "Costa Vicentina"
+Ao guardar uma resolução manual, o sistema procura outras procuras pendentes cujo texto geográfico normalizado seja igual ou muito próximo (mesma forma normalizada, ou distância de edição pequena / prefixo comum) e propõe aplicar a mesma resolução em bloco: "Encontrámos N entradas com localização parecida — aplicar a mesma interpretação?". Nada é aplicado sem confirmação. Ao confirmar, as N entradas recebem os mesmos `location_ids` e o alias é promovido uma única vez.
 
-- Selecção por freguesias litorais (não concelhos inteiros), de Sines a Sagres, usando `location_metadata` (centróides) com corte a ~10 km da linha de costa, restrito a Sines, Odemira, Aljezur e Vila do Bispo.
-- Apresentar a lista exacta de freguesias proposta para confirmação; só depois criar a zona (`locations` tipo `zona_funcional` + `functional_zone_members`) e incrementar `geo_library_version`.
+## E. Importação de múltiplos ficheiros Excel (item 10)
 
-## 7. Aliases + rótulo do painel
+A função de juntar ficheiros é removida e substituída por seleção múltipla na página Importar:
 
-- **(a)** Inserir aliases aprovados `gaia` → Vila Nova de Gaia e `vilamoura` → Loulé (`origem = 'manual'`), validando que não criam ambiguidade.
-- **(b)** Em `src/routes/_authenticated/manutencao.tsx` linha ~265: rótulo passa a "Total de procuras analisadas" e acrescenta-se "Sem localização: {resolvidas + por resolver}" para os números somarem de forma legível. Só texto, cálculos intactos.
+- O input aceita vários ficheiros; cada um é lido e processado com o mesmo pipeline atual (deteção de cabeçalhos, chunks, progresso), partilhando um único `batch_id`.
+- Progresso passa a mostrar ficheiro atual e total agregado.
+- **Deduplicação automática, sem lista prévia nem confirmação**, usando o critério já existente (`buildDedupKey`: nome/telefone/localização/tipo) mais o desempate por similaridade já implementado: dentro da mesma sessão (entre ficheiros) e contra o que já existe na base de dados. Duplicado exato funde no registo existente; alta similaridade atualiza; o resto entra como novo.
+- O relatório final é agregado com uma coluna extra de ficheiro de origem, e os contadores atuais mantêm-se (novas, atualizadas, duplicados fundidos, ignoradas, erros).
 
-## Notas técnicas
+Recomendação sobre o critério: manter o critério atual como base (é o mesmo que já garante idempotência no WhatsApp), reforçado com o telefone normalizado como chave dominante quando existe — é o sinal mais fiável e evita fundir compradores diferentes com nomes parecidos.
 
-- Itens 3, 4 e 5 exigem migrações de esquema (aprovação de migração); 6 e 7 são dados geográficos.
-- Item 5 é o de maior impacto no Motor de Match: implementado por último, com testes de regressão a correr antes e depois.
-- Nenhum item altera a arquitectura geográfica (Canal → Repo → Parser → IDs → Motor).
+## Validação final
+
+Suite completa de testes (atualmente 123), com os novos testes de zonas, notificações e dedup multi-ficheiro. Relatório final por item com contagens reais em base de dados.
