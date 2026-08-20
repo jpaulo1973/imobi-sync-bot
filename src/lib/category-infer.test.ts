@@ -1,6 +1,6 @@
 // Release 1.2.12 — cobre os 4 estados do diagnóstico + regra de não sobrepor.
 import { describe, it, expect } from "vitest";
-import { inferSearchCategories, withInferredCategories } from "./category-infer";
+import { inferSearchCategories, withInferredCategories, detectMultiUse } from "./category-infer";
 
 describe("inferSearchCategories", () => {
   it("com_tipo + com_cat -> mantém existente (nunca sobrepõe)", () => {
@@ -42,6 +42,62 @@ describe("inferSearchCategories", () => {
     const r = inferSearchCategories({ categorias: ["terrenos"] });
     expect(r.categoria_origem).toBe("existente");
     expect(r.categorias).toEqual(["terrenos"]);
+  });
+});
+
+describe("detectMultiUse (Release 1.2.13)", () => {
+  it("Luísa Tinoco: urbano/industrial/habitacional -> multi-uso, vai para Revisão", () => {
+    const r = inferSearchCategories({
+      tipo_imovel: ["Armazém"],
+      texto_original: "Imóvel urbano, industrial ou habitacional em Loures",
+    });
+    expect(r.multi_uso).toBe(true);
+    expect(r.categoria_origem).toBe("indecidivel");
+    expect(r.motivo_indecidivel).toBe("multi_uso");
+    expect(r.categorias).toEqual([]);
+    expect(r.sinais.length).toBeGreaterThan(1);
+  });
+
+  it("Sofia Coelho: armazém ou loja -> mesma categoria, NÃO é multi-uso", () => {
+    const r = inferSearchCategories({ texto_original: "Armazém ou loja 200 a 400m2" });
+    expect(r.multi_uso).toBe(false);
+    expect(r.categorias).toEqual(["comercial_armazens"]);
+  });
+
+  it("João Batanete: prédio c/ AL ou Hostel -> multi-uso", () => {
+    const r = inferSearchCategories({ texto_original: "Prédio c/ AL ou Hostel no centro" });
+    expect(detectMultiUse({ texto_original: "Prédio c/ AL ou Hostel no centro" }).multi_uso).toBe(true);
+    expect(r.categoria_origem).toBe("indecidivel");
+    expect(r.motivo_indecidivel).toBe("multi_uso");
+  });
+
+  it("falso multi-uso: 'terreno para construção de moradia' -> só terrenos", () => {
+    const r = inferSearchCategories({ texto_original: "Procura terreno para construção de moradia" });
+    expect(r.multi_uso).toBe(false);
+    expect(r.categoria_origem).toBe("inferido_texto");
+    expect(r.categorias).toEqual(["terrenos"]);
+  });
+
+  it("falso multi-uso: 'loja para investimento' -> só comercial", () => {
+    const r = inferSearchCategories({ texto_original: "Loja para investimento até 300.000" });
+    expect(r.multi_uso).toBe(false);
+    expect(r.categorias).toEqual(["comercial_armazens"]);
+  });
+
+  it("categorias já existentes -> existente, nunca multi-uso", () => {
+    const r = inferSearchCategories({
+      categorias: ["predios"],
+      tipo_imovel: ["Armazém"],
+      texto_original: "urbano, industrial ou habitacional",
+    });
+    expect(r.categoria_origem).toBe("existente");
+    expect(r.multi_uso).toBe(false);
+    expect(r.categorias).toEqual(["predios"]);
+  });
+
+  it("indecidível puro é marcado como sem_sinal", () => {
+    const r = inferSearchCategories({ texto_original: "Bom dia, tenho cliente com 200.000" });
+    expect(r.motivo_indecidivel).toBe("sem_sinal");
   });
 });
 

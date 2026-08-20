@@ -83,6 +83,7 @@ export function CategoryBackfillPanel() {
             </span>
             <Badge variant="outline">{result.total_sem_categorias} procuras afetadas</Badge>
             {result.applied && <Badge variant="outline">{result.atualizadas} atualizadas</Badge>}
+            <Badge variant="secondary">{result.indecidivel_multi_uso} multi-uso → Revisão</Badge>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -94,6 +95,18 @@ export function CategoryBackfillPanel() {
                 </div>
               </div>
             ))}
+            <div className="rounded border bg-background px-2 py-1">
+              <div className="text-sm font-semibold tabular-nums">{result.indecidivel_multi_uso}</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Indecidível (multi-uso)
+              </div>
+            </div>
+            <div className="rounded border bg-background px-2 py-1">
+              <div className="text-sm font-semibold tabular-nums">{result.indecidivel_sem_sinal}</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Indecidível (sem sinal)
+              </div>
+            </div>
           </div>
 
           {result.amostra.length > 0 && (
@@ -124,6 +137,13 @@ export function CategoryBackfillPanel() {
                         <td className="px-2 py-1">{cats(s.depois)}</td>
                         <td className="px-2 py-1 text-muted-foreground">
                           {DECISION_LABELS[s.decisao] ?? s.decisao}
+                          {s.multi_uso && (
+                            <div className="mt-1">
+                              <Badge variant="secondary" className="text-[10px]">
+                                Multi-uso: {cats(s.sinais)}
+                              </Badge>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))}

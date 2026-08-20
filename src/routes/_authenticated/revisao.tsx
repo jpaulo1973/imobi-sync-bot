@@ -319,6 +319,11 @@ function SemTipoPanel() {
                       {it.categoria_origem}
                     </Badge>
                   )}
+                  {it.sinais_multi_uso && it.sinais_multi_uso.length > 1 && (
+                    <Badge variant="secondary" className="text-[10px]">
+                      Multi-uso: {it.sinais_multi_uso.map((c) => CATEGORY_LABELS[c as PropertyCategory] ?? c).join(", ")}
+                    </Badge>
+                  )}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {it.consultor_nome ?? it.contact_nome ?? "—"}
