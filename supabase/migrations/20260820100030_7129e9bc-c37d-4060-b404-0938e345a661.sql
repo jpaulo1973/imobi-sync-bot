@@ -1,0 +1,2 @@
+UPDATE public.properties SET area_util_m2 = 120.7, area_bruta_m2 = 143.45, area_m2 = 120.7, updated_at = now() WHERE referencia = 'C0440-01028';
+UPDATE public.properties SET area_util_m2 = 124.45, area_bruta_m2 = 386.85, area_m2 = 124.45, updated_at = now() WHERE referencia = 'C0440-00951';
