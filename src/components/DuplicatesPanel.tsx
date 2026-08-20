@@ -39,6 +39,7 @@ export function DuplicatesPanel() {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [keep, setKeep] = useState<Record<string, string>>({});
+  const [selected, setSelected] = useState<Record<string, string[]>>({});
   const [preview, setPreview] = useState<{ grupo: DuplicateGroup; keepId: string; dados: MergePreview } | null>(
     null,
   );
@@ -51,6 +52,7 @@ export function DuplicatesPanel() {
       setGrupos(r.grupos);
       setTotal(r.total_excedentes);
       setKeep(Object.fromEntries(r.grupos.map((g) => [g.key, g.membros[0]!.id])));
+      setSelected(Object.fromEntries(r.grupos.map((g) => [g.key, g.membros.map((m) => m.id)])));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao carregar duplicados");
     } finally {
@@ -58,16 +60,35 @@ export function DuplicatesPanel() {
     }
   };
 
+  const selectedOf = (g: DuplicateGroup) => selected[g.key] ?? g.membros.map((m) => m.id);
+  const keepOf = (g: DuplicateGroup) => {
+    const sel = selectedOf(g);
+    const k = keep[g.key];
+    return k && sel.includes(k) ? k : (sel[0] ?? g.membros[0]!.id);
+  };
+
   const removeIdsOf = (g: DuplicateGroup, keepId: string) =>
-    g.membros.map((m) => m.id).filter((id) => id !== keepId);
+    selectedOf(g).filter((id) => id !== keepId);
+
+  /** Alterna a inclusão de um membro na fusão; o "fica" salta se for desmarcado. */
+  const toggleMember = (g: DuplicateGroup, id: string) => {
+    const sel = selectedOf(g);
+    const next = sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id];
+    setSelected((p) => ({ ...p, [g.key]: next }));
+    if (!next.includes(keepOf(g))) {
+      setKeep((p) => ({ ...p, [g.key]: next[0] ?? "" }));
+    }
+  };
 
   /** Passo 1 — simular: nada é gravado, só mostramos o impacto. */
   const simular = async (g: DuplicateGroup) => {
-    const keepId = keep[g.key] ?? g.membros[0]!.id;
+    const keepId = keepOf(g);
+    const removeIds = removeIdsOf(g, keepId);
+    if (removeIds.length === 0) return;
     setBusy(g.key);
     try {
       const dados = await simulateFn({
-        data: { keep_id: keepId, remove_ids: removeIdsOf(g, keepId) },
+        data: { keep_id: keepId, remove_ids: removeIds },
       });
       setPreview({ grupo: g, keepId, dados });
     } catch (e) {
@@ -81,13 +102,27 @@ export function DuplicatesPanel() {
   const aplicar = async () => {
     if (!preview) return;
     const { grupo, keepId } = preview;
+    const removeIds = removeIdsOf(grupo, keepId);
     setApplying(true);
     try {
       const r = await mergeFn({
-        data: { keep_id: keepId, remove_ids: removeIdsOf(grupo, keepId) },
+        data: { keep_id: keepId, remove_ids: removeIds },
       });
       toast.success(`${r.removidas} procura(s) apagada(s); mantida a escolhida.`);
-      setGrupos((prev) => (prev ?? []).filter((x) => x.key !== grupo.key));
+      // Fusão parcial: o grupo mantém-se com a mantida + as procuras não incluídas.
+      const apagados = new Set(removeIds);
+      setGrupos((prev) =>
+        (prev ?? []).flatMap((x) => {
+          if (x.key !== grupo.key) return [x];
+          const membros = x.membros.filter((m) => !apagados.has(m.id));
+          if (membros.length < 2) return [];
+          return [{ ...x, membros, excedentes: membros.length - 1 }];
+        }),
+      );
+      setSelected((p) => ({
+        ...p,
+        [grupo.key]: (p[grupo.key] ?? []).filter((id) => !apagados.has(id)),
+      }));
       setTotal((t) => Math.max(0, t - r.removidas));
       setPreview(null);
     } catch (e) {
