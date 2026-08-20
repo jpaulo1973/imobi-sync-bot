@@ -446,6 +446,29 @@ export const matchWhatsappConversations = createServerFn({ method: "POST" })
     await assertAdminContext(context);
     const { supabase, userId } = context;
 
+    // Telemetria de diagnóstico (bug /cruzar): tamanho do payload recebido e
+    // passo em curso, para distinguir falhas de transporte de falhas no handler.
+    const execId = crypto.randomUUID();
+    const imagensRecebidas = data.imagens ?? [];
+    const bytesTexto = (data.texto ?? "").length;
+    const bytesImagens = imagensRecebidas.reduce((sum, img) => sum + img.length, 0);
+    let step = "inicio";
+    const logStep = (next: string) => {
+      step = next;
+      console.log(
+        JSON.stringify({
+          tag: "matchWhatsappConversations",
+          execution_id: execId,
+          step,
+          n_imagens: imagensRecebidas.length,
+          bytes_texto: bytesTexto,
+          bytes_imagens: bytesImagens,
+          bytes_total: bytesTexto + bytesImagens,
+        }),
+      );
+    };
+    logStep("payload_recebido");
+    try {
     // 1) Interpretar conversa via IA — reutiliza o mesmo prompt.
     const systemPrompt = `És um consultor imobiliário experiente em Portugal a analisar conversas de grupos de WhatsApp entre consultores.
 
@@ -486,12 +509,14 @@ RESPOSTA: APENAS JSON válido:
         { role: "user", content: userContent },
       ],
     });
+    logStep("ia_respondeu");
 
     const parsed = parseLlmAnalysisResponse(raw, {
-      execution_id: crypto.randomUUID(),
+      execution_id: execId,
       source: "match",
       total_capturas: imgs.length,
     });
+    logStep("leads_extraidos");
 
     // Aceitação centralizada — descarta anúncios, anota revisão vs aceite.
     const acceptedLeads = applyAcceptance(parsed.leads);
@@ -505,6 +530,7 @@ RESPOSTA: APENAS JSON válido:
       .eq("user_id", userId)
       .eq("ativo", true);
     if (pErr) throw new Error(pErr.message);
+    logStep("carteira_carregada");
 
     // Fase 3 — motor puro por IDs. Resolvemos a zona textual do lead através
     // do LocationRepository antes de correr o motor. Leads cujo texto não
@@ -513,6 +539,7 @@ RESPOSTA: APENAS JSON válido:
     const { buildGeoMatchIndex } = await import("./matching-engine");
     const snap = await LocationRepository.getSnapshot();
     const geoIndex = buildGeoMatchIndex(snap);
+    logStep("geo_pronto");
 
     // 3) Para cada lead ACEITE, correr o motor contra toda a carteira. Leads
     //    em revisão continuam a devolver os melhores matches para o consultor
@@ -545,6 +572,7 @@ RESPOSTA: APENAS JSON válido:
         }));
       return { lead, matches: scored };
     });
+    logStep("matching_concluido");
 
     // Release 1.2.7 — identidade do "lote" WhatsApp: conteúdo da conversa
     // (texto + imagens) + user. Reanalisar a mesma conversa produz a mesma
@@ -560,11 +588,30 @@ RESPOSTA: APENAS JSON válido:
     // mesmo texto mais tarde nunca renova validades.
     const { registerImportBatch } = await import("./import-batch-registry");
     await registerImportBatch(supabase, { batchKey: batch_key, origem: "whatsapp" });
+    logStep("lote_registado");
 
-    return {
-      total_capturas: parsed.total_capturas,
-      total_properties: properties?.length ?? 0,
-      batch_key,
-      results,
-    };
+      return {
+        total_capturas: parsed.total_capturas,
+        total_properties: properties?.length ?? 0,
+        batch_key,
+        results,
+      };
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          tag: "matchWhatsappConversations",
+          execution_id: execId,
+          step_falhou: step,
+          n_imagens: imagensRecebidas.length,
+          bytes_total: bytesTexto + bytesImagens,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+      throw new Error(
+        `Falha no passo "${step}" (${imagensRecebidas.length} imagem(ns), ${(
+          (bytesTexto + bytesImagens) /
+          1_048_576
+        ).toFixed(1)} MB): ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   });
