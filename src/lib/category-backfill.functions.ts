@@ -25,12 +25,16 @@ export type CategoryBackfillSample = {
   antes: string[] | null;
   depois: string[];
   decisao: CategoryOrigin;
+  multi_uso: boolean;
+  sinais: string[];
 };
 
 export type CategoryBackfillResult = {
   applied: boolean;
   total_sem_categorias: number;
   por_origem: Record<CategoryOrigin, number>;
+  indecidivel_multi_uso: number;
+  indecidivel_sem_sinal: number;
   atualizadas: number;
   amostra: CategoryBackfillSample[];
 };
@@ -63,6 +67,8 @@ export const runCategoryBackfill = createServerFn({ method: "POST" })
     };
     const amostra: CategoryBackfillSample[] = [];
     const updates: Array<{ id: string; criteria: any }> = [];
+    let indecidivel_multi_uso = 0;
+    let indecidivel_sem_sinal = 0;
 
     for (const r of rows ?? []) {
       const c = (r.criteria ?? {}) as Record<string, unknown>;
@@ -78,6 +84,8 @@ export const runCategoryBackfill = createServerFn({ method: "POST" })
         resumo: r.resumo,
       });
       por_origem[res.categoria_origem]++;
+      if (res.motivo_indecidivel === "multi_uso") indecidivel_multi_uso++;
+      if (res.motivo_indecidivel === "sem_sinal") indecidivel_sem_sinal++;
       if (amostra.length < data.sample) {
         amostra.push({
           id: r.id,
@@ -89,6 +97,8 @@ export const runCategoryBackfill = createServerFn({ method: "POST" })
           antes,
           depois: res.categorias,
           decisao: res.categoria_origem,
+          multi_uso: res.multi_uso,
+          sinais: res.sinais,
         });
       }
       updates.push({
@@ -97,6 +107,7 @@ export const runCategoryBackfill = createServerFn({ method: "POST" })
           ...c,
           categorias: res.categorias.length > 0 ? res.categorias : null,
           categoria_origem: res.categoria_origem,
+          motivo_indecidivel: res.motivo_indecidivel,
         },
       });
     }
@@ -118,6 +129,8 @@ export const runCategoryBackfill = createServerFn({ method: "POST" })
       applied: data.apply,
       total_sem_categorias: updates.length,
       por_origem,
+      indecidivel_multi_uso,
+      indecidivel_sem_sinal,
       atualizadas,
       amostra,
     };
