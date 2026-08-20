@@ -7,17 +7,17 @@ const KEY_B = "b".repeat(64);
 
 describe("shouldRenewOnMerge — gatilho é o LOTE, nunca a linha", () => {
   it("lote genuinamente novo renova (excel)", () => {
-    const d = shouldRenewOnMerge({ origem: "excel", batchKey: KEY_A, batchFresh: true });
+    const d = shouldRenewOnMerge({ origem: "excel", batchKey: KEY_A, batchRenewable: true });
     expect(d.renew).toBe(true);
     expect(d.reason).toBe("lote_novo");
   });
 
   it("lote novo renova (whatsapp)", () => {
-    expect(shouldRenewOnMerge({ origem: "whatsapp", batchKey: KEY_A, batchFresh: true }).renew).toBe(true);
+    expect(shouldRenewOnMerge({ origem: "whatsapp", batchKey: KEY_A, batchRenewable: true }).renew).toBe(true);
   });
 
   it("mesmo ficheiro reprocessado (lote já conhecido) NÃO renova", () => {
-    const d = shouldRenewOnMerge({ origem: "excel", batchKey: KEY_A, batchFresh: false });
+    const d = shouldRenewOnMerge({ origem: "excel", batchKey: KEY_A, batchRenewable: false });
     expect(d.renew).toBe(false);
     expect(d.reason).toBe("lote_ja_conhecido");
   });
@@ -26,7 +26,7 @@ describe("shouldRenewOnMerge — gatilho é o LOTE, nunca a linha", () => {
     const d = shouldRenewOnMerge({
       origem: "excel",
       batchKey: KEY_A,
-      batchFresh: true,
+      batchRenewable: true,
       existingRenewedByBatchKey: KEY_A,
     });
     expect(d.renew).toBe(false);
@@ -38,7 +38,7 @@ describe("shouldRenewOnMerge — gatilho é o LOTE, nunca a linha", () => {
       shouldRenewOnMerge({
         origem: "excel",
         batchKey: KEY_B,
-        batchFresh: true,
+        batchRenewable: true,
         existingRenewedByBatchKey: KEY_A,
       }).renew,
     ).toBe(true);
@@ -46,15 +46,15 @@ describe("shouldRenewOnMerge — gatilho é o LOTE, nunca a linha", () => {
 
   it("origem cliente NUNCA renova, mesmo com lote novo", () => {
     for (const origem of ["cliente", "texto", "captura", "", null, undefined]) {
-      const d = shouldRenewOnMerge({ origem: origem as any, batchKey: KEY_A, batchFresh: true });
+      const d = shouldRenewOnMerge({ origem: origem as any, batchKey: KEY_A, batchRenewable: true });
       expect(d.renew).toBe(false);
       expect(d.reason.startsWith("origem_nao_renovavel")).toBe(true);
     }
   });
 
   it("sem batch_key não renova (fusão manual/legacy)", () => {
-    expect(shouldRenewOnMerge({ origem: "excel", batchKey: null, batchFresh: true }).reason).toBe("sem_batch_key");
-    expect(shouldRenewOnMerge({ origem: "excel", batchKey: "  ", batchFresh: true }).renew).toBe(false);
+    expect(shouldRenewOnMerge({ origem: "excel", batchKey: null, batchRenewable: true }).reason).toBe("sem_batch_key");
+    expect(shouldRenewOnMerge({ origem: "excel", batchKey: "  ", batchRenewable: true }).renew).toBe(false);
   });
 });
 
