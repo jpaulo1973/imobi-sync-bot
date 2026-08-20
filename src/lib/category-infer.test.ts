@@ -101,12 +101,6 @@ describe("detectMultiUse (Release 1.2.13)", () => {
   });
 });
 
-describe("withInferredCategories", () => {
-  it("placeholder", () => {
-    expect(true).toBe(true);
-  });
-});
-
 describe("Release 1.2.16 — garagem/estacionamento não são tipo de imóvel", () => {
   it("Maia/Matosinhos: 'T3 ou T4 com lugar de garagem' -> só casas_apartamentos", () => {
     const r = inferSearchCategories({
