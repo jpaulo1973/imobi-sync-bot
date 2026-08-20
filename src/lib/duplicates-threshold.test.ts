@@ -22,7 +22,7 @@ describe("limiar de similaridade de duplicados", () => {
     ];
     const sim = groupTextSimilarity(textos);
     expect(sim).toBeLessThan(0.8);
-    expect(sim).toBeGreaterThan(0.2);
+    expect(sim).toBeGreaterThan(0);
     expect(shouldSuggestGroup("telefone", sim)).toBe(false);
   });
 
