@@ -1093,6 +1093,10 @@ export type Database = {
           telefone: string
         }[]
       }
+      admin_merge_duplicate_group: {
+        Args: { p_apply?: boolean; p_keep_id: string; p_remove_ids: string[] }
+        Returns: Json
+      }
       admin_provision_user: {
         Args: {
           p_ativo?: boolean
