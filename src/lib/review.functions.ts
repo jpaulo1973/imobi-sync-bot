@@ -80,7 +80,88 @@ const CriteriaPatch = z.object({
   quartos_min: z.number().nullable().optional(),
   caracteristicas: z.array(z.string()).nullable().optional(),
   nome: z.string().nullable().optional(),
+  // Release 1.2.14 — o editor lateral grava categorias no mesmo pedido que os
+  // restantes critérios (evita dois writes e dois recomputes).
+  categorias: z.array(z.string()).nullable().optional(),
 });
+
+/**
+ * Release 1.2.14 — carrega uma procura completa para o formulário de edição
+ * lateral da Revisão. Só admin.
+ */
+export type ReviewSearchDetail = {
+  id: string;
+  user_id: string;
+  origem: string | null;
+  created_at: string;
+  resumo: string | null;
+  texto_original: string | null;
+  contact_nome: string | null;
+  contact_telefone: string | null;
+  consultor_nome: string | null;
+  grupo_whatsapp: string | null;
+  location_ids: string[];
+  flagged_for_review: boolean;
+  criteria: {
+    finalidade: string | null;
+    tipologia: string | null;
+    tipo_imovel: string[] | null;
+    budget_min: number | null;
+    budget_max: number | null;
+    area_min: number | null;
+    quartos_min: number | null;
+    categorias: string[];
+    categoria_origem: string | null;
+    motivo_indecidivel: string | null;
+  };
+};
+
+export const getReviewSearch = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }): Promise<ReviewSearchDetail> => {
+    const { supabase, userId } = context;
+    await assertAdmin(supabase, userId);
+    const { data: row, error } = await (supabase as any)
+      .from("active_searches")
+      .select(
+        "id, user_id, origem, created_at, resumo, texto_original, criteria, location_ids, contact_nome, contact_telefone, consultor_nome, grupo_whatsapp, flagged_for_review",
+      )
+      .eq("id", data.id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!row) throw new Error("Procura não encontrada.");
+    const c = (row.criteria ?? {}) as any;
+    const num = (v: unknown): number | null =>
+      typeof v === "number" && Number.isFinite(v) ? v : null;
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      origem: row.origem ?? null,
+      created_at: row.created_at,
+      resumo: row.resumo ?? null,
+      texto_original: row.texto_original ?? null,
+      contact_nome: row.contact_nome ?? null,
+      contact_telefone: row.contact_telefone ?? null,
+      consultor_nome: row.consultor_nome ?? null,
+      grupo_whatsapp: row.grupo_whatsapp ?? null,
+      location_ids: Array.isArray(row.location_ids) ? row.location_ids : [],
+      flagged_for_review: !!row.flagged_for_review,
+      criteria: {
+        finalidade: typeof c.finalidade === "string" ? c.finalidade : null,
+        tipologia: typeof c.tipologia === "string" ? c.tipologia : null,
+        tipo_imovel: Array.isArray(c.tipo_imovel) ? c.tipo_imovel : null,
+        budget_min: num(c.budget_min),
+        budget_max: num(c.budget_max),
+        area_min: num(c.area_min),
+        quartos_min: num(c.quartos_min),
+        categorias: Array.isArray(c.categorias) ? c.categorias : [],
+        categoria_origem: typeof c.categoria_origem === "string" ? c.categoria_origem : null,
+        motivo_indecidivel:
+          typeof c.motivo_indecidivel === "string" ? c.motivo_indecidivel : null,
+      },
+    };
+  });
 
 export const updateReviewSearch = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -108,16 +189,34 @@ export const updateReviewSearch = createServerFn({ method: "POST" })
       .maybeSingle();
     if (gErr) throw new Error(gErr.message);
     if (!existing) throw new Error("Procura não encontrada.");
-    const newCriteria = { ...(existing.criteria as any), ...data.criteria };
+    const newCriteria: Record<string, unknown> = {
+      ...(existing.criteria as any),
+      ...data.criteria,
+    };
+    // Categorias: normaliza pela taxonomia única e marca a origem da decisão.
+    if (data.criteria.categorias !== undefined) {
+      const { resolveCategories } = await import("./property-taxonomy");
+      const cats = resolveCategories(data.criteria.categorias ?? []);
+      newCriteria.categorias = cats;
+      if (cats.length > 0) newCriteria.categoria_origem = "revisao_manual";
+    }
+    // Só "Guardar e resolver" tira a procura do estado indecidível: guardar
+    // sem resolver mantém-na na lista da Revisão para continuar a trabalhar.
+    if (data.resolve && Array.isArray(newCriteria.categorias) && newCriteria.categorias.length > 0) {
+      delete newCriteria.motivo_indecidivel;
+    }
     const telefone = data.contact_telefone ?? existing.contact_telefone;
     const nome = data.contact_nome ?? existing.contact_nome;
     const dedup_key = buildDedupKey({
       telefone,
       nome,
-      finalidade: (newCriteria.finalidade ?? "indefinido") as any,
-      tipologia: newCriteria.tipologia ?? null,
-      tipo_imovel: newCriteria.tipo_imovel ?? null,
-      zona: newCriteria.zona ?? newCriteria.municipio ?? newCriteria.freguesia ?? null,
+      finalidade: ((newCriteria as any).finalidade ?? "indefinido") as any,
+      tipologia: ((newCriteria as any).tipologia ?? null) as any,
+      tipo_imovel: ((newCriteria as any).tipo_imovel ?? null) as any,
+      zona: ((newCriteria as any).zona ??
+        (newCriteria as any).municipio ??
+        (newCriteria as any).freguesia ??
+        null) as any,
     });
     const patch: Record<string, unknown> = {
       criteria: newCriteria,
@@ -143,13 +242,15 @@ export const updateReviewSearch = createServerFn({ method: "POST" })
     }
     const { error } = await supabase.from("active_searches").update(patch as any).eq("id", data.id);
     if (error) throw new Error(error.message);
-    // Recruzar imediatamente.
-    try {
-      await recomputeForSearch(supabase, existing.user_id, data.id);
-    } catch (e) {
-      console.error("review recompute failed", e);
+    // Recruzar apenas quando a procura é resolvida ("Guardar e resolver").
+    if (data.resolve) {
+      try {
+        await recomputeForSearch(supabase, existing.user_id, data.id);
+      } catch (e) {
+        console.error("review recompute failed", e);
+      }
     }
-    return { ok: true };
+    return { ok: true, resolved: data.resolve };
   });
 
 export const deleteReviewSearch = createServerFn({ method: "POST" })
