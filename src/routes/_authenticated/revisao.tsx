@@ -206,7 +206,7 @@ function RevisaoPage() {
 // fora do Motor Match (falham o filtro de tipo) até alguém decidir a categoria.
 // ---------------------------------------------------------------------------
 
-function SemTipoPanel() {
+function SemTipoPanel({ resolvedIds }: { resolvedIds: string[] }) {
   const listFn = useServerFn(listSearchesSemTipo);
   const saveFn = useServerFn(setSearchCategories);
   const [items, setItems] = useState<SearchSemTipoItem[]>([]);
@@ -230,6 +230,7 @@ function SemTipoPanel() {
 
   const q = query.trim().toLowerCase();
   const visible = items.filter((it) => {
+    if (resolvedIds.includes(it.id)) return false;
     if (!q) return true;
     return [it.resumo, it.texto_original, it.consultor_nome, it.contact_nome, it.tipologia]
       .filter(Boolean)
