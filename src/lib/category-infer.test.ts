@@ -1,0 +1,61 @@
+// Release 1.2.12 — cobre os 4 estados do diagnóstico + regra de não sobrepor.
+import { describe, it, expect } from "vitest";
+import { inferSearchCategories, withInferredCategories } from "./category-infer";
+
+describe("inferSearchCategories", () => {
+  it("com_tipo + com_cat -> mantém existente (nunca sobrepõe)", () => {
+    const r = inferSearchCategories({
+      categorias: ["terrenos"],
+      tipo_imovel: ["apartamento"],
+      tipologia: "T3",
+      texto_original: "procuro moradia",
+    });
+    expect(r.categoria_origem).toBe("existente");
+    expect(r.categorias).toEqual(["terrenos"]);
+  });
+
+  it("com_tipo + sem_cat -> deriva do tipo_imovel", () => {
+    const r = inferSearchCategories({ categorias: [], tipo_imovel: ["apartamento"] });
+    expect(r.categoria_origem).toBe("tipo_imovel");
+    expect(r.categorias.length).toBeGreaterThan(0);
+  });
+
+  it("sem_tipo + sem_cat mas com tipologia -> infere habitacional", () => {
+    const r = inferSearchCategories({ tipologia: "T2" });
+    expect(r.categoria_origem).toBe("tipologia");
+    expect(r.categorias).toEqual(["casas_apartamentos"]);
+  });
+
+  it("sem_tipo + sem_cat + sem tipologia -> infere do texto original", () => {
+    const r = inferSearchCategories({ texto_original: "Cliente procura terreno para construção" });
+    expect(r.categoria_origem).toBe("inferido_texto");
+    expect(r.categorias.length).toBeGreaterThan(0);
+  });
+
+  it("sem sinal nenhum -> indecidivel com categorias vazias", () => {
+    const r = inferSearchCategories({ texto_original: "Bom dia, tenho cliente com 200.000" });
+    expect(r.categoria_origem).toBe("indecidivel");
+    expect(r.categorias).toEqual([]);
+  });
+
+  it("com_cat + sem_tipo -> mantém a categoria existente", () => {
+    const r = inferSearchCategories({ categorias: ["terrenos"] });
+    expect(r.categoria_origem).toBe("existente");
+    expect(r.categorias).toEqual(["terrenos"]);
+  });
+});
+
+describe("withInferredCategories", () => {
+  it("preserva o resto do criteria e escreve auditoria", () => {
+    const out = withInferredCategories({ tipologia: "T3", budget_max: 300000 } as Record<string, unknown>);
+    expect(out.budget_max).toBe(300000);
+    expect(out.categoria_origem).toBe("tipologia");
+    expect(out.categorias).toEqual(["casas_apartamentos"]);
+  });
+
+  it("indecidivel escreve categorias null", () => {
+    const out = withInferredCategories({} as Record<string, unknown>);
+    expect(out.categorias).toBeNull();
+    expect(out.categoria_origem).toBe("indecidivel");
+  });
+});

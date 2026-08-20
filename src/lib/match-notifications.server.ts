@@ -24,6 +24,7 @@ function criteriaToBuyer(c: any, location_ids: string[] = []): BuyerLike {
     location_ids,
     budget_min: c?.budget_min ?? null,
     categorias: Array.isArray(c?.categorias) ? c.categorias : null,
+    categoria_origem: typeof c?.categoria_origem === "string" ? c.categoria_origem : null,
     budget_max_obras: c?.budget_max_obras ?? null,
     budget_max_pronto: c?.budget_max_pronto ?? null,
     estado_desejado: c?.estado_desejado ?? null,

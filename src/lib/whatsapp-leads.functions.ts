@@ -11,6 +11,7 @@ import {
   type AcceptanceDecision,
 } from "./search-acceptance";
 import { normalizeSearchBedrooms } from "./bedrooms-normalize";
+import { inferSearchCategories } from "./category-infer";
 import { inferFinalidadeFromText } from "./whatsapp-ingestion-normalize";
 
 const QualifiedLeadSchema = z.object({
@@ -353,6 +354,13 @@ export const createBuyersFromLeads = createServerFn({ method: "POST" })
         tipologia: bed.tipologia,
         zona: l.zona ?? null,
         tipo_imovel: l.tipo_imovel ?? null,
+        // Release 1.2.12 — categorias derivadas do tipo/tipologia/texto.
+        categorias: inferSearchCategories({
+          tipo_imovel: l.tipo_imovel,
+          tipologia: l.tipologia,
+          texto_original: l.mensagem_original ?? null,
+          resumo: l.resumo ?? null,
+        }).categorias,
         budget_min: l.budget_min ?? null,
         budget_max: l.budget_max ?? null,
         area_min: l.area_min ?? null,
@@ -385,9 +393,17 @@ function leadToBuyer(l: QualifiedLead) {
     { tipologia: l.tipologia, quartos_min: l.quartos_min },
     "whatsapp:leadToBuyer",
   );
+  const catRes = inferSearchCategories({
+    tipo_imovel: l.tipo_imovel,
+    tipologia: l.tipologia,
+    texto_original: l.mensagem_original ?? null,
+    resumo: l.resumo ?? null,
+  });
   return {
     finalidade,
     tipo_imovel: l.tipo_imovel ?? null,
+    categorias: catRes.categorias.length ? catRes.categorias : null,
+    categoria_origem: catRes.categoria_origem,
     tipologia: bed.tipologia,
     zona: l.zona ?? null,
     budget_min: l.budget_min ?? null,

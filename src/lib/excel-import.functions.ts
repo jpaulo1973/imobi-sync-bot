@@ -21,6 +21,7 @@ import { LocationRepository } from "./geo/location-repository";
 import { parseLocations } from "./geo";
 import { knownPhoneFor, lookupContacts, type KnownContact } from "./contacts.server";
 import { computeExpiresAt } from "./expiry";
+import { withInferredCategories } from "./category-infer";
 
 // Re-exportar para manter compatibilidade com consumidores existentes; a
 // implementação vive agora em src/lib/search-acceptance.ts (fonte única).
@@ -493,7 +494,7 @@ async function processOneRow(
       if (garagem) caracExtras.push("garagem");
 
       const baseBedrooms = normalizeSearchBedrooms({ tipologia }, "excel-import:baseCriteria");
-      const baseCriteria = {
+      const baseCriteriaRaw = {
         nome,
         finalidade,
         tipo_imovel: tipoImovel,
@@ -510,8 +511,14 @@ async function processOneRow(
         quartos_min: baseBedrooms.quartos_min,
         caracteristicas: caracExtras.length ? caracExtras : null,
       };
-
       const rawText = mensagem ?? descricao ?? "";
+      // Release 1.2.12 — o importador passa a escrever SEMPRE `categorias` +
+      // `categoria_origem` (auditoria). Antes ficavam vazias e o Motor aceitava
+      // qualquer tipo de imóvel (falso positivo).
+      const baseCriteria = withInferredCategories(baseCriteriaRaw, {
+        texto_original: rawText,
+        resumo: descricao,
+      });
       const fallbackSearch: SplitSearch = {
         finalidade,
         tipo_imovel: tipoImovel,
@@ -557,6 +564,10 @@ async function processOneRow(
           quartos_min: spBedrooms.quartos_min,
           caracteristicas: sp.caracteristicas ?? null,
         };
+        const criteriaWithCats = withInferredCategories(criteria, {
+          texto_original: rawText,
+          resumo: sp.resumo ?? descricao,
+        });
 
         const dedup_key = buildDedupKey({
           telefone,
@@ -594,7 +605,7 @@ async function processOneRow(
 
         const row: UpsertRow = {
           dedup_key,
-          criteria,
+          criteria: criteriaWithCats,
           resumo: sp.resumo ?? descricao,
           texto_original: rawText,
           contact_nome: nome,

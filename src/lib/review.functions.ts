@@ -1194,3 +1194,118 @@ export const setSearchLocationsBulk = createServerFn({ method: "POST" })
     }
     return { ok: true as const, updated: targets.length, location_ids: validIds };
   });
+
+// ---------------------------------------------------------------------------
+// Release 1.2.12 — Procuras sem tipo de imóvel decidido ("indecidivel").
+// Estas procuras falham o filtro de tipo no Motor Match (não aceitam tudo) e
+// só voltam a produzir matches depois de resolução manual aqui.
+// ---------------------------------------------------------------------------
+
+export type SearchSemTipoItem = {
+  id: string;
+  user_id: string;
+  origem: string | null;
+  created_at: string;
+  resumo: string | null;
+  texto_original: string | null;
+  consultor_nome: string | null;
+  contact_nome: string | null;
+  grupo_whatsapp: string | null;
+  tipologia: string | null;
+  tipo_imovel: string[] | null;
+  categoria_origem: string | null;
+};
+
+export const listSearchesSemTipo = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<{ items: SearchSemTipoItem[]; total: number }> => {
+    const { supabase, userId } = context;
+    await assertAdmin(supabase, userId);
+    const { setRequestClient } = await import("@/lib/privileged.server");
+    setRequestClient(context.supabase);
+    const nowIso = new Date().toISOString();
+    const { data, error } = await (context.supabase as any)
+      .from("active_searches")
+      .select(
+        "id, user_id, origem, created_at, resumo, texto_original, criteria, consultor_nome, contact_nome, grupo_whatsapp",
+      )
+      .eq("descartado", false)
+      .gt("expires_at", nowIso)
+      .order("created_at", { ascending: false })
+      .limit(5000);
+    if (error) throw new Error(error.message);
+    const items: SearchSemTipoItem[] = (data ?? [])
+      .filter((r: any) => {
+        const c = (r.criteria ?? {}) as any;
+        const cats = Array.isArray(c.categorias) ? c.categorias : [];
+        return cats.length === 0;
+      })
+      .map((r: any) => {
+        const c = (r.criteria ?? {}) as any;
+        return {
+          id: r.id,
+          user_id: r.user_id,
+          origem: r.origem ?? null,
+          created_at: r.created_at,
+          resumo: r.resumo ?? null,
+          texto_original: r.texto_original ?? null,
+          consultor_nome: r.consultor_nome ?? null,
+          contact_nome: r.contact_nome ?? null,
+          grupo_whatsapp: r.grupo_whatsapp ?? null,
+          tipologia: c.tipologia ?? null,
+          tipo_imovel: Array.isArray(c.tipo_imovel) ? c.tipo_imovel : null,
+          categoria_origem: typeof c.categoria_origem === "string" ? c.categoria_origem : null,
+        };
+      });
+    return { items, total: items.length };
+  });
+
+export const setSearchCategories = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z
+      .object({
+        ids: z.array(z.string().uuid()).min(1).max(500),
+        categorias: z.array(z.string()).min(1).max(20),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    await assertAdmin(supabase, userId);
+    const { setRequestClient } = await import("@/lib/privileged.server");
+    setRequestClient(context.supabase);
+    const { resolveCategories } = await import("./property-taxonomy");
+    const cats = resolveCategories(data.categorias);
+    if (cats.length === 0) throw new Error("Nenhuma categoria válida.");
+
+    const db = context.supabase as any;
+    const { data: rows, error: gErr } = await db
+      .from("active_searches")
+      .select("id, user_id, criteria")
+      .in("id", data.ids);
+    if (gErr) throw new Error(gErr.message);
+    const targets = (rows ?? []) as Array<{ id: string; user_id: string; criteria: any }>;
+    if (targets.length === 0) throw new Error("Nenhuma procura encontrada.");
+
+    let updated = 0;
+    for (const t of targets) {
+      const criteria = { ...(t.criteria ?? {}), categorias: cats, categoria_origem: "revisao_manual" };
+      const { error } = await db
+        .from("active_searches")
+        .update({
+          criteria,
+          decision_reason: "Tipo de imóvel definido manualmente pelo administrador",
+          last_match_at: null,
+        })
+        .eq("id", t.id);
+      if (error) continue;
+      updated++;
+      try {
+        await recomputeForSearch(db, t.user_id, t.id);
+      } catch (e) {
+        console.error("setSearchCategories recompute failed", t.id, e);
+      }
+    }
+    return { ok: true as const, updated, categorias: cats };
+  });

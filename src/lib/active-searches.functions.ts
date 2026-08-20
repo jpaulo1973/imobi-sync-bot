@@ -18,6 +18,7 @@ import { inferFinalidadeFromText } from "./whatsapp-ingestion-normalize";
 import { expiresFromBase } from "./expiry";
 import { shouldRenewOnMerge, renewalPatch } from "./import-batch";
 import { readImportBatch } from "./import-batch-registry";
+import { withInferredCategories } from "./category-infer";
 
 const CriteriaSchema = z.object({
   nome: z.string().nullable().optional(),
@@ -39,6 +40,9 @@ const CriteriaSchema = z.object({
     .array(z.object({ poi: z.string(), minutes: z.number().int().positive() }))
     .nullable()
     .optional(),
+  // Release 1.2.12 — categoria de topo + auditoria da decisão.
+  categorias: z.array(z.string()).nullable().optional(),
+  categoria_origem: z.string().nullable().optional(),
 });
 
 export type ActiveSearchCriteria = z.infer<typeof CriteriaSchema>;
@@ -114,6 +118,15 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
         console.error("[saveActiveSearch] location resolution failed", e);
       }
     }
+
+    // Release 1.2.12 — decidir a categoria (determinístico, sem LLM) antes de
+    // persistir. Nunca sobrepõe `categorias` já presentes no input.
+    const withCats = withInferredCategories(criteria as Record<string, unknown>, {
+      texto_original: data.texto_original ?? null,
+      resumo: data.resumo ?? null,
+    });
+    (criteria as any).categorias = withCats.categorias;
+    (criteria as any).categoria_origem = withCats.categoria_origem;
 
     const dedup_key = buildDedupKey({
       telefone: contactPhoneNorm,
@@ -953,6 +966,8 @@ function criteriaToBuyer(c: ActiveSearchCriteria, location_ids: string[] = []): 
     finalidade,
     tipo_imovel: c.tipo_imovel ?? null,
     tipologia: c.tipologia ?? null,
+    categorias: (c as any).categorias ?? null,
+    categoria_origem: (c as any).categoria_origem ?? null,
     location_ids,
     budget_min: c.budget_min ?? null,
     budget_max: c.budget_max ?? null,
