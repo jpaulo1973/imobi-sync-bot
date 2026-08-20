@@ -446,6 +446,29 @@ export const matchWhatsappConversations = createServerFn({ method: "POST" })
     await assertAdminContext(context);
     const { supabase, userId } = context;
 
+    // Telemetria de diagnóstico (bug /cruzar): tamanho do payload recebido e
+    // passo em curso, para distinguir falhas de transporte de falhas no handler.
+    const execId = crypto.randomUUID();
+    const imagensRecebidas = data.imagens ?? [];
+    const bytesTexto = (data.texto ?? "").length;
+    const bytesImagens = imagensRecebidas.reduce((sum, img) => sum + img.length, 0);
+    let step = "inicio";
+    const logStep = (next: string) => {
+      step = next;
+      console.log(
+        JSON.stringify({
+          tag: "matchWhatsappConversations",
+          execution_id: execId,
+          step,
+          n_imagens: imagensRecebidas.length,
+          bytes_texto: bytesTexto,
+          bytes_imagens: bytesImagens,
+          bytes_total: bytesTexto + bytesImagens,
+        }),
+      );
+    };
+    logStep("payload_recebido");
+    try {
     // 1) Interpretar conversa via IA — reutiliza o mesmo prompt.
     const systemPrompt = `És um consultor imobiliário experiente em Portugal a analisar conversas de grupos de WhatsApp entre consultores.
 
