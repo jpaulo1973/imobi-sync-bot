@@ -535,7 +535,23 @@ function ImoveisPage() {
     if (!url.trim()) return;
     setImporting(true);
     try {
-      const res = await importFn({ data: { url: url.trim() } });
+      const res = (await importFn({ data: { url: url.trim() } })) as {
+        status: "created" | "needs_confirmation";
+        property: Property;
+        values: Record<string, unknown>;
+        diff: Array<{ field: string; current: unknown; next: unknown }>;
+        missing_fields: string[];
+      };
+      if (res.status === "needs_confirmation") {
+        setUrl("");
+        setReimport({
+          property: res.property,
+          values: res.values,
+          diff: res.diff,
+          missing_fields: res.missing_fields,
+        });
+        return;
+      }
       setUrl("");
       await load();
       if (res.missing_fields.length > 0) {
@@ -551,6 +567,25 @@ function ImoveisPage() {
       toast.error(err instanceof Error ? err.message : "Erro ao importar");
     } finally {
       setImporting(false);
+    }
+  };
+
+  const confirmReimport = async () => {
+    if (!reimport) return;
+    setApplyingReimport(true);
+    try {
+      const res = (await applyReimportFn({
+        data: { id: reimport.property.id, values: reimport.values },
+      })) as { property: Property; updated_fields: string[] };
+      await load();
+      if (res.updated_fields.length === 0) toast.info("Nada a atualizar — o imóvel já está igual à fonte.");
+      else toast.success(`Imóvel atualizado (${res.updated_fields.length} campo(s)).`);
+      await recomputeForProp(reimport.property.id);
+      setReimport(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao atualizar");
+    } finally {
+      setApplyingReimport(false);
     }
   };
 
