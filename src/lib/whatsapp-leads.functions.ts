@@ -332,31 +332,6 @@ export const createBuyersFromLeads = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdminContext(context);
     const { supabase, userId } = context;
-
-    // Telemetria de diagnóstico (Sprint bug /cruzar): tamanho do payload
-    // recebido e passo em curso, para distinguir falhas de transporte de
-    // falhas do handler.
-    const execId = crypto.randomUUID();
-    const imagensRecebidas = data.imagens ?? [];
-    const bytesTexto = (data.texto ?? "").length;
-    const bytesImagens = imagensRecebidas.reduce((sum, img) => sum + img.length, 0);
-    let step = "inicio";
-    const logStep = (next: string) => {
-      step = next;
-      console.log(
-        JSON.stringify({
-          tag: "matchWhatsappConversations",
-          execution_id: execId,
-          step,
-          n_imagens: imagensRecebidas.length,
-          bytes_texto: bytesTexto,
-          bytes_imagens: bytesImagens,
-          bytes_total: bytesTexto + bytesImagens,
-        }),
-      );
-    };
-    logStep("payload_recebido");
-    try {
     const rows = data.leads.map((l) => {
       const nome = (l.nome && l.nome.trim()) || (l.resumo ? l.resumo.slice(0, 60) : "Lead WhatsApp");
       const finalidade = l.finalidade === "indefinido" ? "venda" : l.finalidade;
