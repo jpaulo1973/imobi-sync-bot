@@ -44,7 +44,7 @@ import {
 import { toast } from "sonner";
 import { PhoneButton } from "@/components/PhoneButton";
 import { useServerFn } from "@tanstack/react-start";
-import { importPropertyFromUrl } from "@/lib/properties.functions";
+import { importPropertyFromUrl, applyPropertyReimport } from "@/lib/properties.functions";
 import { recomputeOpportunitiesForProperty } from "@/lib/active-searches.functions";
 import {
   runPropertyOpportunities,
