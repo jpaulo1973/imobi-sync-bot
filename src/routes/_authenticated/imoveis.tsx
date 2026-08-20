@@ -215,6 +215,14 @@ function ImoveisPage() {
 
   const [url, setUrl] = useState("");
   const [importing, setImporting] = useState(false);
+  const applyReimportFn = useServerFn(applyPropertyReimport);
+  const [reimport, setReimport] = useState<{
+    property: Property;
+    values: Record<string, unknown>;
+    diff: Array<{ field: string; current: unknown; next: unknown }>;
+    missing_fields: string[];
+  } | null>(null);
+  const [applyingReimport, setApplyingReimport] = useState(false);
 
   const [matchOpen, setMatchOpen] = useState(false);
   const [matchProperty, setMatchProperty] = useState<Property | null>(null);
