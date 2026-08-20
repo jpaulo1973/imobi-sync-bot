@@ -506,8 +506,6 @@ function ManutencaoPage() {
         )}
       </Card>
 
-      <ExpiryRecalcPanel />
-
       <PurgeExpiredPanel />
 
       <DuplicatesPanel />
