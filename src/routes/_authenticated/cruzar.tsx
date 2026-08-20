@@ -72,6 +72,8 @@ function CruzarPage() {
   const [imagens, setImagens] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<LeadMatchResult[] | null>(null);
+  // Release 1.2.7 — chave do lote desta conversa (renovação por lote novo).
+  const [batchKey, setBatchKey] = useState<string | null>(null);
   const [totalCapturas, setTotalCapturas] = useState(0);
   const [totalProperties, setTotalProperties] = useState(0);
   const [creatingIdx, setCreatingIdx] = useState<number | null>(null);
@@ -127,6 +129,7 @@ function CruzarPage() {
     setResults(null);
     try {
       const res = await matchFn({ data: { texto, imagens } });
+      setBatchKey(res.batch_key ?? null);
       setTotalCapturas(res.total_capturas ?? imagens.length);
       setTotalProperties(res.total_properties);
       setResults(res.results);
@@ -208,6 +211,7 @@ function CruzarPage() {
             data_origem: lead.data_publicacao ?? null,
             grupo_whatsapp: lead.grupo_whatsapp ?? null,
             origem: "whatsapp",
+            batch_key: batchKey,
           },
         });
         toast.success("Procura guardada no Radar durante 30 dias.");
@@ -254,6 +258,7 @@ function CruzarPage() {
             data_origem: results[i].lead.data_publicacao ?? null,
             grupo_whatsapp: results[i].lead.grupo_whatsapp ?? null,
             origem: "whatsapp",
+            batch_key: batchKey,
           },
         });
         ok++;

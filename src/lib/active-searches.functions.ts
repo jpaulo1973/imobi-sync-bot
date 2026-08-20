@@ -17,6 +17,7 @@ import { extractProximityCriteria } from "./search-splitter.server";
 import { inferFinalidadeFromText } from "./whatsapp-ingestion-normalize";
 import { expiresFromBase } from "./expiry";
 import { shouldRenewOnMerge, renewalPatch } from "./import-batch";
+import { touchImportBatch } from "./import-batch-registry";
 
 const CriteriaSchema = z.object({
   nome: z.string().nullable().optional(),
@@ -60,6 +61,8 @@ const SaveInput = z.object({
   hora_origem: z.string().nullable().optional(),
   grupo_whatsapp: z.string().nullable().optional(),
   comunidade: z.string().nullable().optional(),
+  // Release 1.2.7 — impressão digital da conversa/ficheiro de origem.
+  batch_key: z.string().nullable().optional(),
 });
 
 export const saveActiveSearch = createServerFn({ method: "POST" })
@@ -120,6 +123,12 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
       tipo_imovel: criteria.tipo_imovel ?? null,
       zona: criteria.zona ?? null,
     });
+    const batch = data.batch_key
+      ? await touchImportBatch(supabase, {
+          batchKey: data.batch_key,
+          origem: data.origem === "whatsapp" ? "whatsapp" : "excel",
+        })
+      : { batchKey: "", isNew: false, fresh: false };
     const res = await upsertOne(supabase, userId, {
       dedup_key,
       criteria,
@@ -140,6 +149,8 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
       grupo_whatsapp: data.grupo_whatsapp ?? data.contact_grupo ?? null,
       comunidade: data.comunidade ?? null,
       location_ids: resolvedLocationIds,
+      batch_key: batch.batchKey || null,
+      batch_fresh: batch.fresh,
     });
     // Release 1.1: sempre que entra uma procura ativa, cruzar imediatamente
     // com todos os imóveis ativos e materializar oportunidades novas.

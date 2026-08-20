@@ -530,9 +530,19 @@ RESPOSTA: APENAS JSON válido:
       return { lead, matches: scored };
     });
 
+    // Release 1.2.7 — identidade do "lote" WhatsApp: conteúdo da conversa
+    // (texto + imagens) + user. Reanalisar a mesma conversa produz a mesma
+    // chave, logo nunca renova validade duas vezes.
+    const { computeBatchKey } = await import("./import-batch");
+    const batch_key = await computeBatchKey(
+      `${data.texto ?? ""}\n${(data.imagens ?? []).join("\n")}`,
+      userId,
+    );
+
     return {
       total_capturas: parsed.total_capturas,
       total_properties: properties?.length ?? 0,
+      batch_key,
       results,
     };
   });
