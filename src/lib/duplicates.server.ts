@@ -3,7 +3,7 @@
 // divididos no build e só podem conter imports, tipos e as declarações das
 // server functions.
 
-import { normalizePhone } from "./dedup";
+import { normalizePhone, normalizeTextKey, textJaccard } from "./dedup";
 
 export type DuplicateMember = {
   id: string;
@@ -32,6 +32,37 @@ export type DuplicateGroup = {
 
 
 export const KEEP_SEPARATE_KEY = "dedup_grupos_mantidos_separados";
+
+/**
+ * Release 1.2.11 — limiar único de similaridade de texto (0,80) para sugerir um
+ * grupo como duplicado, tanto para grupos por telefone como por nome.
+ *
+ * Antes, grupos por telefone bastavam-se com 0,40. Isso juntava procuras
+ * legitimamente diferentes publicadas pelo mesmo telefone (tipicamente
+ * consultores que publicam por vários compradores). O sinal real de
+ * reimportação repetida é o texto quase idêntico, não o telefone batido.
+ */
+export const DUPLICATE_SIM_THRESHOLD = 0.8;
+
+/** Similaridade média (Jaccard) entre os textos distintos de um grupo. */
+export function groupTextSimilarity(textos: Array<string | null | undefined>): number {
+  const distintos = new Set(textos.map((t) => normalizeTextKey(t ?? "")).filter(Boolean));
+  if (distintos.size <= 1) return 1;
+  const list = [...distintos];
+  let acc = 0;
+  let n = 0;
+  for (let i = 0; i < list.length; i++)
+    for (let j = i + 1; j < list.length; j++) {
+      acc += textJaccard(list[i], list[j]);
+      n++;
+    }
+  return n ? acc / n : 0;
+}
+
+/** Um grupo só é sugerido quando o texto é quase igual, independente da chave. */
+export function shouldSuggestGroup(_tipo: "telefone" | "nome", sim: number): boolean {
+  return sim >= DUPLICATE_SIM_THRESHOLD;
+}
 
 export function completeness(row: any): number {
   const c = (row.criteria ?? {}) as any;

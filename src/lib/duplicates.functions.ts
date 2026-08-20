@@ -12,11 +12,13 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertAdminContext } from "./admin-guard.server";
-import { normalizePhone, normalizeTextKey, textJaccard } from "./dedup";
+import { normalizePhone } from "./dedup";
 import {
   KEEP_SEPARATE_KEY,
   completeness,
+  groupTextSimilarity,
   readKeepSeparate,
+  shouldSuggestGroup,
   type DuplicateGroup,
   type DuplicateMember,
 } from "./duplicates.server";
@@ -94,23 +96,9 @@ export const listDuplicateGroups = createServerFn({ method: "GET" })
 
       // Só consideramos duplicado o que tem texto original semelhante entre si:
       // a mesma pessoa pode legitimamente ter necessidades diferentes.
-      const textos = g.rows.map((r) => r.texto_original ?? r.resumo ?? "");
-      const distintos = new Set(textos.map((t) => normalizeTextKey(t)).filter(Boolean));
-      let sim = 1;
-      if (distintos.size > 1) {
-        const list = [...distintos];
-        let acc = 0;
-        let n = 0;
-        for (let i = 0; i < list.length; i++)
-          for (let j = i + 1; j < list.length; j++) {
-            acc += textJaccard(list[i], list[j]);
-            n++;
-          }
-        sim = n ? acc / n : 0;
-      }
-      // Grupo por nome sem telefone exige texto quase igual para ser sugerido.
-      if (g.tipo === "nome" && sim < 0.8) continue;
-      if (g.tipo === "telefone" && sim < 0.4) continue;
+      const sim = groupTextSimilarity(g.rows.map((r) => r.texto_original ?? r.resumo ?? ""));
+      // Limiar único (0,80): telefone igual sozinho não é sinal de duplicado.
+      if (!shouldSuggestGroup(g.tipo, sim)) continue;
 
       const membros: DuplicateMember[] = g.rows
         .map((r) => ({
