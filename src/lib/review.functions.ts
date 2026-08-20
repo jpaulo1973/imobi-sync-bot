@@ -1214,6 +1214,8 @@ export type SearchSemTipoItem = {
   tipologia: string | null;
   tipo_imovel: string[] | null;
   categoria_origem: string | null;
+  motivo_indecidivel: string | null;
+  sinais_multi_uso: string[] | null;
 };
 
 export const listSearchesSemTipo = createServerFn({ method: "GET" })
@@ -1242,6 +1244,7 @@ export const listSearchesSemTipo = createServerFn({ method: "GET" })
       })
       .map((r: any) => {
         const c = (r.criteria ?? {}) as any;
+        const { detectMultiUse } = require0 as never;
         return {
           id: r.id,
           user_id: r.user_id,
@@ -1255,6 +1258,8 @@ export const listSearchesSemTipo = createServerFn({ method: "GET" })
           tipologia: c.tipologia ?? null,
           tipo_imovel: Array.isArray(c.tipo_imovel) ? c.tipo_imovel : null,
           categoria_origem: typeof c.categoria_origem === "string" ? c.categoria_origem : null,
+          motivo_indecidivel: typeof c.motivo_indecidivel === "string" ? c.motivo_indecidivel : null,
+          sinais_multi_uso: null,
         };
       });
     return { items, total: items.length };
