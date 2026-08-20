@@ -324,7 +324,7 @@ function SemTipoPanel() {
                   {it.consultor_nome ?? it.contact_nome ?? "—"}
                   {it.grupo_whatsapp ? ` · ${it.grupo_whatsapp}` : ""}
                 </div>
-                {it.texto_original && <OriginalMessage text={it.texto_original} />}
+                {it.texto_original && <OriginalMessage texto={it.texto_original} origem={it.origem} />}
               </div>
             </div>
           </Card>
