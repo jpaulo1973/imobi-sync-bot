@@ -1236,6 +1236,7 @@ export const listSearchesSemTipo = createServerFn({ method: "GET" })
       .order("created_at", { ascending: false })
       .limit(5000);
     if (error) throw new Error(error.message);
+    const { detectMultiUse } = await import("./category-infer");
     const items: SearchSemTipoItem[] = (data ?? [])
       .filter((r: any) => {
         const c = (r.criteria ?? {}) as any;
@@ -1244,7 +1245,12 @@ export const listSearchesSemTipo = createServerFn({ method: "GET" })
       })
       .map((r: any) => {
         const c = (r.criteria ?? {}) as any;
-        const { detectMultiUse } = require0 as never;
+        const multi = detectMultiUse({
+          tipo_imovel: c.tipo_imovel,
+          tipologia: c.tipologia,
+          texto_original: r.texto_original ?? null,
+          resumo: r.resumo ?? null,
+        });
         return {
           id: r.id,
           user_id: r.user_id,
@@ -1259,7 +1265,7 @@ export const listSearchesSemTipo = createServerFn({ method: "GET" })
           tipo_imovel: Array.isArray(c.tipo_imovel) ? c.tipo_imovel : null,
           categoria_origem: typeof c.categoria_origem === "string" ? c.categoria_origem : null,
           motivo_indecidivel: typeof c.motivo_indecidivel === "string" ? c.motivo_indecidivel : null,
-          sinais_multi_uso: null,
+          sinais_multi_uso: multi.multi_uso ? multi.sinais : null,
         };
       });
     return { items, total: items.length };
