@@ -31,6 +31,7 @@ import {
 import { DuplicatesPanel } from "@/components/DuplicatesPanel";
 import { ContactsBackfillPanel } from "@/components/ContactsBackfillPanel";
 import { ExpiryRecalcPanel } from "@/components/ExpiryRecalcPanel";
+import { PurgeExpiredPanel } from "@/components/PurgeExpiredPanel";
 import {
   backfillContactsFromSearches,
   type ContactsBackfillResult,
@@ -507,6 +508,8 @@ function ManutencaoPage() {
       </Card>
 
       <ExpiryRecalcPanel />
+
+      <PurgeExpiredPanel />
 
       <DuplicatesPanel />
     </div>
