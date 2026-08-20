@@ -13,6 +13,7 @@ import {
 import { normalizeSearchBedrooms } from "./bedrooms-normalize";
 import { inferSearchCategories } from "./category-infer";
 import { inferFinalidadeFromText } from "./whatsapp-ingestion-normalize";
+import { MAX_PAYLOAD_BYTES } from "./image-compress";
 
 const QualifiedLeadSchema = z.object({
   nome: z.string().nullable().optional(),
