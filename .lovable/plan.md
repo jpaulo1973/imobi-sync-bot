@@ -1,57 +1,62 @@
-# Categorias de procura — captura, inferência e backfill
+# Multi-uso: excluir do backfill automático
 
-Objetivo: nenhuma procura entra no Motor Match sem categoria decidida, e as indecidíveis deixam de "aceitar tudo".
+## A) Diagnóstico (leitura, já feito)
 
-## 1. Importador Excel escreve `categorias`
+Procuras ativas (não descartadas, não expiradas): **911**.
 
-Em `src/lib/excel-import.functions.ts`, no objeto `criteria` de cada split (e no `baseCriteria`), passa a gravar:
+| Métrica | Valor |
+|---|---|
+| `categorias` com **mais de 1 valor** | **0** |
+| `categorias` com exatamente 1 valor | 754 |
+| `categorias` vazio | 157 |
+| Com `area_min` definido | 148 |
+| Com >1 categoria **E** `area_min` | **0** |
 
-- `categorias`: derivadas de `tipo_imovel` via `resolveCategories()`.
-- `categoria_origem`: `"tipo_imovel"` quando vieram da coluna.
+Não há exemplos a mostrar: hoje nenhuma procura ativa tem mais do que uma categoria. Todos os importadores e a inferência gravam sempre uma única categoria, e o backfill ainda não foi aplicado.
 
-Isto fecha os 88 casos "com_tipo + sem_cat" para o futuro. O mesmo bloco é aplicado ao canal WhatsApp para manter um único formato de `criteria`.
+Conclusão: o problema do "filtro de área não sensível à categoria" é **prospetivo, não atual** — só passa a existir no momento em que começarmos a gravar multi-categoria (backfill ou resolução manual na Revisão). Isso reforça a tua decisão: em vez de atribuir automaticamente categorias a casos ambíguos, mandá-los para revisão manual.
 
-## 2. Inferência determinística (sem LLM)
+## B) Plano — deteção robusta de multi-uso
 
-Novo módulo `src/lib/category-infer.ts` com uma função pura:
+### Regra central (reutilizável)
 
-```
-inferSearchCategories({ tipo_imovel, tipologia, texto_original, categorias })
-  -> { categorias, origem: "existente" | "tipo_imovel" | "tipologia" | "inferido_texto" | "indecidivel" }
-```
+Criar `detectMultiUse(input)` em `src/lib/category-infer.ts`, que corre **sempre**, independentemente de a inferência já ter resolvido por `tipo_imovel` ou `tipologia`:
 
-Ordem de decisão (para na primeira que resolve):
-1. `categorias` já presentes -> devolve tal e qual, origem `existente` (**nunca sobrepõe**).
-2. `tipo_imovel` -> `resolveCategories()`.
-3. `tipologia` com padrão `T0..T9` / estúdio -> `casas_apartamentos`.
-4. Palavras-chave no `texto_original` -> `resolveCategory()` (hotéis, armazém, terreno, herdade, loja, escritório, prédio…).
-5. Nada resolve -> `categorias: []`, origem `indecidivel`.
+1. Recolher **todos** os sinais de categoria em paralelo (sem parar no primeiro sucesso):
+   - `sinaisTipo` = categorias resolvidas de `tipo_imovel`
+   - `sinaisTipologia` = habitacional, se `tipologia` for T0–T9/estúdio
+   - `sinaisTexto` = `categoriesFromText(texto_original + resumo)`
+2. Aplicar **supressão de falsos multi-uso** ao conjunto de sinais de texto, por padrões de finalidade:
+   - `terreno (para|destinado a|com viabilidade|com projeto) <habitacional/comercial>` → conta só `terrenos`
+   - `<X> para (AL|alojamento local|hostel|investimento|rentabilidade)` → conta só `X`
+   - `moradia|apartamento` dentro de expressão de "construção" após terreno → ignorado
+3. União dos sinais restantes. Se **≥ 2 categorias distintas** → `multiUso = true`.
 
-O resultado é gravado em `criteria.categorias` + `criteria.categoria_origem` (campo de auditoria, visível na Revisão). `inferCondition()` continua a preencher `estado_desejado` quando o texto o indica.
+### Impacto na inferência
 
-## 3. Política para indecidíveis no Motor
+`inferSearchCategories` passa a devolver também `multi_uso: boolean` e a lista `sinais` (auditoria). Quando `multiUso === true` e não havia `categorias` existentes:
+- `categorias: []`
+- `categoria_origem: "indecidivel"`
+- `motivo_indecidivel: "multi_uso"` (distingue de indecidível puro, que fica `"sem_sinal"`)
 
-Em `tipoFilter()` (`src/lib/matching-engine.ts`): quando a procura está marcada como indecidível (`categoria_origem === "indecidivel"`) e não tem `tipo_imovel` nem `categorias`, o filtro passa a **falhar** com `rejectReason: "TIPO_IMOVEL"` e detalhe "Tipo de imóvel da procura indeterminado — requer revisão", em vez de aceitar qualquer imóvel.
+A regra "nunca sobrepor `categorias` já existentes" mantém-se intacta e tem prioridade absoluta — multi-uso nunca apaga uma decisão humana ou prévia.
 
-O comportamento atual (sem tipo indicado = aceita tudo) mantém-se apenas para procuras que não foram marcadas, para não alterar registos legítimos.
+### Backfill
 
-Essas procuras aparecem numa aba **"Sem tipo de imóvel"** na página de Revisão, com a mensagem original e um seletor de categoria para resolução manual (individual e em bloco), reutilizando o padrão já existente na aba "Sem localização".
+`runCategoryBackfill` (Simular/Aplicar):
+- casos multi-uso deixam de receber categoria automática; gravam `categoria_origem: "indecidivel"` + `motivo_indecidivel: "multi_uso"`, caindo na aba **Sem tipo de imóvel** da Revisão
+- restantes (~122) aplicam-se sem qualquer alteração de comportamento
+- a simulação passa a mostrar uma linha nova nas estatísticas: `indecidivel (multi_uso)` com contagem, e a amostra indica os sinais detetados por registo
 
-## 4. Backfill com simulação
+### Revisão
 
-Nova server function em `src/lib/category-backfill.functions.ts` (admin-only, padrão do `geo-backfill`):
+Na aba "Sem tipo de imóvel", os registos multi-uso ganham um badge "Multi-uso" e a lista dos usos detetados no texto, para acelerares a escolha manual (podes marcar várias categorias, como já hoje).
 
-- `simulateCategoryBackfill()` — percorre as procuras ativas sem `categorias`, aplica a inferência e devolve: totais por origem (`tipo_imovel`, `tipologia`, `inferido_texto`, `indecidivel`) e amostra por registo com **antes/depois** (nome, texto truncado, tipo, categorias antes -> depois, origem).
-- `applyCategoryBackfill()` — escreve as mesmas decisões, sem tocar em registos que já tenham `categorias`.
+### Testes
 
-Card novo em `/manutencao`: "Simular" primeiro (tabela de amostra + contagens), botão "Aplicar" só ativo depois da simulação.
+- `category-infer.test.ts`: os 4 estados atuais continuam verdes; novos casos — "Imóvel urbano, industrial ou habitacional" (Luísa Tinoco) → multi-uso; "Armazém ou loja 200 a 400m2" → multi-uso; "Prédio c/ AL ou Hostel" → multi-uso; "terreno para moradia" → **não** multi-uso (só `terrenos`); registo com `categorias` já preenchido → `existente`, nunca multi-uso.
+- Regressão do motor: procura multi-uso marcada indecidível falha o `tipoFilter` (comportamento igual aos indecidíveis puros).
 
-## 5. Testes
+### Notas técnicas
 
-`src/lib/category-infer.test.ts`:
-- os 4 estados do diagnóstico: `com_tipo+com_cat` (mantém), `com_tipo+sem_cat` (deriva de tipo), `sem_tipo+sem_cat` (infere de tipologia/texto ou marca indecidível), `com_cat+sem_tipo` (mantém categorias).
-- regra "não sobrepor": `categorias` existentes nunca são substituídas, mesmo com texto a sugerir outra coisa.
-
-`src/lib/matching-engine.regressions.test.ts` (novo caso):
-- procura marcada `indecidivel` **falha** o filtro de tipo (`rejectReason: "TIPO_IMOVEL"`);
-- procura sem tipo e sem marca continua a passar (sem regressão).
+Ficheiros tocados: `src/lib/category-infer.ts` (deteção + tipos), `src/lib/category-backfill.functions.ts` (estatística e escrita), `CategoryBackfillPanel.tsx` (nova linha na simulação), `revisao.tsx` (badge), `category-infer.test.ts` e `matching-engine.regressions.test.ts`. Sem migração de base de dados: `motivo_indecidivel` vive dentro de `criteria` (jsonb).
