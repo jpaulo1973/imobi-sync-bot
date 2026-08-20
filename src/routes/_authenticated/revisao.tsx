@@ -22,6 +22,7 @@ import { promoteAlias } from "@/lib/geo/geo.functions";
 import { normalizeGeoText } from "@/lib/geo/geo-context";
 import { LocationSelector } from "@/components/entity-selector/LocationSelector";
 import { OriginalMessage } from "@/components/OriginalMessage";
+import { SearchEditSheet } from "@/components/review/SearchEditSheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   downloadReviewCsv,
@@ -52,8 +53,29 @@ import {
   Globe,
   Trash2,
   Building2,
+  Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
+
+// Release 1.2.14 — o editor lateral é acessível de qualquer aba. O estado vive
+// no topo da página e cada lista abre-o com o id da procura.
+import { createContext, useContext } from "react";
+
+type EditCtx = { edit: (id: string) => void };
+const SearchEditContext = createContext<EditCtx>({ edit: () => {} });
+
+export function useSearchEdit() {
+  return useContext(SearchEditContext);
+}
+
+function EditSearchButton({ id }: { id: string }) {
+  const { edit } = useSearchEdit();
+  return (
+    <Button type="button" size="sm" variant="outline" onClick={() => edit(id)}>
+      <Pencil className="mr-1 h-3.5 w-3.5" /> Editar
+    </Button>
+  );
+}
 
 export const Route = createFileRoute("/_authenticated/revisao")({
   // Item 1 — página exclusiva de Admin. `ssr: false` porque a verificação
@@ -80,6 +102,8 @@ function RevisaoPage() {
   const listFn = useServerFn(listConsultoresSemTelefone);
   const [items, setItems] = useState<ConsultorSemTelefone[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [resolvedIds, setResolvedIds] = useState<string[]>([]);
 
   const reload = () => {
     setLoading(true);
@@ -96,6 +120,7 @@ function RevisaoPage() {
     setItems((cur) => cur.filter((c) => c.key !== key));
 
   return (
+    <SearchEditContext.Provider value={{ edit: setEditingId }}>
     <div className="space-y-6 max-w-3xl mx-auto">
       <div className="flex items-start gap-3 flex-wrap">
         <div className="w-10 h-10 rounded-lg bg-secondary text-primary inline-flex items-center justify-center shrink-0">
@@ -156,14 +181,23 @@ function RevisaoPage() {
         </TabsContent>
 
         <TabsContent value="localizacao">
-          <SemLocalizacaoPanel />
+          <SemLocalizacaoPanel resolvedIds={resolvedIds} />
         </TabsContent>
 
         <TabsContent value="tipo">
-          <SemTipoPanel />
+          <SemTipoPanel resolvedIds={resolvedIds} />
         </TabsContent>
       </Tabs>
+
+      <SearchEditSheet
+        searchId={editingId}
+        onClose={() => setEditingId(null)}
+        onSaved={(id, resolved) => {
+          if (resolved) setResolvedIds((cur) => (cur.includes(id) ? cur : [...cur, id]));
+        }}
+      />
     </div>
+    </SearchEditContext.Provider>
   );
 }
 
@@ -172,7 +206,7 @@ function RevisaoPage() {
 // fora do Motor Match (falham o filtro de tipo) até alguém decidir a categoria.
 // ---------------------------------------------------------------------------
 
-function SemTipoPanel() {
+function SemTipoPanel({ resolvedIds }: { resolvedIds: string[] }) {
   const listFn = useServerFn(listSearchesSemTipo);
   const saveFn = useServerFn(setSearchCategories);
   const [items, setItems] = useState<SearchSemTipoItem[]>([]);
@@ -196,6 +230,7 @@ function SemTipoPanel() {
 
   const q = query.trim().toLowerCase();
   const visible = items.filter((it) => {
+    if (resolvedIds.includes(it.id)) return false;
     if (!q) return true;
     return [it.resumo, it.texto_original, it.consultor_nome, it.contact_nome, it.tipologia]
       .filter(Boolean)
@@ -330,6 +365,9 @@ function SemTipoPanel() {
                   {it.grupo_whatsapp ? ` · ${it.grupo_whatsapp}` : ""}
                 </div>
                 {it.texto_original && <OriginalMessage texto={it.texto_original} origem={it.origem} />}
+                <div className="pt-1">
+                  <EditSearchButton id={it.id} />
+                </div>
               </div>
             </div>
           </Card>
@@ -415,6 +453,9 @@ function ContactoCard({
               <div key={a.id} className="bg-muted/50 rounded p-2 whitespace-pre-wrap">
                 {a.origem && <Badge variant="outline" className="mr-1">{a.origem}</Badge>}
                 {a.texto?.slice(0, 240)}
+                <div className="pt-2">
+                  <EditSearchButton id={a.id} />
+                </div>
               </div>
             ))}
           </div>
@@ -579,7 +620,7 @@ function Stat({ label, value }: { label: string; value: number }) {
 // é feita exclusivamente pelo LocationSelector (IDs da biblioteca).
 // ---------------------------------------------------------------------------
 
-function SemLocalizacaoPanel() {
+function SemLocalizacaoPanel({ resolvedIds }: { resolvedIds: string[] }) {
   const listFn = useServerFn(listSearchesSemLocalizacao);
   const discardFn = useServerFn(discardSearches);
   const [items, setItems] = useState<SearchSemLocalizacaoItem[]>([]);
@@ -642,6 +683,7 @@ function SemLocalizacaoPanel() {
 
   const q = query.trim().toLowerCase();
   const visible = items.filter((it) => {
+    if (resolvedIds.includes(it.id)) return false;
     if (onlyWithText && !(it.texto_original ?? "").trim()) return false;
     if (onlyForeign && it.foreign === null) return false;
     if (!q) return true;
@@ -949,6 +991,7 @@ function SemLocalizacaoCard({
           </label>
         )}
         <div className="ml-auto flex gap-2">
+          <EditSearchButton id={item.id} />
           <Button
             size="sm"
             variant="outline"
