@@ -244,7 +244,17 @@ const AnalyzeInput = z
   })
   .refine((v) => (v.texto?.trim().length ?? 0) >= 10 || (v.imagens?.length ?? 0) > 0, {
     message: "Forneça texto ou pelo menos uma imagem",
-  });
+  })
+  // Release 1.2.15 (c) — limite explícito de bytes, com mensagem clara.
+  .refine(
+    (v) =>
+      (v.texto?.length ?? 0) + (v.imagens ?? []).reduce((s, i) => s + i.length, 0) <=
+      MAX_PAYLOAD_BYTES,
+    {
+      message:
+        "As capturas ocupam demasiado espaço para uma única análise. Envia-as em dois lotes.",
+    },
+  );
 
 export const analyzeWhatsappConversations = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
