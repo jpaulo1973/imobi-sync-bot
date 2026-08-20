@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { clusterByTextSimilarity, DUPLICATE_SIM_THRESHOLD, textJaccardForTest } from "./duplicates.server";
+import { textJaccard } from "./dedup";
+import { clusterByTextSimilarity, DUPLICATE_SIM_THRESHOLD } from "./duplicates.server";
 
 // Release 1.2.17 — subagrupamento por ligação completa dentro do mesmo telefone.
 // Antes, a média de similaridade de todo o grupo mascarava duplicados idênticos
