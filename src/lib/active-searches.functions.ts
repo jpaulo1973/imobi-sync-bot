@@ -495,9 +495,19 @@ async function mergeInto(
     }) ??
     existing.expires_at ??
     row.expires_at;
+  // Release 1.2.7 — exceção controlada: se esta fusão vem de um FICHEIRO/LOTE
+  // novo (batch_key inédito), reaparecer significa que o comprador continua
+  // ativo → data_publicacao passa a hoje e a validade recalcula a partir daí.
+  const renewal = shouldRenewOnMerge({
+    origem: row.origem,
+    batchKey: row.batch_key ?? null,
+    batchFresh: row.batch_fresh ?? false,
+    existingRenewedByBatchKey: existing.renewed_by_batch_key ?? null,
+  });
+  const patch = renewal.renew ? renewalPatch(String(row.batch_key)) : null;
   const update: Record<string, unknown> = {
     criteria: nextCriteria,
-    expires_at: mergedExpires,
+    expires_at: patch ? patch.expires_at : mergedExpires,
     origem: row.origem,
     import_batch_id: row.import_batch_id,
     resumo: row.resumo ?? existing.resumo,
@@ -505,9 +515,9 @@ async function mergeInto(
     contact_nome: row.contact_nome ?? existing.contact_nome,
     contact_email: row.contact_email ?? existing.contact_email,
     contact_grupo: row.contact_grupo ?? existing.contact_grupo,
-    data_publicacao: row.data_publicacao ?? existing.data_publicacao,
+    data_publicacao: patch ? patch.data_publicacao : (row.data_publicacao ?? existing.data_publicacao),
     similarity_score: similarity,
-    decision_reason: reason.slice(0, 900),
+    decision_reason: (patch ? `${reason} | renovada (lote novo)` : reason).slice(0, 900),
     merged_from_count: (existing.merged_from_count ?? 0) + 1,
     consultor_nome: row.consultor_nome ?? existing.consultor_nome,
     consultor_telefone: row.consultor_telefone ?? existing.consultor_telefone,
@@ -516,6 +526,10 @@ async function mergeInto(
     grupo_whatsapp: row.grupo_whatsapp ?? existing.grupo_whatsapp,
     comunidade: row.comunidade ?? existing.comunidade,
   };
+  if (patch) {
+    update.renewed_by_batch_key = patch.renewed_by_batch_key;
+    update.renewed_at = patch.renewed_at;
+  }
   // Fase 3 — se o caller resolveu location_ids, propaga para o registo
   // fundido; nunca sobrescreve com [] quando o caller não os resolveu.
   if (row.location_ids && row.location_ids.length > 0) {
@@ -536,6 +550,7 @@ async function mergeInto(
     similarity,
     flagged_for_review: !!upd.flagged_for_review,
     reason,
+    renewed: !!patch,
   };
 }
 
