@@ -15,6 +15,7 @@ import { assertAdminContext } from "./admin-guard.server";
 import { normalizePhone } from "./dedup";
 import {
   KEEP_SEPARATE_KEY,
+  clusterByTextSimilarity,
   completeness,
   groupTextSimilarity,
   readKeepSeparate,
