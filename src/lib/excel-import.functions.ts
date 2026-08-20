@@ -1,5 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { computeBatchKey } from "./import-batch";
+import { touchImportBatch } from "./import-batch.server";
 import * as XLSX from "xlsx";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertAdminContext } from "./admin-guard.server";
@@ -372,6 +374,7 @@ const col = (row: Record<string, unknown>, ...names: string[]): unknown => {
 type OneRowOutcome = {
   linha: ExcelImportResult["linhas"][number];
   deltas: ChunkCounters;
+  renovadas: number;
   upsertedIds: string[];
 };
 
@@ -384,6 +387,7 @@ async function processOneRow(
   expires: string,
   geoSnap: Awaited<ReturnType<typeof LocationRepository.getSnapshot>>,
   contactos: Map<string, KnownContact>,
+  batch: { batchKey: string; batchFresh: boolean },
 ): Promise<OneRowOutcome> {
   const deltas: ChunkCounters = {
     novas: 0,
@@ -396,6 +400,7 @@ async function processOneRow(
     erros: 0,
   };
   const upsertedIds: string[] = [];
+  let renovadas = 0;
       const nome = s(col(raw, "Nome"));
       const telefoneFicheiro = s(col(raw, "WhatsApp", "Telefone", "Telemovel", "Telemóvel"));
       // Contactos persistentes: se o ficheiro não traz número mas já
@@ -434,6 +439,7 @@ async function processOneRow(
     deltas.ignoradas_sem_contacto++;
     return {
       deltas,
+      renovadas,
       upsertedIds,
       linha: {
           linha: linhaNumero,
@@ -460,6 +466,7 @@ async function processOneRow(
     deltas.descartadas_anuncio++;
     return {
       deltas,
+      renovadas,
       upsertedIds,
       linha: {
           linha: linhaNumero,
@@ -607,11 +614,14 @@ async function processOneRow(
           grupo_whatsapp: grupoWhatsapp,
           comunidade,
           location_ids: resolvedLocationIds,
+          batch_key: batch.batchKey || null,
+          batch_fresh: batch.batchFresh,
         };
 
         try {
           const res = await upsertOne(supabase, userId, row);
           upsertedIds.push(res.id);
+          if (res.renewed) renovadas++;
           if (geoFlag && !flagAsReview) {
             try {
               await supabase
@@ -692,6 +702,7 @@ async function processOneRow(
     deltas.erros++;
     return {
       deltas,
+      renovadas,
       upsertedIds,
       linha: {
           linha: linhaNumero,
@@ -714,6 +725,7 @@ async function processOneRow(
     deltas.erros++;
     return {
       deltas,
+      renovadas,
       upsertedIds,
       linha: {
           linha: linhaNumero,
@@ -742,6 +754,7 @@ async function processOneRow(
           : top.reason;
   return {
     deltas,
+    renovadas,
     upsertedIds,
     linha: {
         linha: linhaNumero,
