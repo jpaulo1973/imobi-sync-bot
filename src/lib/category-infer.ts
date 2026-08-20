@@ -80,6 +80,21 @@ export function suppressFalseMultiUse(text: string): string {
   return out;
 }
 
+/**
+ * Release 1.2.16 — Características/requisitos que NUNCA são tipo de imóvel numa
+ * procura em texto livre ("T3 com lugar de garagem"). São removidas antes de
+ * resolver categorias a partir de texto. A taxonomia de imóveis anunciados
+ * (`property-taxonomy.ts`) mantém-se intacta: um imóvel anunciado como
+ * "Garagem" continua a ser `comercial_armazens`.
+ */
+const NON_TYPE_FEATURE_RE =
+  /\b(lugares?\s+de\s+garagem|lugares?\s+de\s+estacionamento|garagens?|estacionamentos?|parqueamentos?|box(?:es)?\s+de\s+garagem)\b/gi;
+
+/** Remove características que não são tipo de imóvel do texto de uma procura. */
+export function stripNonTypeFeatures(text: string): string {
+  return text.replace(NON_TYPE_FEATURE_RE, " ");
+}
+
 function nonEmptyList(value: unknown): string[] {
   const arr = Array.isArray(value) ? value : value == null ? [] : [value];
   return arr.filter((v) => typeof v === "string" && v.trim().length > 0) as string[];
@@ -89,9 +104,10 @@ function nonEmptyList(value: unknown): string[] {
 export function categoriesFromText(text: string | null | undefined): PropertyCategory[] {
   if (!text) return [];
   const out: PropertyCategory[] = [];
+  const clean = stripNonTypeFeatures(text);
   // Percorre tokens/expressões: resolveCategory já faz normalização e regex.
-  const tokens = text.split(/[\n,;.!?()/|]+|\s{2,}/g);
-  for (const chunk of [...tokens, text]) {
+  const tokens = clean.split(/[\n,;.!?()/|]+|\s{2,}/g);
+  for (const chunk of [...tokens, clean]) {
     const c = resolveCategory(chunk);
     if (c && !out.includes(c)) out.push(c);
   }
