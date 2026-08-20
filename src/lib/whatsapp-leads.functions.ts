@@ -538,6 +538,12 @@ RESPOSTA: APENAS JSON válido:
       `${data.texto ?? ""}\n${(data.imagens ?? []).join("\n")}`,
       userId,
     );
+    // Registo ÚNICO por análise: é aqui que se decide se esta conversa é
+    // inédita. Gravar cada lead depois apenas LÊ este estado, pelo que vários
+    // leads da mesma conversa não consomem a novidade do lote e reanalisar o
+    // mesmo texto mais tarde nunca renova validades.
+    const { registerImportBatch } = await import("./import-batch-registry");
+    await registerImportBatch(supabase, { batchKey: batch_key, origem: "whatsapp" });
 
     return {
       total_capturas: parsed.total_capturas,
