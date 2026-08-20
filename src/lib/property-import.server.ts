@@ -389,3 +389,88 @@ Responde APENAS com JSON válido.`;
     missing_fields,
   };
 }
+
+/**
+ * Release 1.2.8 — reimportação por URL com upsert por (referencia, user_id).
+ *
+ * Campos que a fonte controla (sempre atualizados quando vêm preenchidos).
+ * `preco` é sempre da fonte (mesmo que tenha sido editado à mão) por decisão
+ * de negócio; os restantes só são escritos se a fonte devolver valor.
+ */
+export const IMPORT_UPDATABLE_FIELDS = [
+  "finalidade",
+  "tipo_imovel",
+  "subtipo_imovel",
+  "tipologia",
+  "distrito",
+  "concelho",
+  "freguesia",
+  "zona",
+  "preco",
+  "area_util_m2",
+  "area_bruta_m2",
+  "area_m2",
+  "area_terreno_m2",
+  "garagem",
+  "elevador",
+  "jardim",
+  "piscina",
+  "location_id",
+  "geo_library_version",
+] as const;
+
+export type ImportUpdatableField = (typeof IMPORT_UPDATABLE_FIELDS)[number];
+
+/**
+ * Campos NUNCA tocados pela reimportação (gestão interna / texto humano):
+ * referencia, user_id, created_at, ativo, descricao, caracteristicas,
+ * categoria, estado.
+ */
+export type PropertyFieldDiff = {
+  field: ImportUpdatableField;
+  current: unknown;
+  next: unknown;
+};
+
+function isEmptyIncoming(field: ImportUpdatableField, value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string" && value.trim() === "") return true;
+  // placeholders do extractor
+  if (field === "tipologia" && typeof value === "string" && value.trim().toUpperCase() === "N/D") return true;
+  if (field === "zona" && typeof value === "string" && value.trim().toLowerCase() === "n/d") return true;
+  if (field === "preco" && typeof value === "number" && value <= 0) return true;
+  return false;
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  if (typeof a === "number" || typeof b === "number") {
+    const na = a === null || a === undefined ? null : Number(a);
+    const nb = b === null || b === undefined ? null : Number(b);
+    if (na === null || nb === null) return na === nb;
+    return Math.abs(na - nb) < 0.005;
+  }
+  if (typeof a === "string" && typeof b === "string") return a.trim() === b.trim();
+  return a === b;
+}
+
+/**
+ * Calcula o conjunto mínimo de alterações entre o registo atual e os valores
+ * extraídos da fonte. Não escreve nada — devolve o patch e o diff legível.
+ */
+export function buildPropertyUpdate(
+  current: Record<string, unknown>,
+  incoming: Record<string, unknown>,
+): { patch: Record<string, unknown>; diff: PropertyFieldDiff[] } {
+  const patch: Record<string, unknown> = {};
+  const diff: PropertyFieldDiff[] = [];
+  for (const field of IMPORT_UPDATABLE_FIELDS) {
+    if (!(field in incoming)) continue;
+    const next = incoming[field];
+    if (isEmptyIncoming(field, next)) continue;
+    const cur = current[field] ?? null;
+    if (sameValue(cur, next)) continue;
+    patch[field] = next;
+    if (field !== "geo_library_version") diff.push({ field, current: cur, next });
+  }
+  return { patch, diff };
+}
