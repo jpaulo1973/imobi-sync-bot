@@ -1,46 +1,74 @@
-# Correção — "garagem"/"estacionamento" deixam de ser sinal de tipo de imóvel em procuras
+# Correção da deteção de duplicados por subgrupo + filtro de expiração no backfill de categorias
 
-## 1. Onde corrigir (e onde NÃO tocar)
+## Problema
 
-A lista de sinónimos em `src/lib/property-taxonomy.ts` (`resolveCategory` / `resolveCategories`) **é partilhada**:
-- classificação de imóveis anunciados (`imoveis.tsx`, `matching-engine.ts` para `property.categoria`/`tipo_imovel`);
-- campos estruturados de procuras (`clientes.tsx`, `review.functions.ts`);
-- deteção de sinais em texto de procuras (`categoriesFromText` → `detectMultiUse`).
+1. `groupTextSimilarity()` devolve a **média Jaccard de todos os pares** de textos distintos de um telefone.
+   Um único texto legítimo diferente do mesmo consultor arrasta a média abaixo de 0,80 e esconde
+   duplicados byte-a-byte idênticos dentro do mesmo grupo.
+2. `runCategoryBackfill` não filtra `expires_at`, ao contrário do painel de Duplicados — os cartões de
+   Manutenção contam leads mortos.
 
-Por isso **não se remove nada da taxonomia**: um imóvel anunciado como "garagem" continua a ser `comercial_armazens`.
+## Alteração 1 — subagrupamento por similaridade (src/lib/duplicates.server.ts)
 
-A correção fica só no lado do texto de procuras, em `src/lib/category-infer.ts`:
-- nova constante `NON_TYPE_FEATURE_RE` com `garagem/garagens`, `estacionamento(s)`, `lugar(es) de garagem`, `box/boxes` (quando acompanhado de garagem), `parqueamento`;
-- `categoriesFromText()` passa a apagar essas expressões do texto antes de resolver categorias (mesmo tratamento já dado a `suppressFalseMultiUse`);
-- efeito: `detectMultiUse()` e o passo 4 de `inferSearchCategories()` deixam de ver estas palavras. Campos estruturados (`tipo_imovel: ["Garagem"]`) continuam a contar normalmente.
+Substituir a decisão "média do grupo" por clustering dentro de cada chave (telefone ou nome):
 
-## 2. Caso legítimo "procuro uma garagem"
+```text
+para cada chave (user_id + telefone|nome):
+  1. normalizar texto de cada membro (normalizeTextKey)
+  2. union-find sobre os membros: unir i,j quando textJaccard(txt_i, txt_j) >= 0,80
+  3. cada componente com >= 2 membros = um grupo de duplicados
+  4. membros isolados (nenhum par >= 0,80) são descartados
+```
 
-Fica coberto por duas vias:
-- procura com `tipo_imovel`/`categorias` estruturado a dizer garagem/estacionamento → continua `comercial_armazens` (passo 2, não passa pelo texto);
-- procura só em texto livre a pedir garagem como o imóvel em si → passa a ficar `indecidivel` com `motivo_indecidivel: "sem_sinal"` e aparece na aba Revisão para resolução manual.
+Novas funções exportadas (mantendo `groupTextSimilarity` para os testes/relatórios existentes):
 
-Trade-off aceite: perdemos a classificação automática desse caso raro (nenhum dos 65 casos atuais é deste tipo), em troca de eliminar 33 falsos-positivos. Nunca gera um match errado — só pede um clique na Revisão.
+- `clusterByTextSimilarity(members)` — devolve `Array<{ membros, similaridade_minima }>`, usando
+  `DUPLICATE_SIM_THRESHOLD` (0,80, inalterado) e `textJaccard` já existentes.
+- `shouldSuggestGroup()` deixa de decidir a inclusão do grupo inteiro (fica só para compatibilidade dos
+  testes atuais); a decisão passa a ser "o cluster tem ≥ 2 membros".
 
-## 3. Reprocessamento dos 33 falsos-positivos
+## Alteração 2 — listDuplicateGroups (src/lib/duplicates.functions.ts)
 
-Reaproveita o mecanismo existente `runCategoryBackfill` (`Simular` → `Aplicar`) em `src/lib/category-backfill.functions.ts`, com um novo modo de âmbito restrito:
-- input passa a aceitar `scope: "sem_categorias" | "multi_uso_features"` (default mantém o comportamento atual);
-- em `multi_uso_features` só entram procuras com `criteria.motivo_indecidivel = 'multi_uso'`, `categorias` vazias, cujo texto contenha garagem/estacionamento **e** cuja re-inferência resolva para exatamente uma categoria;
-- procuras que continuem multi-uso depois da correção (as outras ~32) são contadas mas nunca escritas;
-- ao aplicar, escreve `categorias`, `categoria_origem` e limpa `motivo_indecidivel`;
-- `CategoryBackfillPanel.tsx` ganha um segundo cartão "Recategorizar falsos multi-uso (garagem)" com o mesmo par Simular/Aplicar e a amostra antes/depois.
+- Query e filtros mantidos exatamente como estão (`descartado = false`, `expires_at > now()`,
+  chave telefone→nome, `keepSeparate`).
+- Depois de construir os membros de cada chave, correr `clusterByTextSimilarity` e emitir **um grupo por
+  cluster**, com chave `"<key>#<n>"` quando a chave gera mais de um cluster (o sufixo garante que
+  "manter separado" continua a funcionar por cluster e não silencia o telefone todo).
+- Chaves que já eram um único cluster mantêm a chave original — decisões "manter separado" existentes
+  continuam válidas.
+- `similaridade_texto` passa a ser a similaridade mínima dentro do cluster (mais honesta que a média).
+- `total_excedentes` = soma de `membros - 1` por cluster.
 
-## 4. Testes
+## Alteração 3 — expiração no backfill de categorias (src/lib/category-backfill.functions.ts)
 
-Em `src/lib/category-infer.test.ts`, três casos reais passam a `casas_apartamentos` sem `indecidivel`:
-- "T3 ou T4 ... com lugar de garagem" (Maia/Matosinhos);
-- "T2 ... garagem ou lugar de garagem" (Porto);
-- "Moradia T3, Garagem até 600 mil euros" (Terrugem/Magoito).
+- O `fetchAllRows("active_searches", ...)` passa a filtrar `descartado = false` e `expires_at > now()`
+  (via parâmetro de filtro no repositório, ou fallback a paginação explícita com `.gt("expires_at", ...)`).
+- Aplica-se a **todos os scopes** (`sem_categorias` e `multi_uso_features`), para os números baterem com
+  o painel de Duplicados.
 
-Mais:
-- não-regressão: `tipo_imovel: ["Armazém"]` + tipologia habitacional continua `multi_uso`;
-- "loja com armazém" continua `comercial_armazens`;
-- imóvel anunciado "Garagem" continua `comercial_armazens` (teste em `property-taxonomy.test.ts`).
+## Testes
 
-Fecho com contagem de testes e typecheck.
+`src/lib/duplicates-cluster.test.ts` (novo) com os 4 grupos reais confirmados — Comprarcasa Rede Serviços
+Imobiliários, Flávio Ferreira, Manuela Rodrigues da Silva Imobiliária, Tânia Caratão — cada um modelado
+como telefone único com textos idênticos repetidos + procuras legítimas distintas:
+
+- cada caso produz ≥ 1 cluster de duplicados (antes: 0, porque a média ficava < 0,80);
+- as procuras legítimas divergentes ficam fora do cluster;
+- textos idênticos continuam a dar similaridade 1;
+- caso "consultora Isabel Santos" (3 textos todos diferentes) continua a **não** produzir cluster —
+  não-regressão da 1.2.11;
+- `duplicates-threshold.test.ts` mantém-se intacto.
+
+## Estimativa de impacto (procuras ativas, não descartadas)
+
+- Hoje: 0 grupos sugeridos.
+- Depois: **6 grupos** com texto normalizado idêntico (24 linhas, **18 excedentes**) — medido diretamente
+  na base de dados; inclui os 4 grupos reportados. Com o limiar de 0,80 (quase-idênticos, não só
+  idênticos) espera-se marginalmente mais alguns grupos/excedentes.
+- Cartões de Categoria: as contagens descem para o universo de procuras vivas (leads expirados deixam de
+  contar).
+
+## Notas técnicas
+
+Sem migração de base de dados. Sem alteração ao limiar, à RPC `admin_merge_duplicate_group`, nem ao fluxo
+Simular → Aplicar do `DuplicatesPanel`. Complexidade O(n²) por chave, sobre grupos pequenos — irrelevante.
