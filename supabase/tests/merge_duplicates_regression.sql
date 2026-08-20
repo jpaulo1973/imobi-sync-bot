@@ -45,7 +45,7 @@ DECLARE
   v_mfc integer;
 BEGIN
   SELECT id INTO v_keep FROM _searches
-  WHERE contact_nome = 'Rodrigo Exemplo' ORDER BY id LIMIT 1;
+  WHERE contact_nome = 'Rodrigo Exemplo' AND origem = 'excel' ORDER BY id LIMIT 1;
 
   SELECT array_agg(id) INTO v_remove FROM _searches
   WHERE contact_nome = 'Rodrigo Exemplo' AND id <> v_keep;
