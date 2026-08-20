@@ -10,22 +10,31 @@
 
 ## Alteração 1 — subagrupamento por similaridade (src/lib/duplicates.server.ts)
 
-Substituir a decisão "média do grupo" por clustering dentro de cada chave (telefone ou nome):
+Substituir a decisão "média do grupo" por clustering de **ligação completa** (não union-find) dentro de
+cada chave (telefone ou nome). Ligação simples/cadeia é explicitamente rejeitada: repetiria o problema
+histórico (Sandra de Sousa Alves / Isabel Santos), em que A~B=0,85 e B~C=0,82 juntavam A~C=0,60.
 
 ```text
 para cada chave (user_id + telefone|nome):
-  1. normalizar texto de cada membro (normalizeTextKey)
-  2. union-find sobre os membros: unir i,j quando textJaccard(txt_i, txt_j) >= 0,80
-  3. cada componente com >= 2 membros = um grupo de duplicados
-  4. membros isolados (nenhum par >= 0,80) são descartados
+  1. normalizar o texto de cada membro (normalizeTextKey)
+  2. calcular a matriz de pares textJaccard(i, j)
+  3. ordenar membros por completeness (desc) e, guloso:
+       - abrir um cluster com o primeiro membro ainda livre
+       - juntar um membro ao cluster SÓ SE textJaccard >= 0,80 contra
+         TODOS os membros já dentro desse cluster (ligação completa)
+  4. clusters com >= 2 membros = grupos de duplicados; membros isolados são descartados
 ```
 
-Novas funções exportadas (mantendo `groupTextSimilarity` para os testes/relatórios existentes):
+Garantia resultante: **todos** os pares internos de um cluster estão ≥ 0,80. Nenhum cluster é formado por
+cadeia transitiva.
 
-- `clusterByTextSimilarity(members)` — devolve `Array<{ membros, similaridade_minima }>`, usando
+Novas funções exportadas (mantendo `groupTextSimilarity` para relatórios e testes existentes):
+
+- `clusterByTextSimilarity(membros)` — devolve `Array<{ membros, similaridade_minima }>` usando
   `DUPLICATE_SIM_THRESHOLD` (0,80, inalterado) e `textJaccard` já existentes.
 - `shouldSuggestGroup()` deixa de decidir a inclusão do grupo inteiro (fica só para compatibilidade dos
   testes atuais); a decisão passa a ser "o cluster tem ≥ 2 membros".
+
 
 ## Alteração 2 — listDuplicateGroups (src/lib/duplicates.functions.ts)
 
