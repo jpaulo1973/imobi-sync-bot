@@ -183,6 +183,7 @@ const fromProperty = (p: Property): FormState => ({
 });
 
 function ImoveisPage() {
+  // Release 1.2.8 — reimportação por URL
   const importFn = useServerFn(importPropertyFromUrl);
   const oppsFn = useServerFn(runPropertyOpportunities);
   const countsFn = useServerFn(countPropertyOpportunities);
