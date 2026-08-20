@@ -396,6 +396,7 @@ function ManutencaoPage() {
       />
 
       <CategoryBackfillPanel />
+      <CategoryBackfillPanel scope="multi_uso_features" />
 
       <Card id="ajuda-sugestoes" className="p-6 space-y-4 scroll-mt-20">
         <div>

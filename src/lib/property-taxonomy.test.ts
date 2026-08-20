@@ -37,6 +37,11 @@ describe("Item 5 — taxonomia", () => {
     expect(resolveCategory("blah")).toBeNull();
   });
 
+  it("imóvel anunciado como Garagem continua comercial_armazens", () => {
+    expect(resolveCategory("Garagem")).toBe("comercial_armazens");
+    expect(resolveCategory("estacionamento")).toBe("comercial_armazens");
+  });
+
   it("resolve listas sem duplicados", () => {
     expect(resolveCategories(["Apartamento", "moradia", "Terreno"])).toEqual([
       "casas_apartamentos",

@@ -24,15 +24,18 @@ function cats(list: string[] | null | undefined): string {
   return list.map((c) => (CATEGORY_LABELS as Record<string, string>)[c] ?? c).join(", ");
 }
 
-export function CategoryBackfillPanel() {
+type Scope = "sem_categorias" | "multi_uso_features";
+
+export function CategoryBackfillPanel({ scope = "sem_categorias" }: { scope?: Scope } = {}) {
   const run = useServerFn(runCategoryBackfill);
   const [loading, setLoading] = useState<"dry" | "apply" | null>(null);
   const [result, setResult] = useState<CategoryBackfillResult | null>(null);
+  const isFeatures = scope === "multi_uso_features";
 
   async function exec(apply: boolean) {
     setLoading(apply ? "apply" : "dry");
     try {
-      const res = await run({ data: { apply, sample: 40 } });
+      const res = await run({ data: { apply, sample: 40, scope } });
       setResult(res);
       toast.success(
         apply
@@ -51,13 +54,23 @@ export function CategoryBackfillPanel() {
       <div>
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <Tags className="w-5 h-5 text-primary" />
-          Backfill de categorias das procuras
+          {isFeatures ? "Recategorizar falsos multi-uso (garagem)" : "Backfill de categorias das procuras"}
         </h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          Preenche <strong>categorias</strong> em procuras que ficaram sem categoria decidida,
-          usando o tipo de imóvel, a tipologia e palavras-chave do texto original (sem IA).
-          Nunca sobrepõe categorias já existentes. Simula primeiro; só aplica depois de rever.
-        </p>
+        {isFeatures ? (
+          <p className="text-sm text-muted-foreground mt-1">
+            Reprocessa apenas procuras marcadas <strong>indecidível / multi-uso</strong> cujo texto
+            menciona <strong>garagem</strong> ou <strong>estacionamento</strong> — falsos
+            positivos que já não são considerados tipo de imóvel. Só grava quando a nova
+            classificação resolve para uma única categoria; os restantes casos multi-uso não são
+            tocados. Simula primeiro; só aplica depois de rever.
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground mt-1">
+            Preenche <strong>categorias</strong> em procuras que ficaram sem categoria decidida,
+            usando o tipo de imóvel, a tipologia e palavras-chave do texto original (sem IA).
+            Nunca sobrepõe categorias já existentes. Simula primeiro; só aplica depois de rever.
+          </p>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -71,7 +84,7 @@ export function CategoryBackfillPanel() {
           title={!result ? "Simule primeiro" : undefined}
         >
           <PlayCircle className="w-4 h-4 mr-2" />
-          {loading === "apply" ? "A aplicar…" : "Aplicar backfill"}
+          {loading === "apply" ? "A aplicar…" : isFeatures ? "Aplicar recategorização" : "Aplicar backfill"}
         </Button>
       </div>
 

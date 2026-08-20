@@ -31,6 +31,7 @@ export type CategoryBackfillSample = {
 
 export type CategoryBackfillResult = {
   applied: boolean;
+  scope: "sem_categorias" | "multi_uso_features";
   total_sem_categorias: number;
   por_origem: Record<CategoryOrigin, number>;
   indecidivel_multi_uso: number;
@@ -39,7 +40,14 @@ export type CategoryBackfillResult = {
   amostra: CategoryBackfillSample[];
 };
 
-const Input = z.object({ apply: z.boolean().default(false), sample: z.number().int().min(1).max(200).default(40) });
+const Input = z.object({
+  apply: z.boolean().default(false),
+  sample: z.number().int().min(1).max(200).default(40),
+  scope: z.enum(["sem_categorias", "multi_uso_features"]).default("sem_categorias"),
+});
+
+/** Release 1.2.16 — só procuras cujo multi-uso vinha de garagem/estacionamento. */
+const FEATURE_TEXT_RE = /\b(garage(?:m|ns)|estacionamentos?|parqueamentos?)\b/i;
 
 export const runCategoryBackfill = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -73,8 +81,18 @@ export const runCategoryBackfill = createServerFn({ method: "POST" })
     for (const r of rows ?? []) {
       const c = (r.criteria ?? {}) as Record<string, unknown>;
       const antes = Array.isArray(c.categorias) ? (c.categorias as string[]) : null;
-      // Regra dura: nunca sobrepor valor já existente.
-      if (antes && antes.length > 0 && typeof c.categoria_origem === "string") continue;
+      const temCategorias = !!antes && antes.length > 0;
+      const blob = `${r.texto_original ?? ""} ${r.resumo ?? ""}`;
+
+      if (data.scope === "multi_uso_features") {
+        // Âmbito restrito: apenas falsos multi-uso causados por garagem/estacionamento.
+        if (c.motivo_indecidivel !== "multi_uso") continue;
+        if (temCategorias) continue;
+        if (!FEATURE_TEXT_RE.test(blob)) continue;
+      } else {
+        // Regra dura: nunca sobrepor valor já existente.
+        if (temCategorias && typeof c.categoria_origem === "string") continue;
+      }
 
       const res = inferSearchCategories({
         categorias: antes,
@@ -83,6 +101,10 @@ export const runCategoryBackfill = createServerFn({ method: "POST" })
         texto_original: r.texto_original,
         resumo: r.resumo,
       });
+
+      // No âmbito restrito, só escreve quando a correção resolve de facto o caso.
+      if (data.scope === "multi_uso_features" && res.categorias.length !== 1) continue;
+
       por_origem[res.categoria_origem]++;
       if (res.motivo_indecidivel === "multi_uso") indecidivel_multi_uso++;
       if (res.motivo_indecidivel === "sem_sinal") indecidivel_sem_sinal++;
@@ -127,6 +149,7 @@ export const runCategoryBackfill = createServerFn({ method: "POST" })
 
     return {
       applied: data.apply,
+      scope: data.scope,
       total_sem_categorias: updates.length,
       por_origem,
       indecidivel_multi_uso,
