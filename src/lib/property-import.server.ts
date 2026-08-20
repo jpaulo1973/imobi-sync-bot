@@ -117,12 +117,25 @@ const normalizeForSearch = (value: string) =>
     .replace(/\s+/g, " ")
     .toLowerCase();
 
-const parsePtNumber = (raw: string): number | null => {
+export const parsePtNumber = (raw: string): number | null => {
   const compact = raw.replace(/[\s\u00a0]/g, "");
   if (!compact) return null;
-  const normalized = compact.includes(",")
-    ? compact.replace(/\./g, "").replace(",", ".")
-    : compact.replace(/\./g, "");
+
+  let normalized: string;
+  if (compact.includes(",")) {
+    // Locale PT: pontos são milhares; a ÚLTIMA vírgula é o separador decimal.
+    const noThousands = compact.replace(/\./g, "");
+    const lastComma = noThousands.lastIndexOf(",");
+    normalized =
+      noThousands.slice(0, lastComma).replace(/,/g, "") + "." + noThousands.slice(lastComma + 1);
+  } else if (/^\d+\.\d{1,2}$/.test(compact)) {
+    // Um único ponto seguido de 1-2 dígitos → decimal (ex.: 143.45, 120.7).
+    normalized = compact;
+  } else {
+    // Grupos de milhares (1.234, 1.234.567) ou formatos ambíguos.
+    normalized = compact.replace(/\./g, "");
+  }
+
   const value = Number(normalized);
   return Number.isFinite(value) && value > 0 ? value : null;
 };
