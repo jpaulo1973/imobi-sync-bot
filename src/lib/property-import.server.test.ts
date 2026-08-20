@@ -3,6 +3,7 @@ import {
   buildPropertyInsert,
   extractStructuredAreasFromHtml,
   mergeStructuredAreas,
+  parsePtNumber,
   type ParsedProperty,
 } from "./property-import.server";
 
@@ -16,6 +17,24 @@ const c044001018Html = `
 `;
 
 describe("property import area mapping", () => {
+  it("interpreta números no formato PT sem perder o separador decimal", () => {
+    expect(parsePtNumber("143.45")).toBe(143.45);
+    expect(parsePtNumber("1.234,5")).toBe(1234.5);
+    expect(parsePtNumber("120.7")).toBe(120.7);
+    expect(parsePtNumber("91")).toBe(91);
+    expect(parsePtNumber("1.234")).toBe(1234);
+    expect(parsePtNumber("1,234,5")).toBe(1234.5);
+    expect(parsePtNumber("120,7")).toBe(120.7);
+  });
+
+  it("extrai áreas decimais das etiquetas Century21", () => {
+    expect(
+      extractStructuredAreasFromHtml(
+        `<p>Área útil</p><p>120,7 m²</p><p>Área bruta</p><p>143.45 m²</p>`,
+      ),
+    ).toEqual({ area_util_m2: 120.7, area_bruta_m2: 143.45, area_terreno_m2: null });
+  });
+
   it("extrai as três áreas estruturadas da Century21 sem trocar bruta por terreno", () => {
     expect(extractStructuredAreasFromHtml(c044001018Html)).toEqual({
       area_util_m2: 205,
