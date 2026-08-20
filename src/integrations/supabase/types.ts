@@ -1062,6 +1062,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      admin_purge_expired_searches: {
+        Args: { p_apply?: boolean; p_dias?: number }
+        Returns: Json
+      }
       admin_purge_user_data: { Args: { p_user_id: string }; Returns: undefined }
       admin_recalc_excel_expiry: { Args: { p_apply?: boolean }; Returns: Json }
       admin_restore_search: { Args: { p_id: string }; Returns: undefined }
