@@ -76,6 +76,40 @@ export function PurgeExpiredPanel() {
         recuperação. Procuras de clientes do consultor nunca são afetadas.
       </div>
 
+      <div className="rounded-md border border-border p-3 text-xs space-y-2">
+        <p className="font-medium">
+          Execuções (rotina diária automática às 04:00 + aplicações manuais)
+        </p>
+        {runs.length === 0 ? (
+          <p className="text-muted-foreground">
+            Ainda sem registo. Cada execução fica guardada aqui automaticamente.
+          </p>
+        ) : (
+          <table className="w-full">
+            <thead className="text-muted-foreground">
+              <tr className="text-left">
+                <th className="py-1 pr-3">Quando</th>
+                <th className="py-1 pr-3">Via</th>
+                <th className="py-1 pr-3">Apagadas</th>
+                <th className="py-1 pr-3">Oportunidades</th>
+                <th className="py-1">Notificações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {runs.slice(0, 10).map((r, i) => (
+                <tr key={`${r.executado_em}-${i}`} className="border-t border-border">
+                  <td className="py-1 pr-3">{r.executado_em?.slice(0, 16).replace("T", " ")}</td>
+                  <td className="py-1 pr-3">{r.via === "automatico" ? "automática" : "manual"}</td>
+                  <td className="py-1 pr-3 font-medium">{r.apagadas}</td>
+                  <td className="py-1 pr-3">{r.oportunidades_removidas}</td>
+                  <td className="py-1">{r.notificacoes_removidas}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" disabled={busy !== null} onClick={() => go(false)}>
           {busy === "sim" ? "A simular…" : "Simular"}
