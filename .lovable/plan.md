@@ -1,60 +1,66 @@
-# Reimportação por URL — Upsert por referência (sem duplicados)
+# Correção do "Fundir no selecionado" (Duplicados existentes)
 
-## 1. Problema
+Objetivo: tornar a fusão de duplicados uma ação previsível e auditável — simular primeiro,
+confirmar depois, e não deixar lixo a apontar para procuras apagadas.
 
-`importPropertyFromUrl` faz sempre `INSERT`. Reimportar o mesmo imóvel cria um segundo registo com a mesma `referencia` (é o caso do `C0440-00927`, com 2 registos), o que duplica oportunidades e notificações de match.
+Mantém-se intencionalmente: só o conteúdo da procura selecionada sobrevive (sem fusão de
+critérios), e a ação continua a ser grupo a grupo (sem ação em bloco).
 
-## 2. Comportamento proposto
+## 1. Nova função de base de dados (SECURITY DEFINER)
 
-Ao importar um URL:
-1. Extrair os dados da fonte (como hoje).
-2. Se a extração devolver `referencia` e já existir um imóvel **do mesmo consultor** com essa referência: **atualizar** esse registo.
-3. Se não existir (ou a fonte não der referência): criar novo, como hoje.
-4. A resposta passa a indicar se foi criação ou atualização, e quais os campos alterados, para a interface mostrar "Imóvel atualizado (3 campos)".
+`admin_merge_duplicate_group(p_keep_id uuid, p_remove_ids uuid[], p_apply boolean)`
 
-Se por acidente existirem 2 registos com a mesma referência, a atualização aplica-se ao mais recente e o utilizador é avisado do duplicado.
+Motivo: hoje a fusão corre com as permissões do administrador via API. As notificações
+têm política de admin, mas os **estados de match não têm** — um admin a fundir procuras de
+outro consultor não consegue apagar esses estados, e ficariam órfãos de forma silenciosa.
+A função centraliza a operação com o mesmo padrão já usado em `admin_purge_expired_searches`.
 
-## 3. Regra proposta: o que é atualizado vs preservado
+Comportamento:
+- Valida que quem chama é administrador e que `keep_id` existe e não está na lista a remover.
+- `p_apply = false` (Simular): não escreve nada; devolve contagens e amostra.
+- `p_apply = true` (Aplicar): apaga, pela ordem, `match_notifications` e `match_states`
+  (`buyer_source = 'search'` e `buyer_ref` nas procuras removidas), `match_opportunities`
+  dessas procuras, e por fim as próprias procuras; incrementa `merged_from_count` na
+  mantida e limpa `flagged_for_review`.
 
-Não existe hoje marca de "editado à mão". A regra proposta é simples e conservadora:
+Devolve, em ambos os modos:
+`{ aplicado, mantida, remover, oportunidades_removidas, notificacoes_removidas, estados_removidos, amostra }`
+onde `amostra` lista, por procura a remover: nome, origem, data, nº de oportunidades e de notificações.
 
-**Sempre atualizados (dados factuais da fonte, é o objetivo da reimportação):**
-- Áreas: útil, bruta, terreno
-- Preço
-- Tipo de imóvel, subtipo, tipologia
-- Finalidade (venda/arrendamento)
-- Localização: distrito, concelho, freguesia, zona e `location_id`
-- Características booleanas: garagem, elevador, jardim, piscina
+## 2. Server functions
 
-**Nunca sobrepostos por valor vazio:** se a fonte não devolver um campo (vem `null`/vazio), o valor atual é preservado. A reimportação só escreve o que conseguiu ler.
+Em `src/lib/duplicates.functions.ts`:
+- `simulateMergeDuplicateGroup` — nova, chama a função acima com `p_apply = false`.
+- `mergeDuplicateGroup` — passa a chamar a mesma função com `p_apply = true` em vez de
+  fazer os `delete` diretos. Mantém o recruzamento da procura mantida (`recomputeForSearch`)
+  no fim, como hoje.
 
-**Nunca tocados (campos de gestão interna, não vêm da fonte):**
-- `ativo`, `user_id`, `created_at`, `referencia`
-- `descricao` e `caracteristicas` (texto livre onde tipicamente se escreve à mão)
-- `categoria`, `estado`
+## 3. Interface (`src/components/DuplicatesPanel.tsx`)
 
-**Proteção de edições manuais:** para os campos factuais, a reimportação assume que a fonte é a verdade — é exatamente o que resolve o bug das áreas. Antes de gravar, a interface mostra a lista de diferenças (campo / valor atual / valor novo) e só grava depois de confirmar. Assim nenhuma edição manual é perdida sem o utilizador ver.
+O botão "Fundir no selecionado" deixa de apagar de imediato:
+1. Clicar → corre a simulação e abre um diálogo de confirmação.
+2. O diálogo mostra: qual a procura que fica, quantas são apagadas, e quantas oportunidades,
+   notificações e estados de match desaparecem — mais a lista das procuras a remover.
+3. Aviso claro de que a ação é definitiva e não reversível.
+4. Só o botão "Fundir definitivamente" aplica. "Cancelar" não grava nada.
 
-Se preferires o oposto para o preço (nunca sobrepor preço manual), digo-o na implementação — é uma linha de configuração.
+O botão "Manter separadas" fica como está.
 
-## 4. Duplicado do C0440-00927
+## 4. Testes
 
-Os dois registos são idênticos nos dados (preço 345 000 €, 70/72 m²). Diferem no histórico:
+Novo teste de regressão SQL (`supabase/tests/merge_duplicates_regression.sql`), no mesmo
+formato dos existentes:
+- cria duas procuras da mesma pessoa, com oportunidades, notificações e estados em ambas;
+- corre em modo Simular → confirma que **nada** foi apagado e que as contagens devolvidas
+  correspondem à realidade;
+- corre em modo Aplicar → confirma que a procura mantida sobrevive e que **não sobra
+  nenhuma notificação nem estado** a apontar para as procuras removidas (o caso do órfão);
+- confirma que `merged_from_count` foi incrementado.
 
-```text
-A (Jul/16)  ad828bbf…  15 oportunidades, 19 notificações
-B (Ago/18)  015bc66e…  14 oportunidades, 32 notificações
-```
+Mais um teste unitário para a construção do resumo apresentado no diálogo.
 
-Apagar um é seguro do ponto de vista técnico: as tabelas de match apontam para o imóvel e as oportunidades/notificações do registo apagado desaparecem com ele (não há registos "órfãos" nem erros). Não há estados de match ativos em nenhum dos dois.
+## Notas
 
-Recomendação: **manter o registo A (Jul/16)** — é o original e tem histórico mais antigo — e apagar o B. As oportunidades perdidas são recalculadas automaticamente pelo motor de match na próxima passagem, pelo que não há perda funcional. As 32 notificações do B deixam de existir; se alguma estiver por ler, é perda apenas do aviso, não do match.
-
-Alternativa se preferires zero perda de notificações: transferir as oportunidades/notificações do B para o A antes de apagar, ignorando as que ficariam repetidas. Dá mais um passo, faço-o se quiseres.
-
-## 5. Detalhes técnicos
-
-- `src/lib/properties.functions.ts`: `importPropertyFromUrl` passa a ter modo `dry-run` (devolve diff) e modo `apply` (grava). Procura por `referencia` + `user_id` via cliente autenticado (RLS aplica-se).
-- `src/lib/property-import.server.ts`: novo helper puro `buildPropertyUpdate(atual, valoresExtraidos)` que devolve só os campos alterados, aplicando a regra "não sobrepor com vazio" e a lista de campos protegidos. Testado em `property-import.server.test.ts`.
-- `src/routes/_authenticated/imoveis.tsx`: diálogo de confirmação com a tabela de diferenças quando a referência já existe.
-- Limpeza do duplicado: operação de dados pontual, sem alteração de esquema.
+- Sem alterações ao motor de match, à deduplicação da importação ou a qualquer outro painel.
+- A função antiga não é removida do código; é a mesma server function, com o interior a
+  passar pela nova função de base de dados.
