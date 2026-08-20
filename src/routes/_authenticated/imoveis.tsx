@@ -182,8 +182,35 @@ const fromProperty = (p: Property): FormState => ({
   piscina: p.piscina ?? false,
 });
 
+// Release 1.2.8 — reimportação por URL: etiquetas do diff
+const FIELD_LABELS: Record<string, string> = {
+  finalidade: "Finalidade",
+  tipo_imovel: "Tipo de imóvel",
+  subtipo_imovel: "Subtipo",
+  tipologia: "Tipologia",
+  distrito: "Distrito",
+  concelho: "Concelho",
+  freguesia: "Freguesia",
+  zona: "Zona",
+  preco: "Preço",
+  area_util_m2: "Área útil (m²)",
+  area_bruta_m2: "Área bruta (m²)",
+  area_m2: "Área (m²)",
+  area_terreno_m2: "Área terreno (m²)",
+  garagem: "Garagem",
+  elevador: "Elevador",
+  jardim: "Jardim",
+  piscina: "Piscina",
+  location_id: "Localização normalizada",
+};
+
+function formatDiffValue(v: unknown): string {
+  if (v === null || v === undefined || v === "") return "—";
+  if (typeof v === "boolean") return v ? "Sim" : "Não";
+  return String(v);
+}
+
 function ImoveisPage() {
-  // Release 1.2.8 — reimportação por URL
   const importFn = useServerFn(importPropertyFromUrl);
   const oppsFn = useServerFn(runPropertyOpportunities);
   const countsFn = useServerFn(countPropertyOpportunities);
