@@ -677,6 +677,7 @@ function SemLocalizacaoPanel({ resolvedIds }: { resolvedIds: string[] }) {
 
   const q = query.trim().toLowerCase();
   const visible = items.filter((it) => {
+    if (resolvedIds.includes(it.id)) return false;
     if (onlyWithText && !(it.texto_original ?? "").trim()) return false;
     if (onlyForeign && it.foreign === null) return false;
     if (!q) return true;
