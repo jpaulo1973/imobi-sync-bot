@@ -27,6 +27,7 @@ import { Route as AuthenticatedRevisaoRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedUtilizadoresRouteImport } from './routes/_authenticated/utilizadores'
 import { Route as DotlovableOauthConsentRouteImport } from './routes/[.]lovable.oauth.consent'
 import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
+import { Route as ApiPublicCronPurgeExpiredSearchesRouteImport } from './routes/api/public/cron/purge-expired-searches'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -121,6 +122,12 @@ const Char91DotmcpChar93InvokeToolToolRoute =
     path: '/.mcp/invoke-tool/$tool',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicCronPurgeExpiredSearchesRoute =
+  ApiPublicCronPurgeExpiredSearchesRouteImport.update({
+    id: '/api/public/cron/purge-expired-searches',
+    path: '/api/public/cron/purge-expired-searches',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -140,6 +147,7 @@ export interface FileRoutesByFullPath {
   '/utilizadores': typeof AuthenticatedUtilizadoresRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
+  '/api/public/cron/purge-expired-searches': typeof ApiPublicCronPurgeExpiredSearchesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -159,6 +167,7 @@ export interface FileRoutesByTo {
   '/utilizadores': typeof AuthenticatedUtilizadoresRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
+  '/api/public/cron/purge-expired-searches': typeof ApiPublicCronPurgeExpiredSearchesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -180,6 +189,7 @@ export interface FileRoutesById {
   '/_authenticated/utilizadores': typeof AuthenticatedUtilizadoresRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
+  '/api/public/cron/purge-expired-searches': typeof ApiPublicCronPurgeExpiredSearchesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -201,6 +211,7 @@ export interface FileRouteTypes {
     | '/utilizadores'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
+    | '/api/public/cron/purge-expired-searches'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -220,6 +231,7 @@ export interface FileRouteTypes {
     | '/utilizadores'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
+    | '/api/public/cron/purge-expired-searches'
   id:
     | '__root__'
     | '/'
@@ -240,6 +252,7 @@ export interface FileRouteTypes {
     | '/_authenticated/utilizadores'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
+    | '/api/public/cron/purge-expired-searches'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -252,6 +265,7 @@ export interface RootRouteChildren {
   Char91DotwellKnownChar93OauthProtectedResourceRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   DotlovableOauthConsentRoute: typeof DotlovableOauthConsentRoute
   Char91DotmcpChar93InvokeToolToolRoute: typeof Char91DotmcpChar93InvokeToolToolRoute
+  ApiPublicCronPurgeExpiredSearchesRoute: typeof ApiPublicCronPurgeExpiredSearchesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -382,6 +396,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Char91DotmcpChar93InvokeToolToolRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/cron/purge-expired-searches': {
+      id: '/api/public/cron/purge-expired-searches'
+      path: '/api/public/cron/purge-expired-searches'
+      fullPath: '/api/public/cron/purge-expired-searches'
+      preLoaderRoute: typeof ApiPublicCronPurgeExpiredSearchesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -424,6 +445,8 @@ const rootRouteChildren: RootRouteChildren = {
     Char91DotwellKnownChar93OauthProtectedResourceRoute,
   DotlovableOauthConsentRoute: DotlovableOauthConsentRoute,
   Char91DotmcpChar93InvokeToolToolRoute: Char91DotmcpChar93InvokeToolToolRoute,
+  ApiPublicCronPurgeExpiredSearchesRoute:
+    ApiPublicCronPurgeExpiredSearchesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
