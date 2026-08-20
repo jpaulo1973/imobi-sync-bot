@@ -10,22 +10,31 @@
 
 ## Alteração 1 — subagrupamento por similaridade (src/lib/duplicates.server.ts)
 
-Substituir a decisão "média do grupo" por clustering dentro de cada chave (telefone ou nome):
+Substituir a decisão "média do grupo" por clustering de **ligação completa** (não union-find) dentro de
+cada chave (telefone ou nome). Ligação simples/cadeia é explicitamente rejeitada: repetiria o problema
+histórico (Sandra de Sousa Alves / Isabel Santos), em que A~B=0,85 e B~C=0,82 juntavam A~C=0,60.
 
 ```text
 para cada chave (user_id + telefone|nome):
-  1. normalizar texto de cada membro (normalizeTextKey)
-  2. union-find sobre os membros: unir i,j quando textJaccard(txt_i, txt_j) >= 0,80
-  3. cada componente com >= 2 membros = um grupo de duplicados
-  4. membros isolados (nenhum par >= 0,80) são descartados
+  1. normalizar o texto de cada membro (normalizeTextKey)
+  2. calcular a matriz de pares textJaccard(i, j)
+  3. ordenar membros por completeness (desc) e, guloso:
+       - abrir um cluster com o primeiro membro ainda livre
+       - juntar um membro ao cluster SÓ SE textJaccard >= 0,80 contra
+         TODOS os membros já dentro desse cluster (ligação completa)
+  4. clusters com >= 2 membros = grupos de duplicados; membros isolados são descartados
 ```
 
-Novas funções exportadas (mantendo `groupTextSimilarity` para os testes/relatórios existentes):
+Garantia resultante: **todos** os pares internos de um cluster estão ≥ 0,80. Nenhum cluster é formado por
+cadeia transitiva.
 
-- `clusterByTextSimilarity(members)` — devolve `Array<{ membros, similaridade_minima }>`, usando
+Novas funções exportadas (mantendo `groupTextSimilarity` para relatórios e testes existentes):
+
+- `clusterByTextSimilarity(membros)` — devolve `Array<{ membros, similaridade_minima }>` usando
   `DUPLICATE_SIM_THRESHOLD` (0,80, inalterado) e `textJaccard` já existentes.
 - `shouldSuggestGroup()` deixa de decidir a inclusão do grupo inteiro (fica só para compatibilidade dos
   testes atuais); a decisão passa a ser "o cluster tem ≥ 2 membros".
+
 
 ## Alteração 2 — listDuplicateGroups (src/lib/duplicates.functions.ts)
 
@@ -48,25 +57,33 @@ Novas funções exportadas (mantendo `groupTextSimilarity` para os testes/relat�
 
 ## Testes
 
-`src/lib/duplicates-cluster.test.ts` (novo) com os 4 grupos reais confirmados — Comprarcasa Rede Serviços
-Imobiliários, Flávio Ferreira, Manuela Rodrigues da Silva Imobiliária, Tânia Caratão — cada um modelado
-como telefone único com textos idênticos repetidos + procuras legítimas distintas:
+`src/lib/duplicates-cluster.test.ts` (novo):
 
-- cada caso produz ≥ 1 cluster de duplicados (antes: 0, porque a média ficava < 0,80);
+- os 4 grupos reais confirmados — Comprarcasa Rede Serviços Imobiliários, Flávio Ferreira,
+  Manuela Rodrigues da Silva Imobiliária, Tânia Caratão — modelados como telefone único com textos
+  idênticos repetidos + procuras legítimas distintas: cada um produz ≥ 1 cluster (antes: 0);
 - as procuras legítimas divergentes ficam fora do cluster;
 - textos idênticos continuam a dar similaridade 1;
-- caso "consultora Isabel Santos" (3 textos todos diferentes) continua a **não** produzir cluster —
-  não-regressão da 1.2.11;
+- **não-regressão Isabel Santos** (3 textos todos diferentes, mesmo telefone) → 0 clusters;
+- **não-regressão Sandra de Sousa Alves** (grupo historicamente agrupado por engano) → não forma cluster
+  com as procuras que não são realmente iguais;
+- **teste de cadeia (ligação completa)**: A~B = 0,85, B~C = 0,82, A~C = 0,60 → o cluster fica {A,B} (ou
+  {B,C}), nunca {A,B,C}. Este teste falha com union-find e passa com ligação completa;
 - `duplicates-threshold.test.ts` mantém-se intacto.
 
 ## Estimativa de impacto (procuras ativas, não descartadas)
 
 - Hoje: 0 grupos sugeridos.
-- Depois: **6 grupos** com texto normalizado idêntico (24 linhas, **18 excedentes**) — medido diretamente
-  na base de dados; inclui os 4 grupos reportados. Com o limiar de 0,80 (quase-idênticos, não só
-  idênticos) espera-se marginalmente mais alguns grupos/excedentes.
+- Depois: **6 grupos** (24 linhas, **18 excedentes**), medidos na base de dados por texto **normalizado**
+  idêntico.
+- Diferença face aos "4 grupos / 20 linhas / 16 excedentes" do diagnóstico anterior: esse número usava
+  hash do texto **cru** (byte-a-byte). Os 2 grupos extra (telefones 911022838 e 913861684, 2 linhas cada)
+  têm 2 variantes cruas mas 1 única variante normalizada — ou seja, diferem apenas em espaços/maiúsculas.
+  `normalizeTextKey` só remove acentos, colapsa espaços e passa a minúsculas; não altera palavras nem
+  ordem, portanto não junta textos com conteúdo diferente. Comportamento esperado e desejado.
 - Cartões de Categoria: as contagens descem para o universo de procuras vivas (leads expirados deixam de
   contar).
+
 
 ## Notas técnicas
 
