@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPropertyInsert,
+  buildPropertyUpdate,
   extractStructuredAreasFromHtml,
   mergeStructuredAreas,
   parsePtNumber,
