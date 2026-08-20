@@ -17,9 +17,7 @@ import {
   KEEP_SEPARATE_KEY,
   clusterByTextSimilarity,
   completeness,
-  groupTextSimilarity,
   readKeepSeparate,
-  shouldSuggestGroup,
   type DuplicateGroup,
   type DuplicateMember,
 } from "./duplicates.server";
