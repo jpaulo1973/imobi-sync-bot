@@ -615,7 +615,7 @@ async function processOneRow(
           comunidade,
           location_ids: resolvedLocationIds,
           batch_key: batch.batchKey || null,
-          batch_fresh: batch.batchFresh,
+          batch_renewable: batch.batchRenewable,
         };
 
         try {
