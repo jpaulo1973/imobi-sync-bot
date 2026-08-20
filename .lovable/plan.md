@@ -1,26 +1,57 @@
-# Fusão de duplicados: seleção por subconjunto
+# Categorias de procura — captura, inferência e backfill
 
-## Objetivo
-No painel "Duplicados existentes", deixar de assumir que uma fusão abrange o grupo inteiro. O administrador escolhe **quais** procuras entram na fusão (checkboxes) e, entre essas, **qual fica**.
+Objetivo: nenhuma procura entra no Motor Match sem categoria decidida, e as indecidíveis deixam de "aceitar tudo".
 
-Caso real: "Sandra de Sousa Alves" tem uma procura T2 (Amial/Prelada) e várias T3+1/T4 (Antas). Mesma pessoa, mesmo telefone, necessidades diferentes — só as T3+1/T4 devem fundir entre si.
+## 1. Importador Excel escreve `categorias`
 
-## Comportamento
+Em `src/lib/excel-import.functions.ts`, no objeto `criteria` de cada split (e no `baseCriteria`), passa a gravar:
 
-- Cada membro do grupo passa a ter **checkbox** (todas marcadas por defeito) + **rádio "fica"** ativo apenas nos membros marcados.
-- O membro marcado como "fica" nunca pode ser desmarcado sem que a escolha salte para outro marcado (regra: se desmarcar o escolhido, o "fica" passa para o primeiro marcado restante).
-- Botão "Fundir no selecionado" fica desativado se houver menos de 2 marcadas (nada a fundir).
-- Contagem visível no botão/legenda: "vão ser apagadas N procura(s)" = marcadas − 1.
-- Procuras **desmarcadas** não são tocadas: continuam no painel após a fusão, disponíveis para nova fusão ou para "Manter separadas".
-- Depois de fundir um subconjunto, o grupo é **recarregado/atualizado localmente** em vez de removido: se sobrar ≥ 2 membros (a mantida + as desmarcadas) o grupo permanece visível; se sobrar 1, desaparece.
-- "Manter separadas" mantém-se ao nível do grupo inteiro (sem alteração).
+- `categorias`: derivadas de `tipo_imovel` via `resolveCategories()`.
+- `categoria_origem`: `"tipo_imovel"` quando vieram da coluna.
 
-## Simulação e confirmação
-Sem alteração de contrato: a simulação já recebe `keep_id` + `remove_ids`. Passa a receber apenas os **IDs marcados** (menos o mantido), pelo que o diálogo mostra exatamente o subconjunto — contagens de oportunidades, notificações, estados e amostra. O texto do diálogo passa a dizer explicitamente que as procuras não incluídas ficam inalteradas.
+Isto fecha os 88 casos "com_tipo + sem_cat" para o futuro. O mesmo bloco é aplicado ao canal WhatsApp para manter um único formato de `criteria`.
 
-## Detalhes técnicos
-- Ficheiro alterado: `src/components/DuplicatesPanel.tsx` apenas.
-- Estado novo: `selected: Record<groupKey, Set<memberId>>` inicializado com todos os membros ao carregar; `keep` mantém-se e é validado contra `selected`.
-- `removeIdsOf(g, keepId)` passa a filtrar por `selected[g.key]`.
-- Após aplicar: em vez de `filter(x => x.key !== grupo.key)`, remover das membros do grupo os IDs fundidos e descartar o grupo se ficar com < 2 membros; recalcular `excedentes` e o total.
-- Sem alterações na RPC `admin_merge_duplicate_group`, nas server functions (`src/lib/duplicates.functions.ts`) nem nos testes SQL — já operam sobre listas explícitas de IDs.
+## 2. Inferência determinística (sem LLM)
+
+Novo módulo `src/lib/category-infer.ts` com uma função pura:
+
+```
+inferSearchCategories({ tipo_imovel, tipologia, texto_original, categorias })
+  -> { categorias, origem: "existente" | "tipo_imovel" | "tipologia" | "inferido_texto" | "indecidivel" }
+```
+
+Ordem de decisão (para na primeira que resolve):
+1. `categorias` já presentes -> devolve tal e qual, origem `existente` (**nunca sobrepõe**).
+2. `tipo_imovel` -> `resolveCategories()`.
+3. `tipologia` com padrão `T0..T9` / estúdio -> `casas_apartamentos`.
+4. Palavras-chave no `texto_original` -> `resolveCategory()` (hotéis, armazém, terreno, herdade, loja, escritório, prédio…).
+5. Nada resolve -> `categorias: []`, origem `indecidivel`.
+
+O resultado é gravado em `criteria.categorias` + `criteria.categoria_origem` (campo de auditoria, visível na Revisão). `inferCondition()` continua a preencher `estado_desejado` quando o texto o indica.
+
+## 3. Política para indecidíveis no Motor
+
+Em `tipoFilter()` (`src/lib/matching-engine.ts`): quando a procura está marcada como indecidível (`categoria_origem === "indecidivel"`) e não tem `tipo_imovel` nem `categorias`, o filtro passa a **falhar** com `rejectReason: "TIPO_IMOVEL"` e detalhe "Tipo de imóvel da procura indeterminado — requer revisão", em vez de aceitar qualquer imóvel.
+
+O comportamento atual (sem tipo indicado = aceita tudo) mantém-se apenas para procuras que não foram marcadas, para não alterar registos legítimos.
+
+Essas procuras aparecem numa aba **"Sem tipo de imóvel"** na página de Revisão, com a mensagem original e um seletor de categoria para resolução manual (individual e em bloco), reutilizando o padrão já existente na aba "Sem localização".
+
+## 4. Backfill com simulação
+
+Nova server function em `src/lib/category-backfill.functions.ts` (admin-only, padrão do `geo-backfill`):
+
+- `simulateCategoryBackfill()` — percorre as procuras ativas sem `categorias`, aplica a inferência e devolve: totais por origem (`tipo_imovel`, `tipologia`, `inferido_texto`, `indecidivel`) e amostra por registo com **antes/depois** (nome, texto truncado, tipo, categorias antes -> depois, origem).
+- `applyCategoryBackfill()` — escreve as mesmas decisões, sem tocar em registos que já tenham `categorias`.
+
+Card novo em `/manutencao`: "Simular" primeiro (tabela de amostra + contagens), botão "Aplicar" só ativo depois da simulação.
+
+## 5. Testes
+
+`src/lib/category-infer.test.ts`:
+- os 4 estados do diagnóstico: `com_tipo+com_cat` (mantém), `com_tipo+sem_cat` (deriva de tipo), `sem_tipo+sem_cat` (infere de tipologia/texto ou marca indecidível), `com_cat+sem_tipo` (mantém categorias).
+- regra "não sobrepor": `categorias` existentes nunca são substituídas, mesmo com texto a sugerir outra coisa.
+
+`src/lib/matching-engine.regressions.test.ts` (novo caso):
+- procura marcada `indecidivel` **falha** o filtro de tipo (`rejectReason: "TIPO_IMOVEL"`);
+- procura sem tipo e sem marca continua a passar (sem regressão).
