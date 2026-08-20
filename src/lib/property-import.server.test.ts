@@ -91,3 +91,55 @@ describe("property import area mapping", () => {
     expect(merged.area_terreno_m2).toBeNull();
   });
 });
+describe("buildPropertyUpdate (upsert por referência)", () => {
+  const current = {
+    referencia: "C0440-00927",
+    preco: 345000,
+    area_util_m2: 70,
+    area_bruta_m2: 72,
+    tipologia: "T2",
+    concelho: "Lisboa",
+    descricao: "Texto escrito à mão",
+    caracteristicas: "Notas manuais",
+    ativo: true,
+    categoria: "pronto",
+    estado: "usado",
+  };
+
+  it("atualiza áreas e preço vindos da fonte", () => {
+    const { patch, diff } = buildPropertyUpdate(current, {
+      preco: 339000,
+      area_util_m2: 120.7,
+      area_bruta_m2: 143.45,
+    });
+    expect(patch).toEqual({ preco: 339000, area_util_m2: 120.7, area_bruta_m2: 143.45 });
+    expect(diff).toHaveLength(3);
+  });
+
+  it("nunca sobrepõe com valores vazios ou placeholders", () => {
+    const { patch } = buildPropertyUpdate(current, {
+      preco: 0,
+      area_util_m2: null,
+      tipologia: "N/D",
+      concelho: "  ",
+    });
+    expect(patch).toEqual({});
+  });
+
+  it("nunca toca em campos protegidos", () => {
+    const { patch } = buildPropertyUpdate(current, {
+      descricao: "gerado pela IA",
+      caracteristicas: "gerado",
+      ativo: false,
+      categoria: "obras",
+      estado: "novo",
+      referencia: "OUTRA",
+    } as Record<string, unknown>);
+    expect(patch).toEqual({});
+  });
+
+  it("ignora diferenças irrelevantes de arredondamento", () => {
+    const { patch } = buildPropertyUpdate(current, { area_util_m2: 70.001 });
+    expect(patch).toEqual({});
+  });
+});
