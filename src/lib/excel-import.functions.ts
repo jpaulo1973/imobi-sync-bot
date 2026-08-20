@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { computeBatchKey } from "./import-batch";
-import { touchImportBatch } from "./import-batch.server";
+import { touchImportBatch } from "./import-batch-registry";
 import * as XLSX from "xlsx";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertAdminContext } from "./admin-guard.server";

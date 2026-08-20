@@ -63,7 +63,12 @@ function ImportarPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<
-    (Omit<ExcelImportResult, "linhas"> & { linhas: ReportLine[]; procuras: number }) | null
+    | (Omit<ExcelImportResult, "linhas"> & {
+        linhas: ReportLine[];
+        procuras: number;
+        renovadas: number;
+      })
+    | null
   >(null);
   // Item E — mostrar só as linhas que originaram mais do que uma procura.
   const [onlyMulti, setOnlyMulti] = useState(false);
@@ -72,6 +77,9 @@ function ImportarPage() {
   const [total, setTotal] = useState(0);
   const [processed, setProcessed] = useState(0);
   const [running, setRunning] = useState<ChunkCounters>(emptyCounters());
+  // Release 1.2.7 — procuras cuja validade foi renovada porque reapareceram
+  // num FICHEIRO novo (nunca por reprocessar o mesmo ficheiro).
+  const [renovadas, setRenovadas] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [headerRow, setHeaderRow] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -91,6 +99,7 @@ function ImportarPage() {
     setProcessed(0);
     setTotal(0);
     setRunning(emptyCounters());
+    setRenovadas(0);
     setElapsedMs(0);
     setHeaderRow(null);
     setCurrentFile(null);
@@ -116,13 +125,22 @@ function ImportarPage() {
 
       const counters = emptyCounters();
       const linhas: ReportLine[] = [];
+      let totalRenovadas = 0;
       for (const p of parsed) {
         setCurrentFile(p.file.name);
         for (let i = 0; i < p.res.rows.length; i += CHUNK_SIZE) {
           const slice = p.res.rows.slice(i, i + CHUNK_SIZE);
           const chunkRes = await chunkFn({
-            data: { batch_id, expires_at, rows: slice },
+            data: {
+              batch_id,
+              batch_key: p.res.batch_key,
+              filename: p.file.name,
+              expires_at,
+              rows: slice,
+            },
           });
+          totalRenovadas += chunkRes.renovadas ?? 0;
+          setRenovadas(totalRenovadas);
           (Object.keys(counters) as (keyof ChunkCounters)[]).forEach((k) => {
             counters[k] += chunkRes.counters[k];
           });
@@ -151,6 +169,7 @@ function ImportarPage() {
         matches: fin.matches,
         batch_id,
         procuras: somaFinal,
+        renovadas: totalRenovadas,
         // Cada linha do ficheiro produz exatamente uma linha de relatório; os
         // contadores contam PROCURAS (uma linha pode originar várias).
         total_check: linhas.length === analisadas,
@@ -159,7 +178,7 @@ function ImportarPage() {
       setElapsedMs(Date.now() - start);
       setPhase("done");
       toast.success(
-        `${files.length} ficheiro(s) · ${counters.novas} novas · ${counters.atualizadas} atualizadas · ${counters.duplicados_exatos_fundidos} duplicados · ${counters.sinalizadas_revisao} revisão · ${counters.ignoradas_sem_contacto} ignoradas · ${counters.descartadas_anuncio} descartadas · ${counters.erros} erro(s)`,
+        `${files.length} ficheiro(s) · ${counters.novas} novas · ${totalRenovadas} renovadas · ${counters.atualizadas} atualizadas · ${counters.duplicados_exatos_fundidos} duplicados · ${counters.sinalizadas_revisao} revisão · ${counters.ignoradas_sem_contacto} ignoradas · ${counters.descartadas_anuncio} descartadas · ${counters.erros} erro(s)`,
       );
     } catch (e) {
       setPhase("error");
@@ -254,6 +273,7 @@ function ImportarPage() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                 <MiniStat label="Novas" value={running.novas} />
                 <MiniStat label="Atualizadas" value={running.atualizadas} />
+                <MiniStat label="Renovadas" value={renovadas} />
                 <MiniStat label="Ignoradas" value={running.ignoradas_sem_contacto} />
                 <MiniStat label="Erros" value={running.erros} />
               </div>
@@ -312,6 +332,7 @@ function ImportarPage() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
               <SummaryStat label="Novas" value={result.novas} />
               <SummaryStat label="Atualizadas" value={result.atualizadas} />
+              <SummaryStat label="Renovadas" value={result.renovadas} />
               <SummaryStat label="Duplicados exatos" value={result.duplicados_exatos_fundidos} />
               <SummaryStat label="Mantidas separadas" value={result.mantidas_separadas} />
               <SummaryStat label="Revisão" value={result.sinalizadas_revisao} />
