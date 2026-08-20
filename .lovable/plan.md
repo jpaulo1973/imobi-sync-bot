@@ -1,62 +1,59 @@
-# Multi-uso: excluir do backfill automático
+# Editor de procura na Revisão (painel lateral)
 
-## A) Diagnóstico (leitura, já feito)
+## Objetivo
 
-Procuras ativas (não descartadas, não expiradas): **911**.
+Permitir ao admin corrigir uma procura existente sem reimportar: orçamento, área mínima,
+quartos mínimos, tipologia, tipo de imóvel, localização e contactos — a partir de qualquer
+aba da Revisão. Caso prioritário: numa procura multi-uso, limpar/ajustar `area_min` no mesmo
+momento em que se atribuem as categorias.
 
-| Métrica | Valor |
-|---|---|
-| `categorias` com **mais de 1 valor** | **0** |
-| `categorias` com exatamente 1 valor | 754 |
-| `categorias` vazio | 157 |
-| Com `area_min` definido | 148 |
-| Com >1 categoria **E** `area_min` | **0** |
+## Como se usa
 
-Não há exemplos a mostrar: hoje nenhuma procura ativa tem mais do que uma categoria. Todos os importadores e a inferência gravam sempre uma única categoria, e o backfill ainda não foi aplicado.
+Cada cartão/linha das três abas ("Sem telefone", "Sem localização", "Sem tipo de imóvel")
+ganha um botão **Editar**. Abre um `Sheet` lateral com:
 
-Conclusão: o problema do "filtro de área não sensível à categoria" é **prospetivo, não atual** — só passa a existir no momento em que começarmos a gravar multi-categoria (backfill ou resolução manual na Revisão). Isso reforça a tua decisão: em vez de atribuir automaticamente categorias a casos ambíguos, mandá-los para revisão manual.
+1. **Contexto (read-only)**: nome, origem, data, mensagem original (`OriginalMessage`),
+   badges de multi-uso quando existirem.
+2. **Categorias**: os mesmos toggles da aba "Sem tipo de imóvel", pré-marcados com o valor atual.
+3. **Critérios**: `budget_min`, `budget_max`, `area_min`, `quartos_min` (numéricos, vazio = limpar),
+   `tipologia` (texto), `tipo_imovel` (chips editáveis a partir da taxonomia).
+4. **Localização**: `LocationSelector` (múltiplo), pré-preenchido com `location_ids`.
+5. **Contactos**: `contact_nome`, `contact_telefone`.
+6. **Ações**: `Guardar` (mantém em revisão) e `Guardar e resolver` (sai da Revisão e recruza).
 
-## B) Plano — deteção robusta de multi-uso
+Campo numérico vazio grava `null` — é isto que resolve o caso "limpar area_min". Um campo
+não tocado não é enviado, para não sobrescrever nada por acidente.
 
-### Regra central (reutilizável)
+## Alterações técnicas
 
-Criar `detectMultiUse(input)` em `src/lib/category-infer.ts`, que corre **sempre**, independentemente de a inferência já ter resolvido por `tipo_imovel` ou `tipologia`:
+**Backend (`src/lib/review.functions.ts`)**
+- Estender `CriteriaPatch` com `categorias: PropertyCategory[]` e `categoria_origem: "manual"`,
+  para que uma única chamada grave categorias + critérios de forma atómica (hoje as categorias
+  passam por `setSearchCategories`, separado).
+- Nova server fn `getReviewSearch({ id })` (admin) devolvendo a linha completa
+  (`criteria`, `location_ids`, contactos, `texto_original`, `resumo`, `origem`, datas) para
+  preencher o formulário sem depender do payload reduzido de cada aba.
+- `updateReviewSearch` mantém a semântica atual: merge do patch em `criteria`, recálculo de
+  `dedup_key`, expiração via `computeExpiresAt`, `recomputeForSearch`. Só se acrescenta
+  `resolve: false` como caminho suportado (já existe no schema) para "Guardar" sem resolver.
+- Quando `categorias` chega com ≥1 valor, `motivo_indecidivel` é removido do `criteria`
+  (deixa de ser indecidível/multi-uso pendente).
 
-1. Recolher **todos** os sinais de categoria em paralelo (sem parar no primeiro sucesso):
-   - `sinaisTipo` = categorias resolvidas de `tipo_imovel`
-   - `sinaisTipologia` = habitacional, se `tipologia` for T0–T9/estúdio
-   - `sinaisTexto` = `categoriesFromText(texto_original + resumo)`
-2. Aplicar **supressão de falsos multi-uso** ao conjunto de sinais de texto, por padrões de finalidade:
-   - `terreno (para|destinado a|com viabilidade|com projeto) <habitacional/comercial>` → conta só `terrenos`
-   - `<X> para (AL|alojamento local|hostel|investimento|rentabilidade)` → conta só `X`
-   - `moradia|apartamento` dentro de expressão de "construção" após terreno → ignorado
-3. União dos sinais restantes. Se **≥ 2 categorias distintas** → `multiUso = true`.
+**Frontend**
+- Novo componente `src/components/review/SearchEditSheet.tsx` — recebe `searchId`, carrega
+  via `getReviewSearch`, submete via `updateReviewSearch`, chama `onSaved()` para as listas
+  recarregarem.
+- `src/routes/_authenticated/revisao.tsx`: estado `editingId` ao nível da página, um único
+  `SearchEditSheet` montado, e botão "Editar" nas três listas.
 
-### Impacto na inferência
+**Testes**
+- `src/lib/review-edit.test.ts`: patch numérico `null` limpa o campo; campo ausente preserva
+  o valor antigo; gravar categorias limpa `motivo_indecidivel`; `dedup_key` recalculado quando
+  nome/telefone/tipologia mudam.
+- Suite completa + typecheck no fim.
 
-`inferSearchCategories` passa a devolver também `multi_uso: boolean` e a lista `sinais` (auditoria). Quando `multiUso === true` e não havia `categorias` existentes:
-- `categorias: []`
-- `categoria_origem: "indecidivel"`
-- `motivo_indecidivel: "multi_uso"` (distingue de indecidível puro, que fica `"sem_sinal"`)
+## Fora de âmbito
 
-A regra "nunca sobrepor `categorias` já existentes" mantém-se intacta e tem prioridade absoluta — multi-uso nunca apaga uma decisão humana ou prévia.
-
-### Backfill
-
-`runCategoryBackfill` (Simular/Aplicar):
-- casos multi-uso deixam de receber categoria automática; gravam `categoria_origem: "indecidivel"` + `motivo_indecidivel: "multi_uso"`, caindo na aba **Sem tipo de imóvel** da Revisão
-- restantes (~122) aplicam-se sem qualquer alteração de comportamento
-- a simulação passa a mostrar uma linha nova nas estatísticas: `indecidivel (multi_uso)` com contagem, e a amostra indica os sinais detetados por registo
-
-### Revisão
-
-Na aba "Sem tipo de imóvel", os registos multi-uso ganham um badge "Multi-uso" e a lista dos usos detetados no texto, para acelerares a escolha manual (podes marcar várias categorias, como já hoje).
-
-### Testes
-
-- `category-infer.test.ts`: os 4 estados atuais continuam verdes; novos casos — "Imóvel urbano, industrial ou habitacional" (Luísa Tinoco) → multi-uso; "Armazém ou loja 200 a 400m2" → multi-uso; "Prédio c/ AL ou Hostel" → multi-uso; "terreno para moradia" → **não** multi-uso (só `terrenos`); registo com `categorias` já preenchido → `existente`, nunca multi-uso.
-- Regressão do motor: procura multi-uso marcada indecidível falha o `tipoFilter` (comportamento igual aos indecidíveis puros).
-
-### Notas técnicas
-
-Ficheiros tocados: `src/lib/category-infer.ts` (deteção + tipos), `src/lib/category-backfill.functions.ts` (estatística e escrita), `CategoryBackfillPanel.tsx` (nova linha na simulação), `revisao.tsx` (badge), `category-infer.test.ts` e `matching-engine.regressions.test.ts`. Sem migração de base de dados: `motivo_indecidivel` vive dentro de `criteria` (jsonb).
+Sem migração de base de dados. Sem alterações ao Motor Match (incluindo a área insensível a
+categoria — continua um `area_min` global; este ecrã é o remédio manual). `setSearchCategories`
+mantém-se para a atribuição em bloco.
