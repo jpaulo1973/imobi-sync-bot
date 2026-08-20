@@ -1,69 +1,60 @@
-# Correção do separador decimal nas áreas importadas por URL
+# Reimportação por URL — Upsert por referência (sem duplicados)
 
-## 1. Corrigir a leitura de números (raiz do bug)
+## 1. Problema
 
-`parsePtNumber` em `src/lib/property-import.server.ts` apaga todos os pontos,
-tratando-os sempre como separador de milhares. Resultado: `143.45` → `14345`.
+`importPropertyFromUrl` faz sempre `INSERT`. Reimportar o mesmo imóvel cria um segundo registo com a mesma `referencia` (é o caso do `C0440-00927`, com 2 registos), o que duplica oportunidades e notificações de match.
 
-Nova regra (locale PT tolerante):
-- Se existe vírgula: pontos são milhares → remover pontos; a **última** vírgula
-  passa a ponto decimal e as anteriores são removidas (`1.234,5` → `1234.5`).
-- Se não existe vírgula e existe **um único** ponto seguido de 1–2 dígitos:
-  é decimal → manter (`143.45` → `143.45`, `120.7` → `120.7`).
-- Caso contrário (pontos com grupos de 3 dígitos, ex. `1.234`, ou vários pontos):
-  milhares → remover pontos.
-- Inteiros sem separadores continuam iguais (`91` → `91`).
+## 2. Comportamento proposto
 
-Nada mais no fluxo de importação muda: o campo `area_m2` continua derivado da
-área escolhida em `buildPropertyInsert`.
+Ao importar um URL:
+1. Extrair os dados da fonte (como hoje).
+2. Se a extração devolver `referencia` e já existir um imóvel **do mesmo consultor** com essa referência: **atualizar** esse registo.
+3. Se não existir (ou a fonte não der referência): criar novo, como hoje.
+4. A resposta passa a indicar se foi criação ou atualização, e quais os campos alterados, para a interface mostrar "Imóvel atualizado (3 campos)".
 
-## 2. Correção imediata dos 2 casos confirmados
+Se por acidente existirem 2 registos com a mesma referência, a atualização aplica-se ao mais recente e o utilizador é avisado do duplicado.
 
-Migração pontual, valores da fonte, sem re-scraping:
+## 3. Regra proposta: o que é atualizado vs preservado
 
-| Referência | area_util_m2 | area_bruta_m2 | area_m2 |
-|---|---|---|---|
-| C0440-01028 | 120.7 (era 1207) | 143.45 (era 14345) | 120.7 |
-| C0440-00951 | 124.45 (era 12445) | 386.85 (era 38685) | 124.45 |
+Não existe hoje marca de "editado à mão". A regra proposta é simples e conservadora:
 
-## 3. "Simular revalidação de áreas" (só leitura)
+**Sempre atualizados (dados factuais da fonte, é o objetivo da reimportação):**
+- Áreas: útil, bruta, terreno
+- Preço
+- Tipo de imóvel, subtipo, tipologia
+- Finalidade (venda/arrendamento)
+- Localização: distrito, concelho, freguesia, zona e `location_id`
+- Características booleanas: garagem, elevador, jardim, piscina
 
-Novo painel em **Manutenção** (`ValidateAreasPanel`), padrão igual ao
-`ExpiryRecalcPanel`: botão **Simular**, sem qualquer botão de aplicar nesta fase.
+**Nunca sobrepostos por valor vazio:** se a fonte não devolver um campo (vem `null`/vazio), o valor atual é preservado. A reimportação só escreve o que conseguiu ler.
 
-Server function `simulateAreaRevalidation` (admin, `src/lib/area-revalidation.functions.ts`):
-1. Lê os imóveis com área preenchida (40 registos; os 2 já corrigidos ficam de fora
-   por já coincidirem com a fonte).
-2. Para cada um, obtém a página da fonte e volta a extrair as áreas com
-   `extractStructuredAreasFromHtml` já corrigido.
-3. Devolve por imóvel: referência, campo, área atual, área revalidada e um sinal
-   de divergência.
+**Nunca tocados (campos de gestão interna, não vêm da fonte):**
+- `ativo`, `user_id`, `created_at`, `referencia`
+- `descricao` e `caracteristicas` (texto livre onde tipicamente se escreve à mão)
+- `categoria`, `estado`
 
-**Ponto que precisa da tua decisão:** a tabela `properties` não guarda o URL do
-anúncio, por isso não há como o servidor saber sozinho qual a página de cada
-imóvel. Duas formas de resolver:
-- **(A) Colar a lista** — no painel colas `referência;URL` (uma por linha, ou só
-  URLs, casando a referência extraída da página). Sem custos extra e determinístico.
-- **(B) Procura automática** — o sistema pesquisa cada referência no site da
-  Century 21 e usa o primeiro resultado. Não exige trabalho manual, mas pode
-  falhar/apanhar a página errada em referências sem resultado, e gasta créditos
-  de scraping em 38 pesquisas + 38 páginas.
+**Proteção de edições manuais:** para os campos factuais, a reimportação assume que a fonte é a verdade — é exatamente o que resolve o bug das áreas. Antes de gravar, a interface mostra a lista de diferenças (campo / valor atual / valor novo) e só grava depois de confirmar. Assim nenhuma edição manual é perdida sem o utilizador ver.
 
-A tabela de simulação destaca apenas as linhas que mudam, e mostra à parte as
-que não foi possível revalidar (página inacessível ou sem etiqueta de área).
+Se preferires o oposto para o preço (nunca sobrepor preço manual), digo-o na implementação — é uma linha de configuração.
 
-## 4. Testes
+## 4. Duplicado do C0440-00927
 
-Em `src/lib/property-import.server.test.ts`:
-- `parsePtNumber`: `"143.45"→143.45`, `"1.234,5"→1234.5`, `"120.7"→120.7`,
-  `"91"→91`, `"1.234"→1234`, e um caso com múltiplas vírgulas
-  (`"1,234,5"→1234.5`).
-- Regressão de extração: HTML com `Área útil 120,7 m²` / `Área bruta 143.45 m²`
-  devolve 120.7 e 143.45.
-- Os testes existentes de áreas (C0440-01018) continuam verdes.
+Os dois registos são idênticos nos dados (preço 345 000 €, 70/72 m²). Diferem no histórico:
 
-## Notas técnicas
-- `parsePtNumber` passa a ser exportado para teste direto.
-- A simulação não escreve nada: nenhuma migração, nenhum update.
-- A aplicação em massa das correções fica para uma sprint seguinte, depois de
-  validares a lista.
+```text
+A (Jul/16)  ad828bbf…  15 oportunidades, 19 notificações
+B (Ago/18)  015bc66e…  14 oportunidades, 32 notificações
+```
+
+Apagar um é seguro do ponto de vista técnico: as tabelas de match apontam para o imóvel e as oportunidades/notificações do registo apagado desaparecem com ele (não há registos "órfãos" nem erros). Não há estados de match ativos em nenhum dos dois.
+
+Recomendação: **manter o registo A (Jul/16)** — é o original e tem histórico mais antigo — e apagar o B. As oportunidades perdidas são recalculadas automaticamente pelo motor de match na próxima passagem, pelo que não há perda funcional. As 32 notificações do B deixam de existir; se alguma estiver por ler, é perda apenas do aviso, não do match.
+
+Alternativa se preferires zero perda de notificações: transferir as oportunidades/notificações do B para o A antes de apagar, ignorando as que ficariam repetidas. Dá mais um passo, faço-o se quiseres.
+
+## 5. Detalhes técnicos
+
+- `src/lib/properties.functions.ts`: `importPropertyFromUrl` passa a ter modo `dry-run` (devolve diff) e modo `apply` (grava). Procura por `referencia` + `user_id` via cliente autenticado (RLS aplica-se).
+- `src/lib/property-import.server.ts`: novo helper puro `buildPropertyUpdate(atual, valoresExtraidos)` que devolve só os campos alterados, aplicando a regra "não sobrepor com vazio" e a lista de campos protegidos. Testado em `property-import.server.test.ts`.
+- `src/routes/_authenticated/imoveis.tsx`: diálogo de confirmação com a tabela de diferenças quando a referência já existe.
+- Limpeza do duplicado: operação de dados pontual, sem alteração de esquema.
