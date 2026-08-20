@@ -10,6 +10,7 @@ import {
   type PropertyMatchResult,
 } from "@/lib/whatsapp-leads.functions";
 import { saveActiveSearch } from "@/lib/active-searches.functions";
+import { compressImageFile, checkPayloadLimit } from "@/lib/image-compress";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
