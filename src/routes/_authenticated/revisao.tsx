@@ -614,7 +614,7 @@ function Stat({ label, value }: { label: string; value: number }) {
 // é feita exclusivamente pelo LocationSelector (IDs da biblioteca).
 // ---------------------------------------------------------------------------
 
-function SemLocalizacaoPanel() {
+function SemLocalizacaoPanel({ resolvedIds }: { resolvedIds: string[] }) {
   const listFn = useServerFn(listSearchesSemLocalizacao);
   const discardFn = useServerFn(discardSearches);
   const [items, setItems] = useState<SearchSemLocalizacaoItem[]>([]);
