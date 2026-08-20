@@ -49,6 +49,8 @@ export type Database = {
           origem: string
           pending_geo: boolean
           proximity: Json | null
+          renewed_at: string | null
+          renewed_by_batch_key: string | null
           resumo: string | null
           similarity_score: number | null
           texto_original: string | null
@@ -89,6 +91,8 @@ export type Database = {
           origem?: string
           pending_geo?: boolean
           proximity?: Json | null
+          renewed_at?: string | null
+          renewed_by_batch_key?: string | null
           resumo?: string | null
           similarity_score?: number | null
           texto_original?: string | null
@@ -129,6 +133,8 @@ export type Database = {
           origem?: string
           pending_geo?: boolean
           proximity?: Json | null
+          renewed_at?: string | null
+          renewed_by_batch_key?: string | null
           resumo?: string | null
           similarity_score?: number | null
           texto_original?: string | null
@@ -383,6 +389,39 @@ export type Database = {
           id?: string
           notes?: string | null
           version?: number
+        }
+        Relationships: []
+      }
+      import_batches: {
+        Row: {
+          batch_key: string
+          filename: string | null
+          first_seen_at: string
+          id: string
+          last_seen_at: string
+          origem: string
+          times_seen: number
+          user_id: string
+        }
+        Insert: {
+          batch_key: string
+          filename?: string | null
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          origem: string
+          times_seen?: number
+          user_id: string
+        }
+        Update: {
+          batch_key?: string
+          filename?: string | null
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          origem?: string
+          times_seen?: number
+          user_id?: string
         }
         Relationships: []
       }
@@ -1137,6 +1176,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      import_batch_register: {
+        Args: { p_batch_key: string; p_filename?: string; p_origem: string }
+        Returns: boolean
+      }
       insert_match_notifications: { Args: { p_rows: Json }; Returns: number }
       list_match_opportunities: {
         Args: { p_search_ids: string[] }
@@ -1185,6 +1228,8 @@ export type Database = {
           origem: string
           pending_geo: boolean
           proximity: Json | null
+          renewed_at: string | null
+          renewed_by_batch_key: string | null
           resumo: string | null
           similarity_score: number | null
           texto_original: string | null
