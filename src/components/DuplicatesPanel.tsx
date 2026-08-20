@@ -188,16 +188,29 @@ export function DuplicatesPanel() {
             </div>
 
             <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Marque as procuras que fazem parte desta fusão e escolha, entre elas, qual fica. As
+                não incluídas ficam inalteradas.
+              </p>
               {g.membros.map((m) => (
                 <label
                   key={m.id}
                   className="flex items-start gap-3 text-sm p-2 rounded-md hover:bg-muted/50 cursor-pointer"
                 >
                   <input
+                    type="checkbox"
+                    className="mt-1"
+                    aria-label="Incluir nesta fusão"
+                    checked={selectedOf(g).includes(m.id)}
+                    onChange={() => toggleMember(g, m.id)}
+                  />
+                  <input
                     type="radio"
                     className="mt-1"
+                    aria-label="Manter esta procura"
                     name={`keep-${g.key}`}
-                    checked={(keep[g.key] ?? g.membros[0]!.id) === m.id}
+                    disabled={!selectedOf(g).includes(m.id)}
+                    checked={keepOf(g) === m.id}
                     onChange={() => setKeep((p) => ({ ...p, [g.key]: m.id }))}
                   />
                   <span className="space-y-1">
@@ -214,10 +227,19 @@ export function DuplicatesPanel() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
-              <Button size="sm" disabled={busy === g.key} onClick={() => simular(g)}>
+              <Button
+                size="sm"
+                disabled={busy === g.key || selectedOf(g).length < 2}
+                onClick={() => simular(g)}
+              >
                 <Merge className="w-4 h-4 mr-1" />
                 {busy === g.key ? "A simular…" : "Fundir no selecionado"}
               </Button>
+              <span className="text-xs text-muted-foreground">
+                {selectedOf(g).length < 2
+                  ? "Marque pelo menos 2 procuras para fundir."
+                  : `Vão ser apagadas ${selectedOf(g).length - 1} procura(s).`}
+              </span>
               <Button
                 size="sm"
                 variant="outline"
@@ -236,8 +258,9 @@ export function DuplicatesPanel() {
           <AlertDialogHeader>
             <AlertDialogTitle>Confirmar fusão — ação definitiva</AlertDialogTitle>
             <AlertDialogDescription>
-              Fica apenas a procura selecionada. As restantes são apagadas em definitivo, sem
-              possibilidade de recuperação. Nada foi gravado até aqui.
+              Fica apenas a procura escolhida. As restantes procuras <strong>incluídas nesta
+              fusão</strong> são apagadas em definitivo, sem possibilidade de recuperação. As
+              procuras não incluídas ficam inalteradas. Nada foi gravado até aqui.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
