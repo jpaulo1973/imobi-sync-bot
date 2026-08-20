@@ -1062,6 +1062,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      admin_purge_expired_history: { Args: never; Returns: Json }
       admin_purge_expired_searches: {
         Args: { p_apply?: boolean; p_dias?: number }
         Returns: Json
@@ -1128,6 +1129,7 @@ export type Database = {
         }
         Returns: string
       }
+      cron_purge_expired_searches: { Args: { p_dias?: number }; Returns: Json }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1275,6 +1277,10 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      purge_expired_searches_exec: {
+        Args: { p_apply?: boolean; p_dias?: number; p_via?: string }
+        Returns: Json
       }
       touch_location_alias: { Args: { p_id: string }; Returns: undefined }
       upsert_location_alias: {

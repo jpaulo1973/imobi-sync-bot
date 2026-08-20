@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,16 +6,38 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { purgeExpiredSearches, type PurgeExpiredResult } from "@/lib/purge-expired.functions";
+import {
+  purgeExpiredSearches,
+  getPurgeExpiredHistory,
+  type PurgeExpiredResult,
+  type PurgeRunSummary,
+} from "@/lib/purge-expired.functions";
 
 const FRASE = "APAGAR";
 
 export function PurgeExpiredPanel() {
   const run = useServerFn(purgeExpiredSearches);
+  const loadHistory = useServerFn(getPurgeExpiredHistory);
   const [res, setRes] = useState<PurgeExpiredResult | null>(null);
   const [busy, setBusy] = useState<"sim" | "apply" | null>(null);
   const [confirmar, setConfirmar] = useState(false);
   const [texto, setTexto] = useState("");
+  const [runs, setRuns] = useState<PurgeRunSummary[]>([]);
+
+  async function refreshHistory() {
+    try {
+      const h = (await loadHistory({})) as PurgeRunSummary & { historico?: PurgeRunSummary[] };
+      const lista = Array.isArray(h?.historico) ? h.historico : h?.executado_em ? [h] : [];
+      setRuns(lista);
+    } catch {
+      setRuns([]);
+    }
+  }
+
+  useEffect(() => {
+    void refreshHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function go(apply: boolean) {
     setBusy(apply ? "apply" : "sim");
@@ -26,6 +48,7 @@ export function PurgeExpiredPanel() {
         setConfirmar(false);
         setTexto("");
         toast.success(`${r.apagadas} procuras apagadas definitivamente.`);
+        void refreshHistory();
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Falha na limpeza.");
@@ -51,6 +74,40 @@ export function PurgeExpiredPanel() {
       <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
         <strong>Irreversível:</strong> é um DELETE real — não há soft-delete, lixeira nem tabela de
         recuperação. Procuras de clientes do consultor nunca são afetadas.
+      </div>
+
+      <div className="rounded-md border border-border p-3 text-xs space-y-2">
+        <p className="font-medium">
+          Execuções (rotina diária automática às 04:00 + aplicações manuais)
+        </p>
+        {runs.length === 0 ? (
+          <p className="text-muted-foreground">
+            Ainda sem registo. Cada execução fica guardada aqui automaticamente.
+          </p>
+        ) : (
+          <table className="w-full">
+            <thead className="text-muted-foreground">
+              <tr className="text-left">
+                <th className="py-1 pr-3">Quando</th>
+                <th className="py-1 pr-3">Via</th>
+                <th className="py-1 pr-3">Apagadas</th>
+                <th className="py-1 pr-3">Oportunidades</th>
+                <th className="py-1">Notificações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {runs.slice(0, 10).map((r, i) => (
+                <tr key={`${r.executado_em}-${i}`} className="border-t border-border">
+                  <td className="py-1 pr-3">{r.executado_em?.slice(0, 16).replace("T", " ")}</td>
+                  <td className="py-1 pr-3">{r.via === "automatico" ? "automática" : "manual"}</td>
+                  <td className="py-1 pr-3 font-medium">{r.apagadas}</td>
+                  <td className="py-1 pr-3">{r.oportunidades_removidas}</td>
+                  <td className="py-1">{r.notificacoes_removidas}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
