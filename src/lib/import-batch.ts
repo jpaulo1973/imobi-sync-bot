@@ -25,8 +25,11 @@ export async function computeBatchKey(content: string, userId: string): Promise<
 export type RenewInput = {
   origem: string | null | undefined;
   batchKey?: string | null;
-  /** true só quando este lote foi registado pela primeira vez agora (janela curta). */
-  batchFresh?: boolean;
+  /**
+   * true só quando este ficheiro/conversa nunca tinha sido registado antes
+   * (times_seen === 1, decidido pela BD). Reimportar o mesmo ficheiro => false.
+   */
+  batchRenewable?: boolean;
   /** batch_key que já renovou ESTA procura (idempotência por registo). */
   existingRenewedByBatchKey?: string | null;
 };
@@ -40,7 +43,7 @@ export function shouldRenewOnMerge(input: RenewInput): RenewDecision {
   }
   const key = (input.batchKey ?? "").trim();
   if (!key) return { renew: false, reason: "sem_batch_key" };
-  if (!input.batchFresh) return { renew: false, reason: "lote_ja_conhecido" };
+  if (!input.batchRenewable) return { renew: false, reason: "lote_ja_conhecido" };
   if ((input.existingRenewedByBatchKey ?? "").trim() === key) {
     return { renew: false, reason: "ja_renovada_por_este_lote" };
   }
