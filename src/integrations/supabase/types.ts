@@ -1178,7 +1178,7 @@ export type Database = {
       }
       import_batch_register: {
         Args: { p_batch_key: string; p_filename?: string; p_origem: string }
-        Returns: boolean
+        Returns: number
       }
       insert_match_notifications: { Args: { p_rows: Json }; Returns: number }
       list_match_opportunities: {
