@@ -1,58 +1,77 @@
-# Limpeza definitiva de procuras expiradas (Excel + WhatsApp)
+# Renovação de validade por reaparecimento em ficheiro/lote NOVO
 
-Operação destrutiva e irreversível. **É um `DELETE` real: não existe tabela de recuperação, lixeira, backup aplicacional nem soft-delete.** Depois de aplicada, a única forma de a procura voltar é ser reimportada do grupo/ficheiro.
+## Objetivo
 
-## 1. Como se identifica cada canal (verificado na base de dados)
+Quando uma procura já existente (`origem` `excel` ou `whatsapp`) recebe um **merge** vindo de um ficheiro/lote de importação **genuinamente novo**, `data_publicacao` passa a "hoje" e `expires_at` é recalculado a partir dessa nova data (via `computeExpiresAt`/`expiresFromBase`, sem duplicar a regra dos 30 dias).
 
-`public.active_searches.origem` (texto) é o único discriminador de canal:
+Nunca se aplica a `origem = 'cliente'` (nem `texto`/`captura`).
 
-| Canal | Valor de `origem` | Contagem hoje |
-|---|---|---|
-| Importação Excel | `excel` | 2.973 |
-| Lead WhatsApp | `whatsapp` | 0 (nenhuma ainda) |
-| Colagem de texto / captura na app | `texto`, `captura` | 0 |
+## O ponto crítico: o que é um "lote novo"
 
-Procuras "Cliente" (compradores do próprio consultor) **não vivem nesta tabela** — vivem em `public.buyer_clients`, que a limpeza nunca toca. Ainda assim, a query é feita por lista branca explícita `origem IN ('excel','whatsapp')`, nunca por exclusão, para que qualquer valor futuro (`cliente`, `texto`, `captura`, `revisao`, …) fique automaticamente fora do alcance.
+Hoje `startExcelImport` gera `batch_id = xlsx_${Date.now()}` — **muda a cada upload, mesmo do mesmo ficheiro**. Usar isso como gatilho reabriria exatamente o bug antigo: reimportar 5x o mesmo Excel renovaria 5x a validade.
 
-Critério de elegibilidade:
+Solução: separar dois conceitos.
+
+- `batch_id` (já existe): identificador da *execução* de importação. Continua a servir para `finalizeExcelImport`. Não é gatilho de renovação.
+- `batch_key` (novo): **impressão digital determinística do conteúdo do ficheiro** — SHA-256 dos bytes do ficheiro (já disponíveis em base64 em `startExcelImport`), combinada com o `user_id`. O mesmo ficheiro dá sempre a mesma `batch_key`.
+
+Regra de renovação, cumulativa:
+
+```text
+renova SE  origem ∈ {excel, whatsapp}
+       E   a decisão foi um merge (action = "updated")
+       E   batch_key nunca foi ingerida antes por este utilizador  (ficheiro novo)
+       E   esta procura ainda não foi renovada por esta batch_key  (idempotência intra-lote)
 ```
-origem IN ('excel','whatsapp')
-AND expires_at IS NOT NULL
-AND expires_at <= now() - interval '30 days'
-```
-Hoje: **415 procuras elegíveis** (1.983 já expiradas, mas só as expiradas há mais de 30 dias entram).
 
-## 2. Dependências e dados órfãos
+Duas guardas, porque a primeira responde "o ficheiro é novo?" e a segunda garante que reprocessar/retomar o mesmo upload (chunks repetidos, retry de rede) não renova duas vezes.
 
-- `match_opportunities.active_search_id` → FK com `ON DELETE CASCADE`. Apaga-se sozinho, sem órfãos.
-- `match_notifications` (`buyer_source = 'search'`, `buyer_ref = id da procura`) → **sem FK**. Ficaria órfã e o sino continuaria a abrir um match inexistente. Tratamento explícito: apagar antes do delete.
-- `match_states` (`buyer_source = 'search'`, `buyer_ref`) → **sem FK**. Também apagada explicitamente.
-- `contacts` — não referencia procuras; o par nome+telefone aprendido **mantém-se** (é isso que permite reconhecer o contacto quando o comprador reaparece).
-- `properties`, `buyer_clients`, `profiles` — sem qualquer relação. Intocados.
+Nota importante: a "impressão digital" é do **ficheiro**, não da linha. Um ficheiro novo que contenha a mesma linha renova (é o comportamento pedido: o comprador reapareceu). O mesmo ficheiro reenviado não renova nunca.
 
-Ordem dentro da mesma transação: notificações → estados → procuras (cascade nas oportunidades).
+## Alterações técnicas
 
-## 3. Desenho
+**Base de dados (migração)**
+- `public.import_batches`: `batch_key text`, `user_id uuid`, `origem text`, `filename text`, `first_seen_at timestamptz`, `last_seen_at timestamptz`, `times_seen int`; PK `(user_id, batch_key)`. Com GRANTs e RLS por `auth.uid()`.
+- RPC `SECURITY DEFINER` `import_batch_register(p_batch_key, p_origem, p_filename)` → devolve `boolean is_new` (true só na primeira vez; nas seguintes incrementa `times_seen` e devolve false). Decisão atómica no servidor, não no cliente.
+- `active_searches`: nova coluna `renewed_by_batch_key text null` (idempotência por procura) e `renewed_at timestamptz null` (auditoria).
 
-### (a) RPC admin com Simular / Aplicar
-Nova `public.admin_purge_expired_searches(p_apply boolean default false, p_dias integer default 30)`, `SECURITY DEFINER`, com o mesmo gate `has_role(auth.uid(),'admin')` das restantes funções de manutenção. Devolve `jsonb`:
-`elegiveis`, `apagadas`, `notificacoes_removidas`, `estados_removidos`, `oportunidades_removidas`, `por_origem`, `distribuicao` (por mês de expiração) e `amostra` (20 linhas: nome, origem, data de publicação, data de expiração).
+**`src/lib/excel-import.functions.ts`**
+- `startExcelImport`: calcula `batch_key` (SHA-256 do base64 via `crypto`), chama `import_batch_register`, devolve `batch_key` e `batch_is_new` ao cliente.
+- `ChunkInput` aceita `batch_key` + `batch_is_new`; ambos propagados para `UpsertRow`.
 
-Com `p_apply = false` calcula tudo e faz `RETURN` sem tocar em nada; com `p_apply = true` executa os deletes na mesma transação. A contagem de "Simular" e de "Aplicar" vem exatamente da mesma tabela temporária de ids, o que garante que os números batem.
+**`src/routes/_authenticated/importar.tsx`**
+- Multi-ficheiro: cada ficheiro tem a sua `batch_key`/`batch_is_new` (um lote de 3 ficheiros em que 2 são repetidos só renova pelas linhas do ficheiro novo). Os chunks passam a levar os valores do ficheiro a que pertencem.
+- No relatório final: "Renovadas: N" (e quantos ficheiros foram ignorados por repetição).
 
-Camada aplicacional: `src/lib/purge-expired.functions.ts` (server function admin-gated) + painel `src/components/PurgeExpiredPanel.tsx` em Manutenção, no estilo do `ExpiryRecalcPanel`: botão **Simular**, relatório, e **Apagar definitivamente** com confirmação escrita, aviso vermelho de irreversibilidade e a contagem no próprio botão.
+**`src/lib/active-searches.functions.ts` (`mergeInto`)**
+- `UpsertRow` ganha `batch_key?: string | null` e `batch_is_new?: boolean`.
+- Nova função pura `shouldRenewOnMerge({ origem, batchKey, batchIsNew, existingRenewedByBatchKey })` — testável isoladamente, sem BD.
+- Quando renova: `data_publicacao = now()`, `expires_at = expiresFromBase({ data_publicacao: now })`, `renewed_by_batch_key = batch_key`, `renewed_at = now()`, e nota em `decision_reason` ("renovada por lote novo <key curta>").
+- Quando não renova: comportamento atual intacto (deriva da data conhecida, senão mantém `expires_at`).
+- `mergeInto` continua a nunca aceitar `data_publicacao` "hoje" por outra via.
 
-### (b) Rotina automática, depois da primeira confirmação manual
-Só depois de validares visualmente a primeira aplicação: endpoint `src/routes/api/public/cron/purge-expired-searches.ts`, protegido por segredo em header, que chama a mesma lógica em modo aplicar; agendamento diário via `pg_cron`/scheduler para a URL estável. A partir daí apaga sozinho, sem revisão manual, e regista o resumo de cada execução em `app_settings` (chave `purge_expired_last_run`) para se poder consultar o histórico da última limpeza no painel.
+**WhatsApp (`cruzar.tsx` / `whatsapp-leads.functions.ts`)**
+- `batch_key` = SHA-256 do texto da conversa colada + `user_id`; mesma RPC, mesma regra. Colar a mesma conversa outra vez não renova.
 
-## 4. Testes de regressão
+## Testes
 
-- SQL (`supabase/tests/purge_expired_regression.sql`, corrido na suite como o teste de expiração):
-  - procura com `origem = 'cliente'` / `'texto'` expirada há 1 ano **não** é contada nem apagada;
-  - procura Excel expirada há 10 dias não entra (janela dos 30 dias);
-  - contagem devolvida por `p_apply = false` é igual ao número realmente apagado com `p_apply = true`;
-  - após aplicar: zero `match_opportunities`, zero `match_notifications` e zero `match_states` a apontar para os ids apagados.
-- TypeScript: teste de unidade ao construtor do filtro (lista branca de origens e janela de dias), garantindo que `cliente` nunca aparece na lista.
+Novo `src/lib/renew-on-merge.test.ts` (lógica pura, sem BD):
+- mesmo lote reprocessado **não** renova (`batch_is_new = false`) — regressão do bug antigo;
+- procura já renovada por esta `batch_key` **não** renova outra vez (chunk repetido/retry);
+- lote genuinamente novo **renova** e `expires_at = hoje + 30 dias`;
+- `origem = 'cliente'` nunca renova, mesmo com lote novo;
+- sem `batch_key` (fluxos `texto`/`captura`) nunca renova.
 
-## 5. Notas técnicas
-Uma única função plpgsql = uma transação; qualquer erro faz rollback total, sem apagamentos parciais. A função é idempotente: reexecutar não falha, apenas encontra menos linhas elegíveis.
+Regressão SQL em `supabase/tests/`: `import_batch_register` devolve `true` uma vez e `false` nas repetições; segundo utilizador com a mesma `batch_key` recebe `true` (isolamento por utilizador).
+
+Também: `expiry.test.ts` continua a garantir que a renovação usa `expiresFromBase` e não uma segunda cópia da regra dos 30 dias.
+
+## Impacto no recálculo de expiração (Simular/Aplicar)
+
+`admin_recalc_excel_expiry` recalcula `expires_at = COALESCE(data_publicacao, data_origem) + 30 dias`. Como a renovação escreve a nova `data_publicacao`, o recálculo mantém-se **coerente e idempotente**: recalcular após uma renovação reproduz a mesma data e não a desfaz. Sem alterações à RPC.
+
+Efeito colateral desejado a assinalar: procuras renovadas deixam de ser elegíveis para a limpeza automática das 04:00, que é precisamente o objetivo.
+
+## Fora de âmbito
+
+Não altera scores de deduplicação, motor de match, nem a limpeza de expiradas.
