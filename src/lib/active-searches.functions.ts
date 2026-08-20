@@ -17,7 +17,7 @@ import { extractProximityCriteria } from "./search-splitter.server";
 import { inferFinalidadeFromText } from "./whatsapp-ingestion-normalize";
 import { expiresFromBase } from "./expiry";
 import { shouldRenewOnMerge, renewalPatch } from "./import-batch";
-import { touchImportBatch } from "./import-batch-registry";
+import { readImportBatch } from "./import-batch-registry";
 
 const CriteriaSchema = z.object({
   nome: z.string().nullable().optional(),
@@ -123,12 +123,13 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
       tipo_imovel: criteria.tipo_imovel ?? null,
       zona: criteria.zona ?? null,
     });
+    // Release 1.2.7 (corrigido) — o lote já foi REGISTADO no momento da análise
+    // da conversa; aqui apenas LEMOS o estado. Assim gravar vários leads da
+    // mesma conversa não incrementa o contador nem invalida a renovação, e
+    // reanalisar a mesma conversa mais tarde nunca volta a renovar.
     const batch = data.batch_key
-      ? await touchImportBatch(supabase, {
-          batchKey: data.batch_key,
-          origem: data.origem === "whatsapp" ? "whatsapp" : "excel",
-        })
-      : { batchKey: "", isNew: false, fresh: false };
+      ? await readImportBatch(supabase, data.batch_key)
+      : { batchKey: "", timesSeen: 0, renewable: false };
     const res = await upsertOne(supabase, userId, {
       dedup_key,
       criteria,
@@ -150,7 +151,7 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
       comunidade: data.comunidade ?? null,
       location_ids: resolvedLocationIds,
       batch_key: batch.batchKey || null,
-      batch_fresh: batch.fresh,
+      batch_renewable: batch.renewable,
     });
     // Release 1.1: sempre que entra uma procura ativa, cruzar imediatamente
     // com todos os imóveis ativos e materializar oportunidades novas.
@@ -389,7 +390,7 @@ export type UpsertRow = {
   // user_id) e se esse lote é genuinamente novo. Só com estes dois a fusão
   // renova a validade.
   batch_key?: string | null;
-  batch_fresh?: boolean;
+  batch_renewable?: boolean;
 };
 
 export type UpsertAction = "created" | "updated" | "kept_separate" | "flagged";
@@ -513,7 +514,7 @@ async function mergeInto(
   const renewal = shouldRenewOnMerge({
     origem: row.origem,
     batchKey: row.batch_key ?? null,
-    batchFresh: row.batch_fresh ?? false,
+    batchRenewable: row.batch_renewable ?? false,
     existingRenewedByBatchKey: existing.renewed_by_batch_key ?? null,
   });
   const patch = renewal.renew ? renewalPatch(String(row.batch_key)) : null;
