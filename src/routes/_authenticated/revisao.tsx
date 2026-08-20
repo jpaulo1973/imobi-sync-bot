@@ -453,6 +453,9 @@ function ContactoCard({
               <div key={a.id} className="bg-muted/50 rounded p-2 whitespace-pre-wrap">
                 {a.origem && <Badge variant="outline" className="mr-1">{a.origem}</Badge>}
                 {a.texto?.slice(0, 240)}
+                <div className="pt-2">
+                  <EditSearchButton id={a.id} />
+                </div>
               </div>
             ))}
           </div>
