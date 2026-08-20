@@ -44,7 +44,7 @@ import {
 import { toast } from "sonner";
 import { PhoneButton } from "@/components/PhoneButton";
 import { useServerFn } from "@tanstack/react-start";
-import { importPropertyFromUrl } from "@/lib/properties.functions";
+import { importPropertyFromUrl, applyPropertyReimport } from "@/lib/properties.functions";
 import { recomputeOpportunitiesForProperty } from "@/lib/active-searches.functions";
 import {
   runPropertyOpportunities,
@@ -182,6 +182,34 @@ const fromProperty = (p: Property): FormState => ({
   piscina: p.piscina ?? false,
 });
 
+// Release 1.2.8 — reimportação por URL: etiquetas do diff
+const FIELD_LABELS: Record<string, string> = {
+  finalidade: "Finalidade",
+  tipo_imovel: "Tipo de imóvel",
+  subtipo_imovel: "Subtipo",
+  tipologia: "Tipologia",
+  distrito: "Distrito",
+  concelho: "Concelho",
+  freguesia: "Freguesia",
+  zona: "Zona",
+  preco: "Preço",
+  area_util_m2: "Área útil (m²)",
+  area_bruta_m2: "Área bruta (m²)",
+  area_m2: "Área (m²)",
+  area_terreno_m2: "Área terreno (m²)",
+  garagem: "Garagem",
+  elevador: "Elevador",
+  jardim: "Jardim",
+  piscina: "Piscina",
+  location_id: "Localização normalizada",
+};
+
+function formatDiffValue(v: unknown): string {
+  if (v === null || v === undefined || v === "") return "—";
+  if (typeof v === "boolean") return v ? "Sim" : "Não";
+  return String(v);
+}
+
 function ImoveisPage() {
   const importFn = useServerFn(importPropertyFromUrl);
   const oppsFn = useServerFn(runPropertyOpportunities);
@@ -215,6 +243,14 @@ function ImoveisPage() {
 
   const [url, setUrl] = useState("");
   const [importing, setImporting] = useState(false);
+  const applyReimportFn = useServerFn(applyPropertyReimport);
+  const [reimport, setReimport] = useState<{
+    property: Property;
+    values: Record<string, unknown>;
+    diff: Array<{ field: string; current: unknown; next: unknown }>;
+    missing_fields: string[];
+  } | null>(null);
+  const [applyingReimport, setApplyingReimport] = useState(false);
 
   const [matchOpen, setMatchOpen] = useState(false);
   const [matchProperty, setMatchProperty] = useState<Property | null>(null);
@@ -527,7 +563,23 @@ function ImoveisPage() {
     if (!url.trim()) return;
     setImporting(true);
     try {
-      const res = await importFn({ data: { url: url.trim() } });
+      const res = (await importFn({ data: { url: url.trim() } })) as {
+        status: "created" | "needs_confirmation";
+        property: Property;
+        values: Record<string, unknown>;
+        diff: Array<{ field: string; current: unknown; next: unknown }>;
+        missing_fields: string[];
+      };
+      if (res.status === "needs_confirmation") {
+        setUrl("");
+        setReimport({
+          property: res.property,
+          values: res.values,
+          diff: res.diff,
+          missing_fields: res.missing_fields,
+        });
+        return;
+      }
       setUrl("");
       await load();
       if (res.missing_fields.length > 0) {
@@ -543,6 +595,25 @@ function ImoveisPage() {
       toast.error(err instanceof Error ? err.message : "Erro ao importar");
     } finally {
       setImporting(false);
+    }
+  };
+
+  const confirmReimport = async () => {
+    if (!reimport) return;
+    setApplyingReimport(true);
+    try {
+      const res = (await applyReimportFn({
+        data: { id: reimport.property.id, values: reimport.values },
+      })) as { property: Property; updated_fields: string[] };
+      await load();
+      if (res.updated_fields.length === 0) toast.info("Nada a atualizar — o imóvel já está igual à fonte.");
+      else toast.success(`Imóvel atualizado (${res.updated_fields.length} campo(s)).`);
+      await recomputeForProp(reimport.property.id);
+      setReimport(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao atualizar");
+    } finally {
+      setApplyingReimport(false);
     }
   };
 
@@ -797,6 +868,40 @@ function ImoveisPage() {
           A importação é sempre parcial: se algum campo faltar, o imóvel é criado na mesma e pode completar manualmente.
         </p>
       </Card>
+
+      <Dialog open={!!reimport} onOpenChange={(o) => !o && setReimport(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Imóvel já existe — atualizar em vez de duplicar</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Já tem o imóvel <strong>{reimport?.property.referencia}</strong> na sua carteira. A reimportação atualiza os
+            dados da fonte (preço, áreas, tipo, localização e características). Descrição, notas, categoria, estado e o
+            estado ativo/inativo ficam intactos.
+          </p>
+          {reimport && reimport.diff.length === 0 ? (
+            <p className="text-sm">Nenhuma diferença encontrada face à fonte.</p>
+          ) : (
+            <div className="rounded-md border divide-y max-h-72 overflow-auto">
+              {reimport?.diff.map((d) => (
+                <div key={d.field} className="grid grid-cols-3 gap-2 px-3 py-2 text-sm">
+                  <span className="font-medium">{FIELD_LABELS[d.field] ?? d.field}</span>
+                  <span className="text-muted-foreground line-through">{formatDiffValue(d.current)}</span>
+                  <span className="text-primary font-medium">{formatDiffValue(d.next)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setReimport(null)} disabled={applyingReimport}>
+              Cancelar
+            </Button>
+            <Button onClick={confirmReimport} disabled={applyingReimport || reimport?.diff.length === 0}>
+              {applyingReimport ? "A atualizar..." : "Atualizar imóvel"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {loading ? (
         <p className="text-muted-foreground">A carregar...</p>
