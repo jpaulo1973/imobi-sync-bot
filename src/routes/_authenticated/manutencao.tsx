@@ -30,7 +30,6 @@ import {
 } from "@/lib/support.functions";
 import { DuplicatesPanel } from "@/components/DuplicatesPanel";
 import { ContactsBackfillPanel } from "@/components/ContactsBackfillPanel";
-import { ExpiryRecalcPanel } from "@/components/ExpiryRecalcPanel";
 import { PurgeExpiredPanel } from "@/components/PurgeExpiredPanel";
 import {
   backfillContactsFromSearches,
@@ -506,8 +505,6 @@ function ManutencaoPage() {
           </div>
         )}
       </Card>
-
-      <ExpiryRecalcPanel />
 
       <PurgeExpiredPanel />
 
