@@ -101,7 +101,7 @@ describe("ligação completa (não cadeia)", () => {
     const clusters = clusterByTextSimilarity([A, B, C]).filter((g) => g.membros.length >= 2);
     expect(clusters).toHaveLength(1);
     expect(clusters[0].membros).toHaveLength(2);
-    expect(clusters[0].membros.every((x) => x.id !== "C" || false)).toBe(true);
+    expect(clusters[0].membros.map((x) => x.id).sort()).toEqual(["A", "B"]);
     expect(clusters[0].similaridade_minima).toBeGreaterThanOrEqual(DUPLICATE_SIM_THRESHOLD);
   });
 });
