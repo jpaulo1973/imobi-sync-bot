@@ -988,6 +988,7 @@ function SemLocalizacaoCard({
           </label>
         )}
         <div className="ml-auto flex gap-2">
+          <EditSearchButton id={item.id} />
           <Button
             size="sm"
             variant="outline"
