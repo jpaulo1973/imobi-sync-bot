@@ -15,10 +15,9 @@ import { assertAdminContext } from "./admin-guard.server";
 import { normalizePhone } from "./dedup";
 import {
   KEEP_SEPARATE_KEY,
+  clusterByTextSimilarity,
   completeness,
-  groupTextSimilarity,
   readKeepSeparate,
-  shouldSuggestGroup,
   type DuplicateGroup,
   type DuplicateMember,
 } from "./duplicates.server";
@@ -94,12 +93,6 @@ export const listDuplicateGroups = createServerFn({ method: "GET" })
       if (g.rows.length < 2) continue;
       if (keepSeparate.has(key)) continue;
 
-      // Só consideramos duplicado o que tem texto original semelhante entre si:
-      // a mesma pessoa pode legitimamente ter necessidades diferentes.
-      const sim = groupTextSimilarity(g.rows.map((r) => r.texto_original ?? r.resumo ?? ""));
-      // Limiar único (0,80): telefone igual sozinho não é sinal de duplicado.
-      if (!shouldSuggestGroup(g.tipo, sim)) continue;
-
       const membros: DuplicateMember[] = g.rows
         .map((r) => ({
           id: r.id,
@@ -117,17 +110,25 @@ export const listDuplicateGroups = createServerFn({ method: "GET" })
         }))
         .sort((a, b) => b.completeness - a.completeness || +new Date(b.created_at) - +new Date(a.created_at));
 
-      totalExcedentes += membros.length - 1;
-      out.push({
-        key,
-        pessoa: g.pessoa,
-        telefone: g.telefone,
-        chave_tipo: g.tipo,
-        membros,
-        excedentes: membros.length - 1,
-        similaridade_texto: Math.round(sim * 100) / 100,
+      // Release 1.2.17 — subgrupos por ligação completa: procuras legitimamente
+      // diferentes do mesmo telefone deixam de mascarar duplicados idênticos.
+      const clusters = clusterByTextSimilarity(membros);
+      clusters.forEach((cluster, idx) => {
+        const clusterKey = clusters.length > 1 ? `${key}#${idx + 1}` : key;
+        if (keepSeparate.has(clusterKey)) return;
+        totalExcedentes += cluster.membros.length - 1;
+        out.push({
+          key: clusterKey,
+          pessoa: g.pessoa,
+          telefone: g.telefone,
+          chave_tipo: g.tipo,
+          membros: cluster.membros,
+          excedentes: cluster.membros.length - 1,
+          similaridade_texto: Math.round(cluster.similaridade_minima * 100) / 100,
+        });
       });
     }
+
 
     out.sort((a, b) => b.excedentes - a.excedentes || a.pessoa.localeCompare(b.pessoa));
     return { grupos: out.slice(0, 300), total_excedentes: totalExcedentes };

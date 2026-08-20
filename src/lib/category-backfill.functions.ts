@@ -60,11 +60,15 @@ export const runCategoryBackfill = createServerFn({ method: "POST" })
     setRequestClient(context.supabase);
     const db = context.supabase as any;
 
+    // Release 1.2.17 — só procuras vivas (igual ao painel de Duplicados): não se
+    // gastam escritas em leads mortos e as contagens batem entre painéis.
     const rows = (await fetchAllRows(
       db,
       "active_searches",
       "id, origem, criteria, texto_original, resumo",
+      (q: any) => q.eq("descartado", false).gt("expires_at", new Date().toISOString()),
     )) as Array<{ id: string; origem: string; criteria: any; texto_original: string | null; resumo: string | null }>;
+
 
     const por_origem: Record<CategoryOrigin, number> = {
       existente: 0,

@@ -64,6 +64,74 @@ export function shouldSuggestGroup(_tipo: "telefone" | "nome", sim: number): boo
   return sim >= DUPLICATE_SIM_THRESHOLD;
 }
 
+/**
+ * Release 1.2.17 — subagrupamento por similaridade dentro da mesma chave.
+ *
+ * Antes, a decisão usava a média de similaridade de TODO o grupo de telefone: um
+ * único texto legítimo diferente arrastava a média abaixo do limiar e mascarava
+ * duplicados idênticos. Agora agrupa-se por **ligação completa**: um membro só
+ * entra num cluster se for >= 0,80 semelhante a TODOS os membros já lá dentro.
+ * Ligação simples (union-find) é deliberadamente evitada porque juntaria cadeias
+ * A~B, B~C com A~C abaixo do limiar (casos históricos Sandra de Sousa Alves /
+ * Isabel Santos).
+ */
+export function clusterByTextSimilarity<T extends { texto_original?: string | null; resumo?: string | null; completeness?: number }>(
+  membros: T[],
+): Array<{ membros: T[]; similaridade_minima: number }> {
+  const items = membros.map((m, i) => ({
+    m,
+    i,
+    txt: normalizeTextKey(m.texto_original ?? m.resumo ?? ""),
+  }));
+  const n = items.length;
+  const sim: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
+  for (let i = 0; i < n; i++)
+    for (let j = i + 1; j < n; j++) {
+      const s = items[i].txt && items[j].txt
+        ? items[i].txt === items[j].txt
+          ? 1
+          : textJaccard(items[i].txt, items[j].txt)
+        : 0;
+      sim[i][j] = s;
+      sim[j][i] = s;
+    }
+
+  // Ordem gulosa estável: membros mais completos primeiro (são os "líderes"
+  // naturais do cluster, tal como na ordenação apresentada na UI).
+  const order = items
+    .map((it) => it.i)
+    .sort((a, b) => (membros[b].completeness ?? 0) - (membros[a].completeness ?? 0) || a - b);
+
+  const usados = new Set<number>();
+  const out: Array<{ membros: T[]; similaridade_minima: number }> = [];
+  for (const seed of order) {
+    if (usados.has(seed)) continue;
+    const cluster = [seed];
+    usados.add(seed);
+    for (const cand of order) {
+      if (usados.has(cand)) continue;
+      if (cluster.every((c) => sim[c][cand] >= DUPLICATE_SIM_THRESHOLD)) {
+        cluster.push(cand);
+        usados.add(cand);
+      }
+    }
+    if (cluster.length < 2) {
+      // Membro isolado: liberta-se para poder ser semente de outro cluster? Não —
+      // já foi testado contra todos os candidatos seguintes, logo não forma par.
+      continue;
+    }
+    let min = 1;
+    for (let a = 0; a < cluster.length; a++)
+      for (let b = a + 1; b < cluster.length; b++) min = Math.min(min, sim[cluster[a]][cluster[b]]);
+    out.push({
+      membros: cluster.map((idx) => membros[idx]),
+      similaridade_minima: min,
+    });
+  }
+  return out;
+}
+
+
 export function completeness(row: any): number {
   const c = (row.criteria ?? {}) as any;
   let s = 0;
