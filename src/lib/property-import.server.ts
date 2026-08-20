@@ -426,10 +426,12 @@ export type ImportUpdatableField = (typeof IMPORT_UPDATABLE_FIELDS)[number];
  * referencia, user_id, created_at, ativo, descricao, caracteristicas,
  * categoria, estado.
  */
+export type DiffValue = string | number | boolean | null;
+
 export type PropertyFieldDiff = {
   field: ImportUpdatableField;
-  current: unknown;
-  next: unknown;
+  current: DiffValue;
+  next: DiffValue;
 };
 
 function isEmptyIncoming(field: ImportUpdatableField, value: unknown): boolean {
@@ -470,7 +472,7 @@ export function buildPropertyUpdate(
     const cur = current[field] ?? null;
     if (sameValue(cur, next)) continue;
     patch[field] = next;
-    if (field !== "geo_library_version") diff.push({ field, current: cur, next });
+    if (field !== "geo_library_version") diff.push({ field, current: cur as DiffValue, next: next as DiffValue });
   }
   return { patch, diff };
 }
