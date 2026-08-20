@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { computeBatchKey } from "./import-batch";
-import { touchImportBatch } from "./import-batch-registry";
+import { registerImportBatch, readImportBatch } from "./import-batch-registry";
 import * as XLSX from "xlsx";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertAdminContext } from "./admin-guard.server";
@@ -387,7 +387,7 @@ async function processOneRow(
   expires: string,
   geoSnap: Awaited<ReturnType<typeof LocationRepository.getSnapshot>>,
   contactos: Map<string, KnownContact>,
-  batch: { batchKey: string; batchFresh: boolean },
+  batch: { batchKey: string; batchRenewable: boolean },
 ): Promise<OneRowOutcome> {
   const deltas: ChunkCounters = {
     novas: 0,
@@ -615,7 +615,7 @@ async function processOneRow(
           comunidade,
           location_ids: resolvedLocationIds,
           batch_key: batch.batchKey || null,
-          batch_fresh: batch.batchFresh,
+          batch_renewable: batch.batchRenewable,
         };
 
         try {
@@ -793,6 +793,13 @@ export const startExcelImport = createServerFn({ method: "POST" })
     const { rows, headerIndex } = parseWorkbookRows(data.fileBase64);
     const batch_id = `xlsx_${Date.now()}`;
     const batch_key = await computeBatchKey(data.fileBase64, context.userId);
+    // Registo ÚNICO por upload: é aqui que se decide se este ficheiro é
+    // genuinamente novo. Os chunks só leem o estado resultante.
+    await registerImportBatch(context.supabase, {
+      batchKey: batch_key,
+      origem: "excel",
+      filename: data.filename ?? null,
+    });
     const expires = new Date(Date.now() + DURATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
     return {
       batch_id,
@@ -832,13 +839,12 @@ export const processExcelChunk = createServerFn({ method: "POST" })
     await assertAdminContext(context);
     const { supabase, userId } = context;
     const geoSnap = await LocationRepository.getSnapshot();
+    // Release 1.2.7 (corrigido) — o registo/incremento do lote acontece uma só
+    // vez, em startExcelImport. Cada chunk apenas LÊ: renovável só se este
+    // ficheiro nunca tinha sido importado antes (times_seen === 1).
     const batch = data.batch_key
-      ? await touchImportBatch(supabase, {
-          batchKey: data.batch_key,
-          origem: "excel",
-          filename: data.filename ?? null,
-        })
-      : { batchKey: "", isNew: false, fresh: false };
+      ? await readImportBatch(supabase, data.batch_key)
+      : { batchKey: "", timesSeen: 0, renewable: false };
     // Uma única query para todos os nomes do chunk.
     const contactos = await lookupContacts(
       supabase,
@@ -871,7 +877,7 @@ export const processExcelChunk = createServerFn({ method: "POST" })
           data.expires_at,
           geoSnap,
           contactos,
-          { batchKey: batch.batchKey, batchFresh: batch.fresh },
+          { batchKey: batch.batchKey, batchRenewable: batch.renewable },
         );
         for (const k of Object.keys(counters) as (keyof ChunkCounters)[]) {
           counters[k] += res.deltas[k];

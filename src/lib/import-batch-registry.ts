@@ -1,51 +1,64 @@
-// Registo server-side de lotes de importação. A "frescura" do lote é
-// determinada pela BASE DE DADOS (first_seen_at), nunca por um sinal enviado
-// pelo cliente — assim reprocessar o mesmo ficheiro mais tarde não pode
-// renovar validades.
+// Registo server-side de lotes de importação (Release 1.2.7 — corrigido).
+//
+// Regra: um ficheiro/conversa é "lote novo" APENAS na primeira vez que é
+// registado (times_seen == 1). Não existe janela temporal: reimportar o mesmo
+// ficheiro 1 minuto depois é exatamente o mesmo lote e NÃO renova validades.
+//
+// Para isso o registo (incremento) acontece UMA só vez por upload — no
+// arranque da importação — e os chunks seguintes apenas LEEM o estado.
 import { RENEWABLE_ORIGINS } from "./import-batch";
 
-/** Janela em que um lote acabado de registar ainda é considerado "novo". */
-export const FRESH_WINDOW_MS = 30 * 60 * 1000;
+export type BatchRegistration = { batchKey: string; timesSeen: number; renewable: boolean };
 
-export type BatchTouch = { batchKey: string; isNew: boolean; fresh: boolean };
+function normOrigem(origem: string): string {
+  return (RENEWABLE_ORIGINS as readonly string[]).includes(origem) ? origem : "excel";
+}
 
-export async function touchImportBatch(
+/**
+ * Incrementa o contador do lote e devolve o número de vezes que este
+ * ficheiro/conversa já foi visto. Chamar exatamente UMA vez por upload.
+ */
+export async function registerImportBatch(
   supabase: any,
   args: { batchKey: string; origem: string; filename?: string | null },
-): Promise<BatchTouch> {
+): Promise<BatchRegistration> {
   const batchKey = (args.batchKey ?? "").trim();
-  const origem = (RENEWABLE_ORIGINS as readonly string[]).includes(args.origem) ? args.origem : "excel";
-  if (!batchKey) return { batchKey: "", isNew: false, fresh: false };
-
-  let isNew = false;
+  if (!batchKey) return { batchKey: "", timesSeen: 0, renewable: false };
   try {
     const { data, error } = await supabase.rpc("import_batch_register", {
       p_batch_key: batchKey,
-      p_origem: origem,
+      p_origem: normOrigem(args.origem),
       p_filename: args.filename ?? null,
     });
     if (error) throw new Error(error.message);
-    isNew = data === true;
+    const timesSeen = Number(data);
+    if (!Number.isFinite(timesSeen) || timesSeen < 1) throw new Error(`times_seen inválido: ${String(data)}`);
+    return { batchKey, timesSeen, renewable: timesSeen === 1 };
   } catch (e) {
     console.error("[import-batch] register failed", e);
     // Falha fechada: sem registo fiável, não renovamos nada.
-    return { batchKey, isNew: false, fresh: false };
+    return { batchKey, timesSeen: 0, renewable: false };
   }
+}
 
-  let fresh = isNew;
-  if (!isNew) {
-    try {
-      const { data } = await supabase
-        .from("import_batches")
-        .select("first_seen_at")
-        .eq("batch_key", batchKey)
-        .maybeSingle();
-      const t = data?.first_seen_at ? Date.parse(data.first_seen_at) : NaN;
-      fresh = Number.isFinite(t) && Date.now() - t <= FRESH_WINDOW_MS;
-    } catch (e) {
-      console.error("[import-batch] freshness check failed", e);
-      fresh = false;
-    }
+/**
+ * Lê o estado do lote sem o incrementar. Usado pelos chunks de uma importação
+ * já registada: renovável só se este ficheiro nunca tinha sido visto antes.
+ */
+export async function readImportBatch(supabase: any, batchKey: string): Promise<BatchRegistration> {
+  const key = (batchKey ?? "").trim();
+  if (!key) return { batchKey: "", timesSeen: 0, renewable: false };
+  try {
+    const { data, error } = await supabase
+      .from("import_batches")
+      .select("times_seen")
+      .eq("batch_key", key)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    const timesSeen = Number(data?.times_seen ?? 0);
+    return { batchKey: key, timesSeen, renewable: timesSeen === 1 };
+  } catch (e) {
+    console.error("[import-batch] read failed", e);
+    return { batchKey: key, timesSeen: 0, renewable: false };
   }
-  return { batchKey, isNew, fresh };
 }
