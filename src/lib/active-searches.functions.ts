@@ -373,6 +373,11 @@ export type UpsertRow = {
   // persistência. Passa a ser gravado atomicamente no INSERT, para que
   // uma procura reconhecida geograficamente nunca fique com {}.
   location_ids?: string[] | null;
+  // Release 1.2.7 — identidade do FICHEIRO/LOTE (SHA-256 do conteúdo +
+  // user_id) e se esse lote é genuinamente novo. Só com estes dois a fusão
+  // renova a validade.
+  batch_key?: string | null;
+  batch_fresh?: boolean;
 };
 
 export type UpsertAction = "created" | "updated" | "kept_separate" | "flagged";
@@ -384,6 +389,8 @@ export type UpsertResult = {
   similarity: number;
   flagged_for_review: boolean;
   reason: string;
+  /** true quando esta fusão renovou a validade por lote novo. */
+  renewed?: boolean;
 };
 
 function mergeCriteria(
