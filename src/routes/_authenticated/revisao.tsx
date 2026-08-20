@@ -22,6 +22,7 @@ import { promoteAlias } from "@/lib/geo/geo.functions";
 import { normalizeGeoText } from "@/lib/geo/geo-context";
 import { LocationSelector } from "@/components/entity-selector/LocationSelector";
 import { OriginalMessage } from "@/components/OriginalMessage";
+import { SearchEditSheet } from "@/components/review/SearchEditSheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   downloadReviewCsv,
@@ -52,8 +53,29 @@ import {
   Globe,
   Trash2,
   Building2,
+  Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
+
+// Release 1.2.14 — o editor lateral é acessível de qualquer aba. O estado vive
+// no topo da página e cada lista abre-o com o id da procura.
+import { createContext, useContext } from "react";
+
+type EditCtx = { edit: (id: string) => void };
+const SearchEditContext = createContext<EditCtx>({ edit: () => {} });
+
+export function useSearchEdit() {
+  return useContext(SearchEditContext);
+}
+
+function EditSearchButton({ id }: { id: string }) {
+  const { edit } = useSearchEdit();
+  return (
+    <Button type="button" size="sm" variant="outline" onClick={() => edit(id)}>
+      <Pencil className="mr-1 h-3.5 w-3.5" /> Editar
+    </Button>
+  );
+}
 
 export const Route = createFileRoute("/_authenticated/revisao")({
   // Item 1 — página exclusiva de Admin. `ssr: false` porque a verificação
@@ -80,6 +102,8 @@ function RevisaoPage() {
   const listFn = useServerFn(listConsultoresSemTelefone);
   const [items, setItems] = useState<ConsultorSemTelefone[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [resolvedIds, setResolvedIds] = useState<string[]>([]);
 
   const reload = () => {
     setLoading(true);
@@ -96,6 +120,7 @@ function RevisaoPage() {
     setItems((cur) => cur.filter((c) => c.key !== key));
 
   return (
+    <SearchEditContext.Provider value={{ edit: setEditingId }}>
     <div className="space-y-6 max-w-3xl mx-auto">
       <div className="flex items-start gap-3 flex-wrap">
         <div className="w-10 h-10 rounded-lg bg-secondary text-primary inline-flex items-center justify-center shrink-0">
@@ -156,14 +181,23 @@ function RevisaoPage() {
         </TabsContent>
 
         <TabsContent value="localizacao">
-          <SemLocalizacaoPanel />
+          <SemLocalizacaoPanel resolvedIds={resolvedIds} />
         </TabsContent>
 
         <TabsContent value="tipo">
-          <SemTipoPanel />
+          <SemTipoPanel resolvedIds={resolvedIds} />
         </TabsContent>
       </Tabs>
+
+      <SearchEditSheet
+        searchId={editingId}
+        onClose={() => setEditingId(null)}
+        onSaved={(id, resolved) => {
+          if (resolved) setResolvedIds((cur) => (cur.includes(id) ? cur : [...cur, id]));
+        }}
+      />
     </div>
+    </SearchEditContext.Provider>
   );
 }
 
