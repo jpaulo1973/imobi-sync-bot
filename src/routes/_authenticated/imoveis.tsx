@@ -841,6 +841,40 @@ function ImoveisPage() {
         </p>
       </Card>
 
+      <Dialog open={!!reimport} onOpenChange={(o) => !o && setReimport(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Imóvel já existe — atualizar em vez de duplicar</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Já tem o imóvel <strong>{reimport?.property.referencia}</strong> na sua carteira. A reimportação atualiza os
+            dados da fonte (preço, áreas, tipo, localização e características). Descrição, notas, categoria, estado e o
+            estado ativo/inativo ficam intactos.
+          </p>
+          {reimport && reimport.diff.length === 0 ? (
+            <p className="text-sm">Nenhuma diferença encontrada face à fonte.</p>
+          ) : (
+            <div className="rounded-md border divide-y max-h-72 overflow-auto">
+              {reimport?.diff.map((d) => (
+                <div key={d.field} className="grid grid-cols-3 gap-2 px-3 py-2 text-sm">
+                  <span className="font-medium">{FIELD_LABELS[d.field] ?? d.field}</span>
+                  <span className="text-muted-foreground line-through">{formatDiffValue(d.current)}</span>
+                  <span className="text-primary font-medium">{formatDiffValue(d.next)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setReimport(null)} disabled={applyingReimport}>
+              Cancelar
+            </Button>
+            <Button onClick={confirmReimport} disabled={applyingReimport || reimport?.diff.length === 0}>
+              {applyingReimport ? "A atualizar..." : "Atualizar imóvel"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {loading ? (
         <p className="text-muted-foreground">A carregar...</p>
       ) : items.length === 0 ? (
