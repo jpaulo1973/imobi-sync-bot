@@ -25,6 +25,25 @@ export type { DuplicateGroup, DuplicateMember };
 import { normContactName } from "./contacts.server";
 import { recomputeForSearch } from "./active-searches.functions";
 
+export type MergePreview = {
+  aplicado: boolean;
+  mantida: { id: string; user_id: string; nome: string | null; origem: string | null };
+  remover: number;
+  apagadas: number;
+  oportunidades_removidas: number;
+  notificacoes_removidas: number;
+  estados_removidos: number;
+  amostra: Array<{
+    id: string;
+    nome: string | null;
+    origem: string | null;
+    criada_em: string | null;
+    oportunidades: number;
+    notificacoes: number;
+    estados: number;
+  }>;
+};
+
 export const listDuplicateGroups = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<{ grupos: DuplicateGroup[]; total_excedentes: number }> => {
@@ -126,54 +145,59 @@ export const listDuplicateGroups = createServerFn({ method: "GET" })
     return { grupos: out.slice(0, 300), total_excedentes: totalExcedentes };
   });
 
-/** Funde um grupo: mantém `keep_id`, elimina os restantes e recruza o mantido. */
+const mergeInput = (d: unknown) =>
+  z
+    .object({
+      keep_id: z.string().uuid(),
+      remove_ids: z.array(z.string().uuid()).min(1).max(200),
+    })
+    .parse(d);
+
+/**
+ * Simulação (não grava nada): devolve exatamente o que a fusão iria apagar —
+ * procuras, oportunidades, notificações e estados de match.
+ */
+export const simulateMergeDuplicateGroup = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator(mergeInput)
+  .handler(async ({ data, context }): Promise<MergePreview> => {
+    await assertAdminContext(context);
+    const { supabase } = context;
+    const { data: res, error } = await (supabase as any).rpc("admin_merge_duplicate_group", {
+      p_keep_id: data.keep_id,
+      p_remove_ids: data.remove_ids.filter((id) => id !== data.keep_id),
+      p_apply: false,
+    });
+    if (error) throw new Error(error.message);
+    return res as MergePreview;
+  });
+
+/**
+ * Funde um grupo: mantém `keep_id`, elimina os restantes (incluindo
+ * notificações e estados de match, para não deixar órfãos) e recruza o mantido.
+ * Só o conteúdo da procura mantida sobrevive — intencional.
+ */
 export const mergeDuplicateGroup = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d) =>
-    z
-      .object({
-        keep_id: z.string().uuid(),
-        remove_ids: z.array(z.string().uuid()).min(1).max(200),
-      })
-      .parse(d),
-  )
-  .handler(async ({ data, context }): Promise<{ removidas: number; keep_id: string }> => {
+  .inputValidator(mergeInput)
+  .handler(async ({ data, context }): Promise<MergePreview & { removidas: number; keep_id: string }> => {
     await assertAdminContext(context);
     const { supabase } = context;
     const removeIds = data.remove_ids.filter((id) => id !== data.keep_id);
-    if (removeIds.length === 0) return { removidas: 0, keep_id: data.keep_id };
-
-    const { data: keeper, error: kErr } = await supabase
-      .from("active_searches")
-      .select("id, user_id, merged_from_count")
-      .eq("id", data.keep_id)
-      .maybeSingle();
-    if (kErr) throw new Error(kErr.message);
-    if (!keeper) throw new Error("Procura a manter não encontrada.");
-
-    const { error: oErr } = await supabase
-      .from("match_opportunities")
-      .delete()
-      .in("active_search_id", removeIds);
-    if (oErr) throw new Error(oErr.message);
-
-    const { error: dErr } = await supabase.from("active_searches").delete().in("id", removeIds);
-    if (dErr) throw new Error(dErr.message);
-
-    await supabase
-      .from("active_searches")
-      .update({
-        merged_from_count: (keeper.merged_from_count ?? 0) + removeIds.length,
-        flagged_for_review: false,
-      })
-      .eq("id", keeper.id);
+    const { data: res, error } = await (supabase as any).rpc("admin_merge_duplicate_group", {
+      p_keep_id: data.keep_id,
+      p_remove_ids: removeIds,
+      p_apply: true,
+    });
+    if (error) throw new Error(error.message);
+    const out = res as MergePreview;
 
     try {
-      await recomputeForSearch(supabase, keeper.user_id, keeper.id);
+      await recomputeForSearch(supabase, out.mantida.user_id, out.mantida.id);
     } catch (e) {
       console.error("[duplicados] recompute falhou", e);
     }
-    return { removidas: removeIds.length, keep_id: keeper.id };
+    return { ...out, removidas: out.apagadas, keep_id: out.mantida.id };
   });
 
 /** Marca um grupo como legítimo (não é duplicado) — deixa de ser sugerido. */
