@@ -2,25 +2,20 @@
 // expiradas (Excel + WhatsApp), agendada via pg_cron.
 //
 // Segurança: rota /api/public/* (sem sessão), protegida por segredo em header
-// (`apikey` = chave anon do projeto). A lógica corre no RPC
-// `cron_purge_expired_searches`, executável apenas pelo service_role.
-// ATENÇÃO: é um DELETE irreversível.
+// (`apikey`). A lógica corre no RPC `cron_purge_expired_searches`, executável
+// apenas pelo service_role. ATENÇÃO: é um DELETE irreversível.
 import { createFileRoute } from "@tanstack/react-router";
-
-function unauthorized() {
-  return new Response(JSON.stringify({ error: "Unauthorized" }), {
-    status: 401,
-    headers: { "Content-Type": "application/json" },
-  });
-}
+import { authorizeCronRequest } from "@/lib/cron-auth";
 
 async function run(request: Request) {
-  const expected = process.env["SUPABASE_ANON_KEY"];
-  const provided =
-    request.headers.get("apikey") ??
-    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
-    null;
-  if (!expected || !provided || provided !== expected) return unauthorized();
+  const auth = authorizeCronRequest(request.headers, process.env as Record<string, string | undefined>);
+  if (!auth.ok) {
+    console.warn("[cron:purge-expired-searches] 401", auth.reason);
+    return new Response(JSON.stringify({ error: "Unauthorized", reason: auth.reason }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data, error } = await supabaseAdmin.rpc("cron_purge_expired_searches", { p_dias: 0 });
