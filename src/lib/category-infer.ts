@@ -88,7 +88,7 @@ export function suppressFalseMultiUse(text: string): string {
  * "Garagem" continua a ser `comercial_armazens`.
  */
 const NON_TYPE_FEATURE_RE =
-  /\b(lugares?\s+de\s+garagem|lugares?\s+de\s+estacionamento|garagens?|estacionamentos?|parqueamentos?|box(?:es)?\s+de\s+garagem)\b/gi;
+  /\b(lugares?\s+de\s+garage(?:m|ns)|lugares?\s+de\s+estacionamento|box(?:es)?\s+de\s+garage(?:m|ns)|garage(?:m|ns)|estacionamentos?|parqueamentos?)\b/gi;
 
 /** Remove características que não são tipo de imóvel do texto de uma procura. */
 export function stripNonTypeFeatures(text: string): string {

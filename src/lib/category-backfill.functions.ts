@@ -47,7 +47,7 @@ const Input = z.object({
 });
 
 /** Release 1.2.16 — só procuras cujo multi-uso vinha de garagem/estacionamento. */
-const FEATURE_TEXT_RE = /\b(garagens?|estacionamentos?|parqueamentos?)\b/i;
+const FEATURE_TEXT_RE = /\b(garage(?:m|ns)|estacionamentos?|parqueamentos?)\b/i;
 
 export const runCategoryBackfill = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
