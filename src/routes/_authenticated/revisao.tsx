@@ -365,6 +365,9 @@ function SemTipoPanel({ resolvedIds }: { resolvedIds: string[] }) {
                   {it.grupo_whatsapp ? ` · ${it.grupo_whatsapp}` : ""}
                 </div>
                 {it.texto_original && <OriginalMessage texto={it.texto_original} origem={it.origem} />}
+                <div className="pt-1">
+                  <EditSearchButton id={it.id} />
+                </div>
               </div>
             </div>
           </Card>
