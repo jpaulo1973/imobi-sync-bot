@@ -1,59 +1,46 @@
-# Editor de procura na Revisão (painel lateral)
+# Correção — "garagem"/"estacionamento" deixam de ser sinal de tipo de imóvel em procuras
 
-## Objetivo
+## 1. Onde corrigir (e onde NÃO tocar)
 
-Permitir ao admin corrigir uma procura existente sem reimportar: orçamento, área mínima,
-quartos mínimos, tipologia, tipo de imóvel, localização e contactos — a partir de qualquer
-aba da Revisão. Caso prioritário: numa procura multi-uso, limpar/ajustar `area_min` no mesmo
-momento em que se atribuem as categorias.
+A lista de sinónimos em `src/lib/property-taxonomy.ts` (`resolveCategory` / `resolveCategories`) **é partilhada**:
+- classificação de imóveis anunciados (`imoveis.tsx`, `matching-engine.ts` para `property.categoria`/`tipo_imovel`);
+- campos estruturados de procuras (`clientes.tsx`, `review.functions.ts`);
+- deteção de sinais em texto de procuras (`categoriesFromText` → `detectMultiUse`).
 
-## Como se usa
+Por isso **não se remove nada da taxonomia**: um imóvel anunciado como "garagem" continua a ser `comercial_armazens`.
 
-Cada cartão/linha das três abas ("Sem telefone", "Sem localização", "Sem tipo de imóvel")
-ganha um botão **Editar**. Abre um `Sheet` lateral com:
+A correção fica só no lado do texto de procuras, em `src/lib/category-infer.ts`:
+- nova constante `NON_TYPE_FEATURE_RE` com `garagem/garagens`, `estacionamento(s)`, `lugar(es) de garagem`, `box/boxes` (quando acompanhado de garagem), `parqueamento`;
+- `categoriesFromText()` passa a apagar essas expressões do texto antes de resolver categorias (mesmo tratamento já dado a `suppressFalseMultiUse`);
+- efeito: `detectMultiUse()` e o passo 4 de `inferSearchCategories()` deixam de ver estas palavras. Campos estruturados (`tipo_imovel: ["Garagem"]`) continuam a contar normalmente.
 
-1. **Contexto (read-only)**: nome, origem, data, mensagem original (`OriginalMessage`),
-   badges de multi-uso quando existirem.
-2. **Categorias**: os mesmos toggles da aba "Sem tipo de imóvel", pré-marcados com o valor atual.
-3. **Critérios**: `budget_min`, `budget_max`, `area_min`, `quartos_min` (numéricos, vazio = limpar),
-   `tipologia` (texto), `tipo_imovel` (chips editáveis a partir da taxonomia).
-4. **Localização**: `LocationSelector` (múltiplo), pré-preenchido com `location_ids`.
-5. **Contactos**: `contact_nome`, `contact_telefone`.
-6. **Ações**: `Guardar` (mantém em revisão) e `Guardar e resolver` (sai da Revisão e recruza).
+## 2. Caso legítimo "procuro uma garagem"
 
-Campo numérico vazio grava `null` — é isto que resolve o caso "limpar area_min". Um campo
-não tocado não é enviado, para não sobrescrever nada por acidente.
+Fica coberto por duas vias:
+- procura com `tipo_imovel`/`categorias` estruturado a dizer garagem/estacionamento → continua `comercial_armazens` (passo 2, não passa pelo texto);
+- procura só em texto livre a pedir garagem como o imóvel em si → passa a ficar `indecidivel` com `motivo_indecidivel: "sem_sinal"` e aparece na aba Revisão para resolução manual.
 
-## Alterações técnicas
+Trade-off aceite: perdemos a classificação automática desse caso raro (nenhum dos 65 casos atuais é deste tipo), em troca de eliminar 33 falsos-positivos. Nunca gera um match errado — só pede um clique na Revisão.
 
-**Backend (`src/lib/review.functions.ts`)**
-- Estender `CriteriaPatch` com `categorias: PropertyCategory[]` e `categoria_origem: "manual"`,
-  para que uma única chamada grave categorias + critérios de forma atómica (hoje as categorias
-  passam por `setSearchCategories`, separado).
-- Nova server fn `getReviewSearch({ id })` (admin) devolvendo a linha completa
-  (`criteria`, `location_ids`, contactos, `texto_original`, `resumo`, `origem`, datas) para
-  preencher o formulário sem depender do payload reduzido de cada aba.
-- `updateReviewSearch` mantém a semântica atual: merge do patch em `criteria`, recálculo de
-  `dedup_key`, expiração via `computeExpiresAt`, `recomputeForSearch`. Só se acrescenta
-  `resolve: false` como caminho suportado (já existe no schema) para "Guardar" sem resolver.
-- Quando `categorias` chega com ≥1 valor, `motivo_indecidivel` é removido do `criteria`
-  (deixa de ser indecidível/multi-uso pendente).
+## 3. Reprocessamento dos 33 falsos-positivos
 
-**Frontend**
-- Novo componente `src/components/review/SearchEditSheet.tsx` — recebe `searchId`, carrega
-  via `getReviewSearch`, submete via `updateReviewSearch`, chama `onSaved()` para as listas
-  recarregarem.
-- `src/routes/_authenticated/revisao.tsx`: estado `editingId` ao nível da página, um único
-  `SearchEditSheet` montado, e botão "Editar" nas três listas.
+Reaproveita o mecanismo existente `runCategoryBackfill` (`Simular` → `Aplicar`) em `src/lib/category-backfill.functions.ts`, com um novo modo de âmbito restrito:
+- input passa a aceitar `scope: "sem_categorias" | "multi_uso_features"` (default mantém o comportamento atual);
+- em `multi_uso_features` só entram procuras com `criteria.motivo_indecidivel = 'multi_uso'`, `categorias` vazias, cujo texto contenha garagem/estacionamento **e** cuja re-inferência resolva para exatamente uma categoria;
+- procuras que continuem multi-uso depois da correção (as outras ~32) são contadas mas nunca escritas;
+- ao aplicar, escreve `categorias`, `categoria_origem` e limpa `motivo_indecidivel`;
+- `CategoryBackfillPanel.tsx` ganha um segundo cartão "Recategorizar falsos multi-uso (garagem)" com o mesmo par Simular/Aplicar e a amostra antes/depois.
 
-**Testes**
-- `src/lib/review-edit.test.ts`: patch numérico `null` limpa o campo; campo ausente preserva
-  o valor antigo; gravar categorias limpa `motivo_indecidivel`; `dedup_key` recalculado quando
-  nome/telefone/tipologia mudam.
-- Suite completa + typecheck no fim.
+## 4. Testes
 
-## Fora de âmbito
+Em `src/lib/category-infer.test.ts`, três casos reais passam a `casas_apartamentos` sem `indecidivel`:
+- "T3 ou T4 ... com lugar de garagem" (Maia/Matosinhos);
+- "T2 ... garagem ou lugar de garagem" (Porto);
+- "Moradia T3, Garagem até 600 mil euros" (Terrugem/Magoito).
 
-Sem migração de base de dados. Sem alterações ao Motor Match (incluindo a área insensível a
-categoria — continua um `area_min` global; este ecrã é o remédio manual). `setSearchCategories`
-mantém-se para a atribuição em bloco.
+Mais:
+- não-regressão: `tipo_imovel: ["Armazém"]` + tipologia habitacional continua `multi_uso`;
+- "loja com armazém" continua `comercial_armazens`;
+- imóvel anunciado "Garagem" continua `comercial_armazens` (teste em `property-taxonomy.test.ts`).
+
+Fecho com contagem de testes e typecheck.
