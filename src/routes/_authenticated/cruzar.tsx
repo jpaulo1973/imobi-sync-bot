@@ -10,6 +10,7 @@ import {
   type PropertyMatchResult,
 } from "@/lib/whatsapp-leads.functions";
 import { saveActiveSearch } from "@/lib/active-searches.functions";
+import { compressImageFile, checkPayloadLimit } from "@/lib/image-compress";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
@@ -86,21 +87,14 @@ function CruzarPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const fileToDataUrl = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(r.result as string);
-      r.onerror = reject;
-      r.readAsDataURL(file);
-    });
-
   const addFiles = async (files: FileList | File[]) => {
     const arr = Array.from(files).filter((f) => f.type.startsWith("image/"));
     if (arr.length === 0) return;
     const remaining = MAX_IMGS - imagens.length;
     if (remaining <= 0) return toast.error(`Máximo ${MAX_IMGS} imagens.`);
     try {
-      const urls = await Promise.all(arr.slice(0, remaining).map(fileToDataUrl));
+      // Release 1.2.15 (b) — comprime/redimensiona no cliente (JPEG ~1600px, q0.8).
+      const urls = await Promise.all(arr.slice(0, remaining).map((f) => compressImageFile(f)));
       setImagens((prev) => [...prev, ...urls]);
     } catch {
       toast.error("Erro a ler imagem.");
@@ -125,6 +119,9 @@ function CruzarPage() {
     if (texto.trim().length < 10 && imagens.length === 0) {
       return toast.error("Cola texto ou adiciona pelo menos uma captura de ecrã.");
     }
+    // Release 1.2.15 (c) — limite explícito de bytes com mensagem clara.
+    const limite = checkPayloadLimit(texto, imagens);
+    if (!limite.ok) return toast.error(limite.message);
     setLoading(true);
     setResults(null);
     try {
