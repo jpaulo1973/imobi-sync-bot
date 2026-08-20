@@ -64,6 +64,15 @@ function stripAccents(text: string): string {
   return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
+/**
+ * Sinais de USO que a taxonomia de tipos não cobre (não são tipos de imóvel,
+ * mas indicam uma finalidade distinta). Usados apenas na deteção de multi-uso.
+ */
+const EXTRA_USE_PATTERNS: Array<[RegExp, PropertyCategory]> = [
+  [/\b(habitacional|habitacionais|residencial|residenciais|habitacao)\b/i, "casas_apartamentos"],
+  [/\b(industrial|industriais|logistic[ao]|logisticos?)\b/i, "comercial_armazens"],
+];
+
 /** Remove expressões de finalidade que criam multi-uso artificial. */
 export function suppressFalseMultiUse(text: string): string {
   let out = text;
