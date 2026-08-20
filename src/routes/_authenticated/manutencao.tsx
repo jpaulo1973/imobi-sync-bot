@@ -30,6 +30,7 @@ import {
 } from "@/lib/support.functions";
 import { DuplicatesPanel } from "@/components/DuplicatesPanel";
 import { ContactsBackfillPanel } from "@/components/ContactsBackfillPanel";
+import { CategoryBackfillPanel } from "@/components/CategoryBackfillPanel";
 import { PurgeExpiredPanel } from "@/components/PurgeExpiredPanel";
 import {
   backfillContactsFromSearches,
@@ -393,6 +394,8 @@ function ManutencaoPage() {
         loading={contactsLoading}
         onRun={runContactsBackfill}
       />
+
+      <CategoryBackfillPanel />
 
       <Card id="ajuda-sugestoes" className="p-6 space-y-4 scroll-mt-20">
         <div>

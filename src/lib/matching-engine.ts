@@ -128,6 +128,12 @@ export type BuyerLike = {
   estado_desejado?: string | null;
   /** Item 5a — categorias de topo pretendidas (opcional; derivadas de tipo_imovel se ausentes). */
   categorias?: string[] | null;
+  /**
+   * Release 1.2.12 — auditoria da decisão de categoria. Quando vale
+   * "indecidivel", a procura NÃO passa o filtro de tipo (em vez de aceitar
+   * qualquer imóvel), e é sinalizada para a Revisão.
+   */
+  categoria_origem?: string | null;
   area_min?: number | string | null;
   quartos_min?: number | null;
   garagem_obrigatoria?: boolean | null;
@@ -364,6 +370,16 @@ function tipoFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResult 
   // todos os tipos permanecem elegíveis. Se indicar, só imóveis com tipo
   // compatível passam.
   if (buyerTipos.length === 0) {
+    // Release 1.2.12 — procuras marcadas como indecidíveis (sem tipo, sem
+    // categoria e sem sinal no texto) deixam de aceitar tudo: falham o filtro
+    // e ficam à espera de resolução manual na Revisão.
+    if (buyer.categoria_origem === "indecidivel" && buyerCats.length === 0) {
+      return {
+        ok: false,
+        rejectReason: "TIPO_IMOVEL",
+        category: cat("tipo", "Tipo", false, "Tipo de imóvel da procura indeterminado — requer revisão"),
+      };
+    }
     return { ok: true, category: cat("tipo", "Tipo", true, property.tipo_imovel ?? "—") };
   }
   if (!pTipo) {

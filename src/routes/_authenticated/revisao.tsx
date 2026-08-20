@@ -10,10 +10,14 @@ import {
   setSearchLocations,
   setSearchLocationsBulk,
   discardSearches,
+  listSearchesSemTipo,
+  setSearchCategories,
   type BulkPhoneLineResult,
   type ConsultorSemTelefone,
   type SearchSemLocalizacaoItem,
+  type SearchSemTipoItem,
 } from "@/lib/review.functions";
+import { CATEGORY_LABELS, type PropertyCategory } from "@/lib/property-taxonomy";
 import { promoteAlias } from "@/lib/geo/geo.functions";
 import { normalizeGeoText } from "@/lib/geo/geo-context";
 import { LocationSelector } from "@/components/entity-selector/LocationSelector";
@@ -47,6 +51,7 @@ import {
   FileSpreadsheet,
   Globe,
   Trash2,
+  Building2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -113,6 +118,9 @@ function RevisaoPage() {
           <TabsTrigger value="localizacao">
             <MapPin className="w-4 h-4 mr-1" /> Sem localização
           </TabsTrigger>
+          <TabsTrigger value="tipo">
+            <Building2 className="w-4 h-4 mr-1" /> Sem tipo de imóvel
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="telefone" className="space-y-6">
@@ -150,7 +158,178 @@ function RevisaoPage() {
         <TabsContent value="localizacao">
           <SemLocalizacaoPanel />
         </TabsContent>
+
+        <TabsContent value="tipo">
+          <SemTipoPanel />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Release 1.2.12 — Procuras sem tipo de imóvel decidido. Estas procuras estão
+// fora do Motor Match (falham o filtro de tipo) até alguém decidir a categoria.
+// ---------------------------------------------------------------------------
+
+function SemTipoPanel() {
+  const listFn = useServerFn(listSearchesSemTipo);
+  const saveFn = useServerFn(setSearchCategories);
+  const [items, setItems] = useState<SearchSemTipoItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [cats, setCats] = useState<PropertyCategory[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const reload = () => {
+    setLoading(true);
+    setSelected(new Set());
+    listFn()
+      .then((r) => setItems(r.items))
+      .catch((e) => toast.error(e instanceof Error ? e.message : "Erro"))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => {
+    reload();
+  }, []);
+
+  const q = query.trim().toLowerCase();
+  const visible = items.filter((it) => {
+    if (!q) return true;
+    return [it.resumo, it.texto_original, it.consultor_nome, it.contact_nome, it.tipologia]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(q);
+  });
+
+  const toggle = (id: string) =>
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const toggleCat = (c: PropertyCategory) =>
+    setCats((cur) => (cur.includes(c) ? cur.filter((x) => x !== c) : [...cur, c]));
+
+  const apply = async () => {
+    setBusy(true);
+    try {
+      const ids = [...selected];
+      const r = await saveFn({ data: { ids, categorias: cats } });
+      toast.success(`${r.updated} procura(s) atualizada(s) e recruzada(s).`);
+      setItems((cur) => cur.filter((x) => !selected.has(x.id)));
+      setSelected(new Set());
+      setCats([]);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao gravar");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Building2 className="w-4 h-4 text-muted-foreground" />
+          <h2 className="font-semibold">Procuras sem tipo de imóvel</h2>
+          <Badge variant="secondary" className="ml-auto tabular-nums">
+            {loading ? "…" : `${visible.length} / ${items.length}`}
+          </Badge>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          O sistema não conseguiu decidir que tipo de imóvel a procura pretende, por isso ela
+          <strong> não produz matches</strong> (em vez de aceitar tudo). Escolha as categorias,
+          marque as procuras e grave — voltam imediatamente ao Motor Match.
+        </p>
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Pesquisar na mensagem, consultor ou tipologia…"
+        />
+        <div className="flex flex-wrap gap-2">
+          {(Object.keys(CATEGORY_LABELS) as PropertyCategory[]).map((c) => (
+            <Button
+              key={c}
+              type="button"
+              size="sm"
+              variant={cats.includes(c) ? "default" : "outline"}
+              onClick={() => toggleCat(c)}
+            >
+              {CATEGORY_LABELS[c]}
+            </Button>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy || cats.length === 0 || selected.size === 0}
+            onClick={() => void apply()}
+          >
+            <Save className="w-4 h-4 mr-1" />
+            {busy ? "A gravar…" : `Aplicar a ${selected.size} procura(s)`}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setSelected(new Set(visible.map((v) => v.id)))}
+            disabled={visible.length === 0}
+          >
+            Marcar visíveis
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => setSelected(new Set())}>
+            Limpar seleção
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={reload} disabled={loading}>
+            Recarregar
+          </Button>
+        </div>
+      </Card>
+
+      {loading ? (
+        <p className="text-sm text-muted-foreground">A carregar…</p>
+      ) : visible.length === 0 ? (
+        <Card className="p-6 text-center text-muted-foreground">
+          Todas as procuras ativas têm tipo de imóvel definido.
+        </Card>
+      ) : (
+        visible.map((it) => (
+          <Card key={it.id} className="p-4 space-y-2">
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4"
+                checked={selected.has(it.id)}
+                onChange={() => toggle(it.id)}
+                aria-label="Selecionar procura"
+              />
+              <div className="flex-1 min-w-0 space-y-1">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="font-medium">{it.resumo ?? "(sem resumo)"}</span>
+                  {it.origem && <Badge variant="outline">{it.origem}</Badge>}
+                  {it.tipologia && <Badge variant="secondary">{it.tipologia}</Badge>}
+                  {it.categoria_origem && (
+                    <Badge variant="outline" className="text-[10px]">
+                      {it.categoria_origem}
+                    </Badge>
+                  )}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {it.consultor_nome ?? it.contact_nome ?? "—"}
+                  {it.grupo_whatsapp ? ` · ${it.grupo_whatsapp}` : ""}
+                </div>
+                {it.texto_original && <OriginalMessage text={it.texto_original} />}
+              </div>
+            </div>
+          </Card>
+        ))
+      )}
     </div>
   );
 }
