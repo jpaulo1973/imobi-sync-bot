@@ -180,6 +180,7 @@ export function detectMultiUse(input: CategoryInferInput): {
     const clean = suppressFalseMultiUse(stripAccents(blob));
     push(categoriesFromText(clean));
     if (HABITACIONAL_RE.test(clean)) push(["casas_apartamentos"]);
+    for (const [re, cat] of EXTRA_USE_PATTERNS) if (re.test(clean)) push([cat]);
   }
 
   return { multi_uso: sinais.length >= 2, sinais };
