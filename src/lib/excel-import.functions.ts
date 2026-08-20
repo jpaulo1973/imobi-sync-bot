@@ -1,5 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { computeBatchKey } from "./import-batch";
+import { touchImportBatch } from "./import-batch.server";
 import * as XLSX from "xlsx";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertAdminContext } from "./admin-guard.server";
@@ -372,6 +374,7 @@ const col = (row: Record<string, unknown>, ...names: string[]): unknown => {
 type OneRowOutcome = {
   linha: ExcelImportResult["linhas"][number];
   deltas: ChunkCounters;
+  renovadas: number;
   upsertedIds: string[];
 };
 
@@ -384,6 +387,7 @@ async function processOneRow(
   expires: string,
   geoSnap: Awaited<ReturnType<typeof LocationRepository.getSnapshot>>,
   contactos: Map<string, KnownContact>,
+  batch: { batchKey: string; batchFresh: boolean },
 ): Promise<OneRowOutcome> {
   const deltas: ChunkCounters = {
     novas: 0,
@@ -396,6 +400,7 @@ async function processOneRow(
     erros: 0,
   };
   const upsertedIds: string[] = [];
+  let renovadas = 0;
       const nome = s(col(raw, "Nome"));
       const telefoneFicheiro = s(col(raw, "WhatsApp", "Telefone", "Telemovel", "Telemóvel"));
       // Contactos persistentes: se o ficheiro não traz número mas já
@@ -434,6 +439,7 @@ async function processOneRow(
     deltas.ignoradas_sem_contacto++;
     return {
       deltas,
+      renovadas,
       upsertedIds,
       linha: {
           linha: linhaNumero,
@@ -460,6 +466,7 @@ async function processOneRow(
     deltas.descartadas_anuncio++;
     return {
       deltas,
+      renovadas,
       upsertedIds,
       linha: {
           linha: linhaNumero,
@@ -607,11 +614,14 @@ async function processOneRow(
           grupo_whatsapp: grupoWhatsapp,
           comunidade,
           location_ids: resolvedLocationIds,
+          batch_key: batch.batchKey || null,
+          batch_fresh: batch.batchFresh,
         };
 
         try {
           const res = await upsertOne(supabase, userId, row);
           upsertedIds.push(res.id);
+          if (res.renewed) renovadas++;
           if (geoFlag && !flagAsReview) {
             try {
               await supabase
@@ -692,6 +702,7 @@ async function processOneRow(
     deltas.erros++;
     return {
       deltas,
+      renovadas,
       upsertedIds,
       linha: {
           linha: linhaNumero,
@@ -714,6 +725,7 @@ async function processOneRow(
     deltas.erros++;
     return {
       deltas,
+      renovadas,
       upsertedIds,
       linha: {
           linha: linhaNumero,
@@ -742,6 +754,7 @@ async function processOneRow(
           : top.reason;
   return {
     deltas,
+    renovadas,
     upsertedIds,
     linha: {
         linha: linhaNumero,
@@ -764,6 +777,8 @@ const StartInput = z.object({ fileBase64: z.string().min(10), filename: z.string
 
 export type StartExcelImportResult = {
   batch_id: string;
+  /** Impressão digital do FICHEIRO (SHA-256 conteúdo + user). Gatilho de renovação. */
+  batch_key: string;
   expires_at: string;
   header_row: number; // 1-indexed para leitura humana
   total: number;
@@ -777,9 +792,11 @@ export const startExcelImport = createServerFn({ method: "POST" })
     await assertAdminContext(context);
     const { rows, headerIndex } = parseWorkbookRows(data.fileBase64);
     const batch_id = `xlsx_${Date.now()}`;
+    const batch_key = await computeBatchKey(data.fileBase64, context.userId);
     const expires = new Date(Date.now() + DURATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
     return {
       batch_id,
+      batch_key,
       expires_at: expires,
       header_row: headerIndex + 1,
       total: rows.length,
@@ -789,6 +806,8 @@ export const startExcelImport = createServerFn({ method: "POST" })
 
 const ChunkInput = z.object({
   batch_id: z.string().min(1),
+  batch_key: z.string().min(1).optional(),
+  filename: z.string().optional(),
   expires_at: z.string().min(1),
   rows: z.array(
     z.object({
@@ -802,6 +821,8 @@ export type ProcessExcelChunkResult = {
   counters: ChunkCounters;
   linhas: ExcelImportResult["linhas"];
   upsertedIds: string[];
+  /** Procuras que renovaram validade por este ficheiro ser um lote novo. */
+  renovadas: number;
 };
 
 export const processExcelChunk = createServerFn({ method: "POST" })
@@ -811,6 +832,13 @@ export const processExcelChunk = createServerFn({ method: "POST" })
     await assertAdminContext(context);
     const { supabase, userId } = context;
     const geoSnap = await LocationRepository.getSnapshot();
+    const batch = data.batch_key
+      ? await touchImportBatch(supabase, {
+          batchKey: data.batch_key,
+          origem: "excel",
+          filename: data.filename ?? null,
+        })
+      : { batchKey: "", isNew: false, fresh: false };
     // Uma única query para todos os nomes do chunk.
     const contactos = await lookupContacts(
       supabase,
@@ -831,6 +859,7 @@ export const processExcelChunk = createServerFn({ method: "POST" })
     };
     const linhas: ExcelImportResult["linhas"] = [];
     const upsertedIds: string[] = [];
+    let renovadas = 0;
     for (const pre of data.rows) {
       try {
         const res = await processOneRow(
@@ -842,10 +871,12 @@ export const processExcelChunk = createServerFn({ method: "POST" })
           data.expires_at,
           geoSnap,
           contactos,
+          { batchKey: batch.batchKey, batchFresh: batch.fresh },
         );
         for (const k of Object.keys(counters) as (keyof ChunkCounters)[]) {
           counters[k] += res.deltas[k];
         }
+        renovadas += res.renovadas;
         linhas.push(res.linha);
         upsertedIds.push(...res.upsertedIds);
       } catch (e) {
@@ -859,7 +890,7 @@ export const processExcelChunk = createServerFn({ method: "POST" })
         });
       }
     }
-    return { counters, linhas, upsertedIds };
+    return { counters, linhas, upsertedIds, renovadas };
   });
 
 const FinalizeInput = z.object({ batch_id: z.string().min(1) });
