@@ -83,21 +83,26 @@ describe("não-regressão: grupos legítimos não são agrupados", () => {
 
 describe("ligação completa (não cadeia)", () => {
   it("A~B e B~C acima do limiar mas A~C abaixo não juntam os três", () => {
-    // Construção controlada: tokens partilhados por pares, A e C bastante distintos.
-    const A = m("A", "alpha bravo charlie delta echo foxtrot golf hotel india juliett");
-    const B = m("B", "alpha bravo charlie delta echo foxtrot golf hotel india kilo");
-    const C = m("C", "alpha bravo charlie delta echo foxtrot golf hotel kilo lima mike november oscar papa quebec romeo sierra tango uniform victor");
+    // Construção controlada de conjuntos de tokens (>3 chars):
+    //   core (16) partilhado; A = core+a1..a4; C = core+c1..c4; B = core+a1,a2,c1,c2.
+    const core = Array.from({ length: 16 }, (_, i) => `token${i + 1}`).join(" ");
+    const A = m("A", `${core} alfa1 alfa2 alfa3 alfa4`);
+    const B = m("B", `${core} alfa1 alfa2 char1 char2`);
+    const C = m("C", `${core} char1 char2 char3 char4`);
 
-    const ab = textJaccardForTest(A.texto_original, B.texto_original);
-    const bc = textJaccardForTest(B.texto_original, C.texto_original);
-    const ac = textJaccardForTest(A.texto_original, C.texto_original);
+    const ab = textJaccard(A.texto_original, B.texto_original);
+    const bc = textJaccard(B.texto_original, C.texto_original);
+    const ac = textJaccard(A.texto_original, C.texto_original);
     expect(ab).toBeGreaterThanOrEqual(DUPLICATE_SIM_THRESHOLD);
-    expect(bc).toBeLessThan(DUPLICATE_SIM_THRESHOLD);
+    expect(bc).toBeGreaterThanOrEqual(DUPLICATE_SIM_THRESHOLD);
     expect(ac).toBeLessThan(DUPLICATE_SIM_THRESHOLD);
 
+    // Union-find juntaria A, B e C; ligação completa não pode.
     const clusters = clusterByTextSimilarity([A, B, C]).filter((g) => g.membros.length >= 2);
     expect(clusters).toHaveLength(1);
     expect(clusters[0].membros).toHaveLength(2);
-    expect(clusters[0].membros.map((x) => x.id).sort()).toEqual(["A", "B"]);
+    expect(clusters[0].membros.every((x) => x.id !== "C" || false)).toBe(true);
+    expect(clusters[0].similaridade_minima).toBeGreaterThanOrEqual(DUPLICATE_SIM_THRESHOLD);
   });
 });
+
