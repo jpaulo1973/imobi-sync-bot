@@ -1,66 +1,26 @@
-# Correção do "Fundir no selecionado" (Duplicados existentes)
+# Fusão de duplicados: seleção por subconjunto
 
-Objetivo: tornar a fusão de duplicados uma ação previsível e auditável — simular primeiro,
-confirmar depois, e não deixar lixo a apontar para procuras apagadas.
+## Objetivo
+No painel "Duplicados existentes", deixar de assumir que uma fusão abrange o grupo inteiro. O administrador escolhe **quais** procuras entram na fusão (checkboxes) e, entre essas, **qual fica**.
 
-Mantém-se intencionalmente: só o conteúdo da procura selecionada sobrevive (sem fusão de
-critérios), e a ação continua a ser grupo a grupo (sem ação em bloco).
+Caso real: "Sandra de Sousa Alves" tem uma procura T2 (Amial/Prelada) e várias T3+1/T4 (Antas). Mesma pessoa, mesmo telefone, necessidades diferentes — só as T3+1/T4 devem fundir entre si.
 
-## 1. Nova função de base de dados (SECURITY DEFINER)
+## Comportamento
 
-`admin_merge_duplicate_group(p_keep_id uuid, p_remove_ids uuid[], p_apply boolean)`
+- Cada membro do grupo passa a ter **checkbox** (todas marcadas por defeito) + **rádio "fica"** ativo apenas nos membros marcados.
+- O membro marcado como "fica" nunca pode ser desmarcado sem que a escolha salte para outro marcado (regra: se desmarcar o escolhido, o "fica" passa para o primeiro marcado restante).
+- Botão "Fundir no selecionado" fica desativado se houver menos de 2 marcadas (nada a fundir).
+- Contagem visível no botão/legenda: "vão ser apagadas N procura(s)" = marcadas − 1.
+- Procuras **desmarcadas** não são tocadas: continuam no painel após a fusão, disponíveis para nova fusão ou para "Manter separadas".
+- Depois de fundir um subconjunto, o grupo é **recarregado/atualizado localmente** em vez de removido: se sobrar ≥ 2 membros (a mantida + as desmarcadas) o grupo permanece visível; se sobrar 1, desaparece.
+- "Manter separadas" mantém-se ao nível do grupo inteiro (sem alteração).
 
-Motivo: hoje a fusão corre com as permissões do administrador via API. As notificações
-têm política de admin, mas os **estados de match não têm** — um admin a fundir procuras de
-outro consultor não consegue apagar esses estados, e ficariam órfãos de forma silenciosa.
-A função centraliza a operação com o mesmo padrão já usado em `admin_purge_expired_searches`.
+## Simulação e confirmação
+Sem alteração de contrato: a simulação já recebe `keep_id` + `remove_ids`. Passa a receber apenas os **IDs marcados** (menos o mantido), pelo que o diálogo mostra exatamente o subconjunto — contagens de oportunidades, notificações, estados e amostra. O texto do diálogo passa a dizer explicitamente que as procuras não incluídas ficam inalteradas.
 
-Comportamento:
-- Valida que quem chama é administrador e que `keep_id` existe e não está na lista a remover.
-- `p_apply = false` (Simular): não escreve nada; devolve contagens e amostra.
-- `p_apply = true` (Aplicar): apaga, pela ordem, `match_notifications` e `match_states`
-  (`buyer_source = 'search'` e `buyer_ref` nas procuras removidas), `match_opportunities`
-  dessas procuras, e por fim as próprias procuras; incrementa `merged_from_count` na
-  mantida e limpa `flagged_for_review`.
-
-Devolve, em ambos os modos:
-`{ aplicado, mantida, remover, oportunidades_removidas, notificacoes_removidas, estados_removidos, amostra }`
-onde `amostra` lista, por procura a remover: nome, origem, data, nº de oportunidades e de notificações.
-
-## 2. Server functions
-
-Em `src/lib/duplicates.functions.ts`:
-- `simulateMergeDuplicateGroup` — nova, chama a função acima com `p_apply = false`.
-- `mergeDuplicateGroup` — passa a chamar a mesma função com `p_apply = true` em vez de
-  fazer os `delete` diretos. Mantém o recruzamento da procura mantida (`recomputeForSearch`)
-  no fim, como hoje.
-
-## 3. Interface (`src/components/DuplicatesPanel.tsx`)
-
-O botão "Fundir no selecionado" deixa de apagar de imediato:
-1. Clicar → corre a simulação e abre um diálogo de confirmação.
-2. O diálogo mostra: qual a procura que fica, quantas são apagadas, e quantas oportunidades,
-   notificações e estados de match desaparecem — mais a lista das procuras a remover.
-3. Aviso claro de que a ação é definitiva e não reversível.
-4. Só o botão "Fundir definitivamente" aplica. "Cancelar" não grava nada.
-
-O botão "Manter separadas" fica como está.
-
-## 4. Testes
-
-Novo teste de regressão SQL (`supabase/tests/merge_duplicates_regression.sql`), no mesmo
-formato dos existentes:
-- cria duas procuras da mesma pessoa, com oportunidades, notificações e estados em ambas;
-- corre em modo Simular → confirma que **nada** foi apagado e que as contagens devolvidas
-  correspondem à realidade;
-- corre em modo Aplicar → confirma que a procura mantida sobrevive e que **não sobra
-  nenhuma notificação nem estado** a apontar para as procuras removidas (o caso do órfão);
-- confirma que `merged_from_count` foi incrementado.
-
-Mais um teste unitário para a construção do resumo apresentado no diálogo.
-
-## Notas
-
-- Sem alterações ao motor de match, à deduplicação da importação ou a qualquer outro painel.
-- A função antiga não é removida do código; é a mesma server function, com o interior a
-  passar pela nova função de base de dados.
+## Detalhes técnicos
+- Ficheiro alterado: `src/components/DuplicatesPanel.tsx` apenas.
+- Estado novo: `selected: Record<groupKey, Set<memberId>>` inicializado com todos os membros ao carregar; `keep` mantém-se e é validado contra `selected`.
+- `removeIdsOf(g, keepId)` passa a filtrar por `selected[g.key]`.
+- Após aplicar: em vez de `filter(x => x.key !== grupo.key)`, remover das membros do grupo os IDs fundidos e descartar o grupo se ficar com < 2 membros; recalcular `excedentes` e o total.
+- Sem alterações na RPC `admin_merge_duplicate_group`, nas server functions (`src/lib/duplicates.functions.ts`) nem nos testes SQL — já operam sobre listas explícitas de IDs.
