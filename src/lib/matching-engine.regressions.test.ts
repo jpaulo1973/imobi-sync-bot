@@ -192,3 +192,58 @@ describe("Release 1.2 — regressões", () => {
     expect(r.rejectReason).toBe("LOCALIZACAO");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Release 1.2.12 — procuras indecidíveis (sem tipo, sem categoria) deixam de
+// aceitar tudo: falham o filtro de tipo e esperam resolução na Revisão.
+// ---------------------------------------------------------------------------
+describe("Release 1.2.12 — filtro de tipo para indecidíveis", () => {
+  const property: PropertyLike = {
+    finalidade: "venda",
+    tipo_imovel: "Apartamento",
+    tipologia: "T2",
+    location_id: LISBOA,
+    preco: 250000,
+  };
+
+  it("indecidivel sem categorias falha com TIPO_IMOVEL", () => {
+    const buyer: BuyerLike = {
+      finalidade: "venda",
+      tipo_imovel: [],
+      categorias: [],
+      categoria_origem: "indecidivel",
+      tipologia: null,
+      location_ids: [LISBOA],
+      budget_max: 400000,
+    };
+    const r = scoreMatch(buyer, property, { geoIndex });
+    expect(r.compatible).toBe(false);
+    expect(r.rejectReason).toBe("TIPO_IMOVEL");
+  });
+
+  it("origem resolvida (tipologia) com categoria continua a passar o filtro de tipo", () => {
+    const buyer: BuyerLike = {
+      finalidade: "venda",
+      tipo_imovel: [],
+      categorias: ["casas_apartamentos"],
+      categoria_origem: "tipologia",
+      tipologia: null,
+      location_ids: [LISBOA],
+      budget_max: 400000,
+    };
+    const r = scoreMatch(buyer, property, { geoIndex });
+    expect(r.rejectReason).not.toBe("TIPO_IMOVEL");
+  });
+
+  it("procura antiga sem categoria_origem mantém comportamento permissivo", () => {
+    const buyer: BuyerLike = {
+      finalidade: "venda",
+      tipo_imovel: [],
+      tipologia: null,
+      location_ids: [LISBOA],
+      budget_max: 400000,
+    };
+    const r = scoreMatch(buyer, property, { geoIndex });
+    expect(r.compatible).toBe(true);
+  });
+});
