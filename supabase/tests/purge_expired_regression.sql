@@ -10,14 +10,14 @@
 BEGIN;
 
 -- Replica a regra de elegibilidade do RPC (lista branca + janela p_dias = 0).
-CREATE TEMP TABLE _searches ON COMMIT DROP (
+CREATE TEMP TABLE _searches (
   id uuid primary key default gen_random_uuid(),
   origem text not null,
   expires_at timestamptz
-);
-CREATE TEMP TABLE _notif ON COMMIT DROP (buyer_source text, buyer_ref uuid);
-CREATE TEMP TABLE _states ON COMMIT DROP (buyer_source text, buyer_ref uuid);
-CREATE TEMP TABLE _opps ON COMMIT DROP (active_search_id uuid);
+) ON COMMIT DROP;
+CREATE TEMP TABLE _notif (buyer_source text, buyer_ref uuid) ON COMMIT DROP;
+CREATE TEMP TABLE _states (buyer_source text, buyer_ref uuid) ON COMMIT DROP;
+CREATE TEMP TABLE _opps (active_search_id uuid) ON COMMIT DROP;
 
 INSERT INTO _searches (origem, expires_at) VALUES
   ('excel',    now() - interval '1 day'),
