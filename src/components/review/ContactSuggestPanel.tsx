@@ -8,7 +8,7 @@ import { useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Contact, Upload, X } from "lucide-react";
+import { Check, Contact, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   buildSuggestions,
