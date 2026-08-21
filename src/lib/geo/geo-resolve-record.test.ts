@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { indexSnapshot } from "./location-repository";
 import { resolveRecordLocation } from "./geo-resolve-record";
-import { classifyProperty, classifySearch } from "./homonym-backfill";
+import { classifyProperty, classifySearch, losesLevel } from "./homonym-backfill";
 import type { Location } from "./geo-types";
 
 const loc = (
@@ -145,5 +145,48 @@ describe("classificação do backfill", () => {
     const nada = resolveRecordLocation({ zona: "Marbella" }, snap);
     expect(classifyProperty("c-setubal", nada, snap)).toBe("mantem");
     expect(classifySearch(["c-setubal"], nada, snap)).toBe("mantem");
+  });
+});
+
+describe("padrões de substituição do backfill (dry-run 21/08)", () => {
+  it("freguesia noutro concelho: substitui o concelho homónimo pelo real", () => {
+    // Padrão dos 101 casos "Lisboa/Porto/Setúbal -> outro concelho".
+    const r = resolveRecordLocation(
+      { distrito: "Setúbal", concelho: "Grândola", freguesia: "Carvalhal" },
+      snap,
+    );
+    expect(r.location_ids).toEqual(["f-carvalhal-grandola"]);
+    expect(classifySearch(["c-setubal"], r, snap)).toBe("corrige");
+    expect(losesLevel("c-setubal", r.location_id, snap)).toBe(false);
+  });
+
+  it("falso positivo de zona removido: zona fora do contexto não entra nos IDs", () => {
+    // Padrão dos 64 casos "concelho -> (removido)": a zona em texto livre
+    // resolvia um concelho aleatório e o contexto agora descarta-o.
+    const r = resolveRecordLocation(
+      { distrito: "Lisboa", concelho: "Lisboa", zona: "Porto" },
+      snap,
+    );
+    expect(r.location_ids).toEqual(["c-lisboa"]);
+    expect(r.discarded).toEqual([
+      { field: "zona", raw: "Porto", ids: ["c-porto"], reason: "fora_contexto" },
+    ]);
+    expect(classifySearch(["c-lisboa", "c-porto"], r, snap)).toBe("corrige");
+  });
+
+  it("alargamento concelho→distrito só com distrito em texto: perde nível e fica de fora", () => {
+    const r = resolveRecordLocation({ distrito: "Leiria" }, snap);
+    expect(r.location_id).toBe("d-leiria");
+    // Imóvel ancorado numa freguesia de Leiria não deve recuar para o distrito.
+    expect(losesLevel("c-bombarral", r.location_id, snap)).toBe(true);
+    expect(losesLevel("f-carvalhal-bombarral", r.location_id, snap)).toBe(true);
+  });
+
+  it("união de freguesias em falta: freguesia→concelho é perda de nível", () => {
+    // Caso real C0440-00971/00969 (União de Vagos e Santo António).
+    const r = resolveRecordLocation({ concelho: "Grândola", zona: "Tróia" }, snap);
+    expect(r.location_id).toBe("c-grandola");
+    expect(losesLevel("f-carvalhal-grandola", r.location_id, snap)).toBe(true);
+    expect(losesLevel("d-setubal", r.location_id, snap)).toBe(false);
   });
 });
