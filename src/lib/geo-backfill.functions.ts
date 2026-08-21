@@ -40,7 +40,7 @@ export const backfillGeoFromText = createServerFn({ method: "POST" })
 
     const { LocationRepository } = await import("./geo/location-repository");
     const { fetchAllRows } = await import("./geo/location-repository");
-    const { parseLocations } = await import("./geo");
+    const { resolveRecordLocation } = await import("./geo/geo-resolve-record");
     const { setRequestClient } = await import("@/lib/privileged.server");
     setRequestClient(context.supabase);
     const supabaseAdmin = context.supabase as any;
@@ -62,21 +62,11 @@ export const backfillGeoFromText = createServerFn({ method: "POST" })
     const propUpdates: Array<() => Promise<unknown>> = [];
 
     for (const p of (props ?? []) as Array<{ id: string; distrito: string | null; concelho: string | null; freguesia: string | null; zona: string | null }>) {
-      const candidates = (
-        [
-          [p.freguesia, "freguesia"],
-          [p.concelho, "concelho"],
-          [p.zona, "zona"],
-          [p.distrito, "distrito"],
-        ] as Array<[string | null, "freguesia" | "concelho" | "zona" | "distrito"]>
-      )
-        .map(([v, field]) => [(v ?? "").trim(), field] as const)
-        .filter(([v]) => v.length > 0);
-      let matched: string | null = null;
-      for (const [t, field] of candidates) {
-        const r = parseLocations(t, snap, { field });
-        if (r.resolved.length > 0) { matched = r.resolved[0]; break; }
-      }
+      const res = resolveRecordLocation(
+        { distrito: p.distrito, concelho: p.concelho, freguesia: p.freguesia, zona: p.zona },
+        snap,
+      );
+      const matched = res.location_id;
       if (matched) {
         propsResolved++;
         propUpdates.push(() =>
@@ -87,7 +77,7 @@ export const backfillGeoFromText = createServerFn({ method: "POST" })
         );
       } else {
         propsUnresolved++;
-        if (candidates[0]) unresolvedPropTexts.push(candidates[0][0]);
+        if (res.unresolved_text) unresolvedPropTexts.push(res.unresolved_text);
       }
     }
     // Executar em paralelo (chunks) para evitar timeout.
@@ -109,38 +99,31 @@ export const backfillGeoFromText = createServerFn({ method: "POST" })
       const current = (s.location_ids ?? []) as string[];
       if (current.length > 0) continue; // já resolvido
       const c = (s.criteria ?? {}) as Record<string, unknown>;
-      const candidates = (
-        [
-          [c.freguesia, "freguesia"],
-          [c.zona, "zona"],
-          [c.municipio, "concelho"],
-          [c.distrito, "distrito"],
-        ] as Array<[unknown, "freguesia" | "concelho" | "zona" | "distrito"]>
-      )
-        .map(([v, field]) => [typeof v === "string" ? v.trim() : "", field] as const)
-        .filter(([v]) => v.length > 0);
-      const acc = new Set<string>();
-      for (const [t, field] of candidates) {
-        const r = parseLocations(t, snap, { field });
-        if (r.resolved.length > 0) {
-          for (const id of r.resolved) acc.add(id);
-          break;
-        }
-      }
-      if (acc.size > 0) {
+      const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+      const res = resolveRecordLocation(
+        {
+          distrito: str(c.distrito),
+          concelho: str(c.municipio),
+          freguesia: str(c.freguesia),
+          zona: str(c.zona),
+        },
+        snap,
+      );
+      if (res.location_ids.length > 0) {
         searchesResolved++;
         searchUpdates.push(() =>
           Promise.resolve(supabaseAdmin
             .from("active_searches")
-            .update({ location_ids: [...acc] })
+            .update({ location_ids: res.location_ids })
             .eq("id", s.id)),
         );
-      } else if (candidates.length > 0) {
+      } else if (res.unresolved_text) {
         searchesUnresolved++;
-        unresolvedSearchTexts.push(candidates[0][0]);
+        unresolvedSearchTexts.push(res.unresolved_text);
       }
     }
     await runChunks(searchUpdates, 20);
+
 
     return {
       properties: {
