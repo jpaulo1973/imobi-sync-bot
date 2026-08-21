@@ -34,7 +34,8 @@ export type HomonymCounts = Record<GeoBackfillClass, number>;
 export type HomonymBackfillResult = {
   applied: boolean;
   incluir_especializa: boolean;
-  imoveis: HomonymCounts & { total: number; atualizados: number };
+  excluir_perda_nivel: boolean;
+  imoveis: HomonymCounts & { total: number; atualizados: number; excluidos_perda_nivel: number };
   procuras: HomonymCounts & { total: number; atualizados: number };
   recompute: { procuras: number; oportunidades: number } | null;
   amostra: HomonymSample[];
@@ -43,6 +44,8 @@ export type HomonymBackfillResult = {
 
 const Input = z.object({
   apply: z.boolean().default(false),
+  /** Deixa de fora as mudanças freguesia → concelho (freguesia em falta na biblioteca). */
+  excluir_perda_nivel: z.boolean().default(true),
   incluir_especializa: z.boolean().default(false),
   sample: z.number().int().min(1).max(200).default(40),
 });
@@ -62,7 +65,7 @@ export const backfillHomonymGeo = createServerFn({ method: "POST" })
 
     const { LocationRepository, fetchAllRows } = await import("./geo/location-repository");
     const { resolveRecordLocation } = await import("./geo/geo-resolve-record");
-    const { classifyProperty, classifySearch } = await import("./geo/homonym-backfill");
+    const { classifyProperty, classifySearch, losesLevel } = await import("./geo/homonym-backfill");
     const { setRequestClient } = await import("@/lib/privileged.server");
     setRequestClient(context.supabase);
     const db = context.supabase as any;
@@ -72,7 +75,7 @@ export const backfillHomonymGeo = createServerFn({ method: "POST" })
       id ? `${snap.byId.get(id)?.nome ?? "?"} (${snap.byId.get(id)?.tipo ?? "?"})` : "—";
 
     const amostra: HomonymSample[] = [];
-    const imoveis = { ...emptyCounts(), total: 0, atualizados: 0 };
+    const imoveis = { ...emptyCounts(), total: 0, atualizados: 0, excluidos_perda_nivel: 0 };
     const procuras = { ...emptyCounts(), total: 0, atualizados: 0 };
 
     const gravar = (c: GeoBackfillClass) =>
@@ -95,6 +98,9 @@ export const backfillHomonymGeo = createServerFn({ method: "POST" })
       );
       const classe = classifyProperty(p.location_id ?? null, res, snap);
       imoveis[classe]++;
+      const perdeNivel =
+        gravar(classe) && losesLevel(p.location_id ?? null, res.location_id, snap);
+      if (perdeNivel && data.excluir_perda_nivel) imoveis.excluidos_perda_nivel++;
       if (classe !== "mantem" && amostra.length < data.sample) {
         amostra.push({
           id: p.id,
@@ -104,10 +110,15 @@ export const backfillHomonymGeo = createServerFn({ method: "POST" })
           antes: nome(p.location_id ?? null),
           depois: nome(res.location_id),
           classe,
-          descartados: res.discarded.map((d) => `${d.field}="${d.raw}" (${d.reason})`).join("; "),
+          descartados: [
+            perdeNivel && data.excluir_perda_nivel ? "excluído: perde nível (freguesia em falta na biblioteca)" : "",
+            res.discarded.map((d) => `${d.field}="${d.raw}" (${d.reason})`).join("; "),
+          ]
+            .filter(Boolean)
+            .join(" · "),
         });
       }
-      if (gravar(classe) && res.location_id) {
+      if (gravar(classe) && res.location_id && !(perdeNivel && data.excluir_perda_nivel)) {
         propUpdates.push({ id: p.id, user_id: p.user_id, location_id: res.location_id });
       }
     }
@@ -211,6 +222,7 @@ export const backfillHomonymGeo = createServerFn({ method: "POST" })
 
     return {
       applied: data.apply,
+      excluir_perda_nivel: data.excluir_perda_nivel,
       incluir_especializa: data.incluir_especializa,
       imoveis,
       procuras,
