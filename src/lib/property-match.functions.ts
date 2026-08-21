@@ -314,16 +314,32 @@ export const countPropertyOpportunities = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase, userId } = context;
-    const [{ data: properties }, { data: buyers }] = await Promise.all([
-      supabase.from("properties").select("*").eq("user_id", userId).eq("ativo", true),
-      supabase.from("buyer_clients").select("*").eq("user_id", userId).eq("ativo", true),
-    ]);
-    const { setRequestClient, poolActiveSearches } = await import("@/lib/privileged.server");
+    const { setRequestClient, poolActiveSearches, poolProperties, poolBuyerClients } =
+      await import("@/lib/privileged.server");
     setRequestClient(supabase);
-    const searches = await poolActiveSearches();
+    const [allProperties, allBuyers, searches] = await Promise.all([
+      poolProperties(),
+      poolBuyerClients(),
+      poolActiveSearches(),
+    ]);
+
+    // A contagem é feita na perspetiva do dono real de cada imóvel: o Admin
+    // vê imóveis de outros consultores e essas contagens têm de refletir os
+    // compradores desses consultores, não os da sessão.
+    const properties = (allProperties ?? []).filter((p: any) => p.ativo !== false);
+    const buyersByOwner = new Map<string, any[]>();
+    for (const b of allBuyers ?? []) {
+      if ((b as any).ativo === false) continue;
+      const owner = (b as any).user_id as string;
+      const arr = buyersByOwner.get(owner);
+      if (arr) arr.push(b);
+      else buyersByOwner.set(owner, [b]);
+    }
 
     const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
     // Estados marcados como 'nao_interessado' — filtrados da contagem.
+    // Nota: match_states é pessoal (RLS por utilizador), logo só descarta
+    // pares do próprio utilizador da sessão.
     const { data: stateRows } = await supabase
       .from("match_states")
       .select("property_id, buyer_source, buyer_ref, state")
@@ -333,55 +349,21 @@ export const countPropertyOpportunities = createServerFn({ method: "POST" })
     for (const s of stateRows ?? []) {
       dismissed.add(`${(s as any).property_id}|${(s as any).buyer_source}-${(s as any).buyer_ref}`);
     }
-    const counts: Record<string, number> = {};
-    for (const p of properties ?? []) {
-      // Sprint 1.2.3 — contar identidades únicas por (property, buyer),
-      // não linhas cruas. Aceita apenas o melhor score por identidade.
-      const bestByIdentity = new Map<string, number>();
-      const bump = (id: string, sc: number) => {
-        const prev = bestByIdentity.get(id);
-        if (prev == null || sc > prev) bestByIdentity.set(id, sc);
-      };
-      for (const b of buyers ?? []) {
-        if (dismissed.has(`${p.id}|cliente-${b.id}`)) continue;
-        const r = scoreMatch(b as BuyerLike, p as any, { geoIndex });
-        if (!r.compatible) continue;
-        bump(
-          buyerIdentityKey((b as any).telefone, (b as any).nome, `cliente:${b.id}`),
-          r.score,
-        );
-      }
-      for (const q of searches ?? []) {
-        if (dismissed.has(`${p.id}|search-${q.id}`)) continue;
-        const r = scoreMatch(
-          {
-            ...criteriaToBuyer(q.criteria, (q as any).location_ids ?? []),
-            resumo: (q as any).resumo ?? null,
-            texto_original: (q as any).texto_original ?? null,
-          },
-          p as any,
-          { geoIndex },
-        );
-        if (!r.compatible) continue;
-        const c = (q.criteria ?? {}) as any;
-        const rawPhone =
-          (typeof (q as any).contact_telefone === "string" && (q as any).contact_telefone.trim()) ||
-          (typeof c?.telefone === "string" && c.telefone.trim()) ||
-          null;
-        const rawName =
-          (typeof (q as any).contact_nome === "string" && (q as any).contact_nome.trim()) ||
-          (typeof c?.nome === "string" && c.nome.trim()) ||
-          null;
-        bump(buyerIdentityKey(rawPhone, rawName, `search:${q.id}`), r.score);
-      }
-      counts[p.id] = bestByIdentity.size;
-    }
+
+    const counts = countMatchesForProperties({
+      properties,
+      buyersByOwner,
+      searches: searches ?? [],
+      geoIndex,
+      dismissed,
+    });
     return {
       counts,
-      totalBuyers: (buyers ?? []).length,
+      totalBuyers: (buyersByOwner.get(userId) ?? []).length,
       totalGlobal: (searches ?? []).length,
     };
   });
+
 
 export const runPropertyMatch = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
