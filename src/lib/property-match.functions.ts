@@ -13,6 +13,12 @@ import {
 } from "./matching-engine";
 import { LocationRepository } from "./geo";
 import { loadConsultorMeta, loadConsultorDirectory, resolveConsultor } from "./opportunity-privacy";
+import {
+  criteriaToBuyer,
+  buyerIdentityKey,
+  dedupByIdentity,
+  countMatchesForProperties,
+} from "./property-match-counts";
 
 // ---------------------------------------------------------------------------
 // Release 1.2 — Property Opportunities
