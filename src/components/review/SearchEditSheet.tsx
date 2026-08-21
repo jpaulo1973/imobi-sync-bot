@@ -315,6 +315,27 @@ export function SearchEditSheet({
             </div>
 
             <div className="space-y-2">
+              <Label className="text-xs">Tipo de negócio</Label>
+              <div className="flex flex-wrap gap-2">
+                {(Object.keys(FINALIDADE_LABELS) as Finalidade[]).map((f) => (
+                  <Button
+                    key={f}
+                    type="button"
+                    size="sm"
+                    variant={form.finalidade === f ? "default" : "outline"}
+                    onClick={() => set("finalidade", f)}
+                  >
+                    {FINALIDADE_LABELS[f]}
+                  </Button>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Trespasses são tratados no bloco “Tipo de imóvel (categorias)”.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+
               <Label className="text-xs">Tipo de imóvel (categorias)</Label>
               <div className="flex flex-wrap gap-2">
                 {(Object.keys(CATEGORY_LABELS) as PropertyCategory[]).map((c) => (
