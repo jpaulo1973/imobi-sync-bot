@@ -66,80 +66,9 @@ export type Opportunity = {
   isOwner: boolean;
 };
 
-function criteriaToBuyer(c: any, location_ids: string[] = []): BuyerLike {
-  const finalidade = c?.finalidade === "indefinido" ? undefined : c?.finalidade;
-  const gar = ((c?.caracteristicas ?? []) as string[]).some((x) => /garagem/i.test(x));
-  const ele = ((c?.caracteristicas ?? []) as string[]).some((x) => /elevador/i.test(x));
-  return {
-    finalidade,
-    tipo_imovel: c?.tipo_imovel ?? null,
-    tipologia: c?.tipologia ?? null,
-    location_ids,
-    budget_min: c?.budget_min ?? null,
-    categorias: Array.isArray(c?.categorias) ? c.categorias : null,
-    categoria_origem: typeof c?.categoria_origem === "string" ? c.categoria_origem : null,
-    budget_max_obras: c?.budget_max_obras ?? null,
-    budget_max_pronto: c?.budget_max_pronto ?? null,
-    estado_desejado: c?.estado_desejado ?? null,
-    budget_max: c?.budget_max ?? null,
-    area_min: c?.area_min ?? null,
-    quartos_min: c?.quartos_min ?? null,
-    garagem_obrigatoria: gar,
-    elevador_obrigatorio: ele,
-    proximity: c?.proximity ?? null,
-    caracteristicas: Array.isArray(c?.caracteristicas) ? c.caracteristicas : null,
-  };
-}
+// Helpers puros (identidade/dedup/criteriaToBuyer) vivem em
+// ./property-match-counts para poderem ser testados sem server functions.
 
-// ---------------------------------------------------------------------------
-// Sprint 1.2.3 — Deduplicação de oportunidades
-//
-// Regra funcional: para a mesma combinação (Property, Buyer) só existe uma
-// oportunidade apresentada; caso existam múltiplos resultados para a mesma
-// combinação, manter apenas a oportunidade com maior Match Score.
-//
-// Como o mesmo comprador pode surgir simultaneamente em `buyer_clients` e
-// em várias `active_searches` (importações WhatsApp/Excel repetidas), a
-// deduplicação é feita por *identidade do comprador* — telefone normalizado
-// ou, em fallback, nome normalizado — e não apenas por buyer_ref.
-// ---------------------------------------------------------------------------
-function normDedupPhone(v: unknown): string {
-  if (v == null) return "";
-  let s = String(v).replace(/\D+/g, "");
-  if (s.startsWith("00")) s = s.slice(2);
-  if (s.startsWith("351") && s.length > 9) s = s.slice(-9);
-  return s.length >= 9 ? s : "";
-}
-function normDedupName(v: unknown): string {
-  if (typeof v !== "string") return "";
-  return v
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-}
-function buyerIdentityKey(
-  telefone: string | null | undefined,
-  nome: string | null | undefined,
-  fallback: string,
-): string {
-  const phone = normDedupPhone(telefone);
-  if (phone) return `phone:${phone}`;
-  const name = normDedupName(nome);
-  if (name) return `name:${name}`;
-  return fallback;
-}
-function dedupByIdentity<T extends { score: number }>(
-  items: Array<{ identity: string; opp: T }>,
-): T[] {
-  const best = new Map<string, { identity: string; opp: T }>();
-  for (const it of items) {
-    const prev = best.get(it.identity);
-    if (!prev || it.opp.score > prev.opp.score) best.set(it.identity, it);
-  }
-  return Array.from(best.values()).map((v) => v.opp);
-}
 
 export const runPropertyOpportunities = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
