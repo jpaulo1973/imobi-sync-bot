@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { LocationSelector } from "@/components/entity-selector/LocationSelector";
 import { resolveCategory, normalizeCondition } from "@/lib/property-taxonomy";
+import { inferPropertyCategory } from "@/lib/property-category-infer";
 import {
   Dialog,
   DialogContent,
@@ -500,8 +501,13 @@ function ImoveisPage() {
       finalidade: form.finalidade,
       tipo_imovel: form.tipo_imovel || null,
       subtipo_imovel: form.subtipo_imovel || null,
-      // Item 5 — categoria da taxonomia derivada do tipo (fonte única).
-      categoria: resolveCategory(form.subtipo_imovel) ?? resolveCategory(form.tipo_imovel),
+      // Item 5 / Release 1.3.1 — categoria da taxonomia derivada do tipo, com
+      // fallback determinístico à tipologia (fonte única, sem fail-open).
+      categoria: inferPropertyCategory({
+        subtipo_imovel: form.subtipo_imovel,
+        tipo_imovel: form.tipo_imovel,
+        tipologia: form.tipologia,
+      }).categoria,
       estado: normalizeCondition(form.estado),
       tipologia: form.tipologia.trim() ? form.tipologia.trim() : semTipologia ? "N/D" : "N/D",
       preco: form.preco ? Number(form.preco) : 0,
