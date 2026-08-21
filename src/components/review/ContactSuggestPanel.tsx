@@ -186,7 +186,8 @@ export function ContactSuggestPanel({
 
               </div>
               <p className="text-muted-foreground">
-                As sugestões aparecem pré-preenchidas no cartão de cada consultor, em baixo.
+                Clique em “Aplicar sugestão” para pré-preencher o campo de telefone no cartão do
+                consultor, em baixo. Nada é gravado até clicar “Guardar” nesse cartão.
               </p>
             </div>
           )}
