@@ -17,6 +17,31 @@ export type GeoBackfillClass =
   /** Texto contraditório: exige revisão humana, nunca grava. */
   | "conflito";
 
+const NIVEL: Record<string, number> = {
+  freguesia: 4,
+  zona_funcional: 3,
+  concelho: 2,
+  distrito: 1,
+};
+
+/**
+ * A mudança troca um nível mais fino por um mais grosso (ex.: freguesia →
+ * concelho)? Acontece quando a freguesia em texto ainda não existe na
+ * biblioteca (uniões de freguesias) e o resolutor recua para o concelho.
+ * Estes casos ficam fora do "Aplicar" por omissão: primeiro acrescenta-se o
+ * alias/freguesia à biblioteca, depois corrige-se com o nível certo.
+ */
+export function losesLevel(
+  currentId: string | null,
+  nextId: string | null,
+  snap: GeoSnapshot,
+): boolean {
+  if (!currentId || !nextId || currentId === nextId) return false;
+  const a = NIVEL[snap.byId.get(currentId)?.tipo ?? ""] ?? 0;
+  const b = NIVEL[snap.byId.get(nextId)?.tipo ?? ""] ?? 0;
+  return a > b;
+}
+
 /** Imóvel: um único `location_id`. */
 export function classifyProperty(
   currentId: string | null,
