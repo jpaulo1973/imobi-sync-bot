@@ -151,6 +151,7 @@ export function ContactSuggestPanel({
                       <th className="text-left px-2 py-1">Contacto de origem</th>
                       <th className="text-left px-2 py-1">%</th>
                       <th className="text-left px-2 py-1">Procuras</th>
+                      <th className="text-right px-2 py-1">Ação</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -168,10 +169,21 @@ export function ContactSuggestPanel({
                           )}
                         </td>
                         <td className="px-2 py-1 tabular-nums">{s.procuras_afetadas}</td>
+                        <td className="px-2 py-1 text-right whitespace-nowrap">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="h-7 px-2 text-[11px]"
+                            onClick={() => onApply?.(s)}
+                          >
+                            <Check className="w-3 h-3 mr-1" /> Aplicar sugestão
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+
               </div>
               <p className="text-muted-foreground">
                 As sugestões aparecem pré-preenchidas no cartão de cada consultor, em baixo.
