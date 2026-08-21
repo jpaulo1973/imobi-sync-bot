@@ -27,7 +27,7 @@ export type RecordGeoText = {
 };
 
 export type DiscardedCandidate = {
-  field: "freguesia" | "concelho" | "zona";
+  field: "distrito" | "freguesia" | "concelho" | "zona";
   raw: string;
   ids: string[];
   reason: "fora_contexto" | "ambiguo";
@@ -169,7 +169,7 @@ export function resolveRecordLocation(
       distritoId = cands[0]!;
       audit.push({ step: "distrito_ok", detail: { raw: distritoTxt, id: distritoId } });
     } else if (cands.length > 1) {
-      discarded.push({ field: "concelho", raw: distritoTxt, ids: cands, reason: "ambiguo" });
+      discarded.push({ field: "distrito", raw: distritoTxt, ids: cands, reason: "ambiguo" });
     }
   }
 
@@ -226,7 +226,9 @@ export function resolveRecordLocation(
   }
 
   // ---- 5) Guarda-rail: o concelho em texto vence sempre ----
-  if (concelhoId && !coherent.includes(concelhoId)) coherent.push(concelhoId);
+  if (concelhoId && !coherent.some((id) => isWithin(id, concelhoId!, snap))) {
+    coherent.push(concelhoId);
+  }
   if (!concelhoId && distritoId && coherent.length === 0) coherent.push(distritoId);
 
   const location_id = pickBest(coherent, snap);
