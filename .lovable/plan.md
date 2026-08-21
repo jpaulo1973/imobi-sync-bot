@@ -1,91 +1,94 @@
-# Correção da deteção de duplicados por subgrupo + filtro de expiração no backfill de categorias
+# Sugestão automática de telefone na aba "Sem telefone" a partir de um ficheiro de contactos pessoal
 
-## Problema
+Funcionalidade nova e isolada. O painel "Reimportar ficheiro preenchido" **não é alterado**.
+O ficheiro de contactos **nunca é gravado** — é lido no browser, parseado em memória e usado só
+para gerar sugestões nesta sessão. Nenhuma server function recebe a lista completa de contactos.
 
-1. `groupTextSimilarity()` devolve a **média Jaccard de todos os pares** de textos distintos de um telefone.
-   Um único texto legítimo diferente do mesmo consultor arrasta a média abaixo de 0,80 e esconde
-   duplicados byte-a-byte idênticos dentro do mesmo grupo.
-2. `runCategoryBackfill` não filtra `expires_at`, ao contrário do painel de Duplicados — os cartões de
-   Manutenção contam leads mortos.
+## Estado atual medido na base de dados (procuras vivas, não descartadas)
 
-## Alteração 1 — subagrupamento por similaridade (src/lib/duplicates.server.ts)
+- 79 procuras sem telefone válido, agrupadas em **74 consultores** (chave = nome normalizado).
+- Apenas **4 grupos** têm mais de uma procura (máximo 3) — a propagação existe mas é pequena.
+- 0 grupos sem nome (todos têm nome para comparar).
+- Referência de cobertura: só **3** destes 74 nomes têm correspondência exata na tabela interna
+  `contacts`. Não é possível estimar melhor sem o ficheiro real do Google Contacts — a estimativa
+  fiável sai do próprio ecrã de simulação, que mostrará contagens de exatos / parecidos / ambíguos
+  / sem sugestão antes de qualquer gravação.
 
-Substituir a decisão "média do grupo" por clustering de **ligação completa** (não union-find) dentro de
-cada chave (telefone ou nome). Ligação simples/cadeia é explicitamente rejeitada: repetiria o problema
-histórico (Sandra de Sousa Alves / Isabel Santos), em que A~B=0,85 e B~C=0,82 juntavam A~C=0,60.
+## 1. Parsing do ficheiro (novo `src/lib/contacts-file.ts`, puro e testável)
 
-```text
-para cada chave (user_id + telefone|nome):
-  1. normalizar o texto de cada membro (normalizeTextKey)
-  2. calcular a matriz de pares textJaccard(i, j)
-  3. ordenar membros por completeness (desc) e, guloso:
-       - abrir um cluster com o primeiro membro ainda livre
-       - juntar um membro ao cluster SÓ SE textJaccard >= 0,80 contra
-         TODOS os membros já dentro desse cluster (ligação completa)
-  4. clusters com >= 2 membros = grupos de duplicados; membros isolados são descartados
-```
+Sem biblioteca nova. Duas funções:
 
-Garantia resultante: **todos** os pares internos de um cluster estão ≥ 0,80. Nenhum cluster é formado por
-cadeia transitiva.
+- `parseVcf(text)` — dessdobra linhas continuadas (linha seguinte começando por espaço/tab),
+  separa blocos `BEGIN:VCARD`…`END:VCARD`, lê `FN` (ou compõe de `N:` apelido;nome), e todas as
+  linhas `TEL` (com parâmetros, ex. `TEL;TYPE=CELL:+351 91…`). Trata `CHARSET`/`ENCODING=QUOTED-PRINTABLE`
+  básico e ignora propriedades desconhecidas.
+- `parseContactsCsv(text)` — CSV do Google Contacts: usa o leitor de CSV já existente do projeto
+  (`src/lib/review-export.ts`), mapeia `First Name`/`Middle Name`/`Last Name` (fallback a
+  `Name`) e todas as colunas `Phone N - Value` (múltiplos números separados por `:::`).
 
-Novas funções exportadas (mantendo `groupTextSimilarity` para relatórios e testes existentes):
+Saída comum: `ContactEntry { nome: string; telefones: string[] }`, com telefones passados por
+`normalizePhone` (`src/lib/dedup.ts`) e descartados abaixo de 9 dígitos. Contactos sem nome ou
+sem telefone válido são contados como ignorados.
 
-- `clusterByTextSimilarity(membros)` — devolve `Array<{ membros, similaridade_minima }>` usando
-  `DUPLICATE_SIM_THRESHOLD` (0,80, inalterado) e `textJaccard` já existentes.
-- `shouldSuggestGroup()` deixa de decidir a inclusão do grupo inteiro (fica só para compatibilidade dos
-  testes atuais); a decisão passa a ser "o cluster tem ≥ 2 membros".
+## 2. Correspondência de nome — mesmo padrão dos Duplicados
 
+Reutiliza o critério existente, não inventa um novo:
 
-## Alteração 2 — listDuplicateGroups (src/lib/duplicates.functions.ts)
+- normalização: `normalizeTextKey` (`src/lib/dedup.ts`) — minúsculas, sem acentos, espaços colapsados;
+- similaridade: **Jaccard de tokens**, a mesma fórmula de `textJaccard`;
+- limiar: **`DUPLICATE_SIM_THRESHOLD` = 0,80**, importado de `src/lib/duplicates.server.ts`.
 
-- Query e filtros mantidos exatamente como estão (`descartado = false`, `expires_at > now()`,
-  chave telefone→nome, `keepSeparate`).
-- Depois de construir os membros de cada chave, correr `clusterByTextSimilarity` e emitir **um grupo por
-  cluster**, com chave `"<key>#<n>"` quando a chave gera mais de um cluster (o sufixo garante que
-  "manter separado" continua a funcionar por cluster e não silencia o telefone todo).
-- Chaves que já eram um único cluster mantêm a chave original — decisões "manter separado" existentes
-  continuam válidas.
-- `similaridade_texto` passa a ser a similaridade mínima dentro do cluster (mais honesta que a média).
-- `total_excedentes` = soma de `membros - 1` por cluster.
+Única adaptação necessária, documentada no código: `textJaccard` descarta tokens com ≤ 3 letras
+(afinado para textos longos), o que apagaria nomes como "Ana", "Rui", "Sá". A nova
+`nameSimilarity(a, b)` usa exatamente a mesma fórmula Jaccard com o limite de token em ≥ 2
+caracteres. Nome idêntico após normalização dá 1,00 (exato).
 
-## Alteração 3 — expiração no backfill de categorias (src/lib/category-backfill.functions.ts)
+Classificação por procura/consultor:
+- **exato** — 1,00;
+- **parecido** — ≥ 0,80 e < 1,00 (sugerido, com % visível);
+- **sem sugestão** — melhor candidato < 0,80;
+- **ambíguo** — (a) o contacto correspondente tem mais de um telefone distinto, ou (b) dois ou mais
+  contactos empatam no mesmo melhor score ≥ 0,80, ou (c) dois grupos "Sem telefone" diferentes
+  competem pelo mesmo contacto. Ambíguos **não** recebem valor pré-preenchido; mostram os candidatos.
 
-- O `fetchAllRows("active_searches", ...)` passa a filtrar `descartado = false` e `expires_at > now()`
-  (via parâmetro de filtro no repositório, ou fallback a paginação explícita com `.gt("expires_at", ...)`).
-- Aplica-se a **todos os scopes** (`sem_categorias` e `multi_uso_features`), para os números baterem com
-  o painel de Duplicados.
+## 3. UI — `src/components/review/ContactSuggestPanel.tsx`
 
-## Testes
+Card próprio no topo da aba "Sem telefone", abaixo do painel de reimportação existente:
 
-`src/lib/duplicates-cluster.test.ts` (novo):
+- botão **"Sugerir telefones a partir de contactos"** → `input type=file` (`.vcf,.csv`);
+- resumo do ficheiro lido: contactos válidos, ignorados, e contagens exato / parecido / ambíguo /
+  sem sugestão (é isto que responde à estimativa real);
+- tabela de sugestões (padrão "Simular", **nada gravado**): procura(s), nome atual, telefone sugerido,
+  nome do contacto de origem, **% de correspondência**, e badge para ambíguos;
+- botão **"Aplicar sugestão"** por linha, que apenas pré-preenche o campo do `ContactoCard`
+  correspondente com o número sugerido. A gravação continua a ser o **"Guardar" existente**.
 
-- os 4 grupos reais confirmados — Comprarcasa Rede Serviços Imobiliários, Flávio Ferreira,
-  Manuela Rodrigues da Silva Imobiliária, Tânia Caratão — modelados como telefone único com textos
-  idênticos repetidos + procuras legítimas distintas: cada um produz ≥ 1 cluster (antes: 0);
-- as procuras legítimas divergentes ficam fora do cluster;
-- textos idênticos continuam a dar similaridade 1;
-- **não-regressão Isabel Santos** (3 textos todos diferentes, mesmo telefone) → 0 clusters;
-- **não-regressão Sandra de Sousa Alves** (grupo historicamente agrupado por engano) → não forma cluster
-  com as procuras que não são realmente iguais;
-- **teste de cadeia (ligação completa)**: A~B = 0,85, B~C = 0,82, A~C = 0,60 → o cluster fica {A,B} (ou
-  {B,C}), nunca {A,B,C}. Este teste falha com union-find e passa com ligação completa;
-- `duplicates-threshold.test.ts` mantém-se intacto.
+O `ContactoCard` passa a aceitar `sugestao?: { telefone, contacto, score }` e mostra
+"Sugerido de <contacto> (87%)" junto ao input. Sem sugestão, comportamento atual inalterado.
 
-## Estimativa de impacto (procuras ativas, não descartadas)
+## 4. Propagação para as outras procuras do mesmo consultor
 
-- Hoje: 0 grupos sugeridos.
-- Depois: **6 grupos** (24 linhas, **18 excedentes**), medidos na base de dados por texto **normalizado**
-  idêntico.
-- Diferença face aos "4 grupos / 20 linhas / 16 excedentes" do diagnóstico anterior: esse número usava
-  hash do texto **cru** (byte-a-byte). Os 2 grupos extra (telefones 911022838 e 913861684, 2 linhas cada)
-  têm 2 variantes cruas mas 1 única variante normalizada — ou seja, diferem apenas em espaços/maiúsculas.
-  `normalizeTextKey` só remove acentos, colapsa espaços e passa a minúsculas; não altera palavras nem
-  ordem, portanto não junta textos com conteúdo diferente. Comportamento esperado e desejado.
-- Cartões de Categoria: as contagens descem para o universo de procuras vivas (leads expirados deixam de
-  contar).
+Já é o comportamento do backend atual e não precisa de RPC nova: a aba agrupa por nome normalizado
+e `setConsultorTelefone` recebe `search_ids[]` do grupo inteiro, fazendo um único
+`update … .in("id", search_ids)`. Conta como update em massa, por isso a confirmação visual é
+reforçada:
 
+- o cartão passa a indicar explicitamente, antes de gravar: "este número vai ser aplicado a N
+  procuras deste consultor";
+- quando N > 1, "Guardar" abre um `AlertDialog` a listar as procuras afetadas (data/origem/resumo)
+  e exige confirmação;
+- a propagação limita-se ao grupo já visível (mesma chave de nome usada na sugestão). Nunca se
+  estende a nomes apenas "parecidos" entre si — grupos distintos gravam-se separadamente.
+
+## 5. Testes (`src/lib/contacts-file.test.ts`)
+
+- vCard: bloco simples, linhas dobradas, `N:` sem `FN`, vários `TEL`, `TEL` inválido, ficheiro vazio;
+- CSV Google Contacts com `Phone 1/2 - Value` e nome composto;
+- `nameSimilarity`: idêntico = 1; acentos/maiúsculas irrelevantes; nome curto ("Ana Sá") não colapsa
+  para 0; nomes diferentes < 0,80; limiar 0,80 partilhado com os Duplicados;
+- ambiguidade: contacto com 2 telefones distintos e empate de dois contactos → sem pré-preenchimento.
 
 ## Notas técnicas
 
-Sem migração de base de dados. Sem alteração ao limiar, à RPC `admin_merge_duplicate_group`, nem ao fluxo
-Simular → Aplicar do `DuplicatesPanel`. Complexidade O(n²) por chave, sobre grupos pequenos — irrelevante.
+Sem migração de base de dados, sem tabela nova, sem alterações a `setConsultorTelefone`,
+`bulkSetConsultorTelefone`, ao painel de reimportação ou ao motor de match.
