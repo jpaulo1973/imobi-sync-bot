@@ -121,6 +121,10 @@ function RevisaoPage() {
   const [resolvedIds, setResolvedIds] = useState<string[]>([]);
   // Release 1.2.18 — sugestões vindas do ficheiro de contactos (só em memória).
   const [suggestions, setSuggestions] = useState<SuggestionMap>(new Map());
+  // Sugestões efetivamente aplicadas (clique explícito em "Aplicar sugestão").
+  const [prefills, setPrefills] = useState<Map<string, { telefone: string; nonce: number }>>(
+    new Map(),
+  );
 
   const reload = () => {
     setLoading(true);
@@ -182,7 +186,23 @@ function RevisaoPage() {
             </DropdownMenu>
           </div>
 
-          <ContactSuggestPanel items={items} onSuggestions={setSuggestions} />
+          <ContactSuggestPanel
+            items={items}
+            onSuggestions={(m) => {
+              setSuggestions(m);
+              setPrefills(new Map());
+            }}
+            onApply={(s) => {
+              setPrefills((prev) => {
+                const next = new Map(prev);
+                next.set(s.key, { telefone: s.telefone ?? "", nonce: Date.now() });
+                return next;
+              });
+              document
+                .getElementById(`contacto-${s.key}`)
+                ?.scrollIntoView({ behavior: "smooth", block: "center" });
+            }}
+          />
 
           <ReimportPanel onDone={reload} />
 
@@ -198,10 +218,12 @@ function RevisaoPage() {
                 key={it.key}
                 item={it}
                 sugestao={suggestions.get(it.key) ?? null}
+                prefill={prefills.get(it.key) ?? null}
                 onSaved={() => removeLocal(it.key)}
               />
             ))
           )}
+
         </TabsContent>
 
         <TabsContent value="localizacao">
@@ -405,24 +427,23 @@ function ContactoCard({
   item,
   onSaved,
   sugestao,
+  prefill,
 }: {
   item: ConsultorSemTelefone;
   onSaved: () => void;
   sugestao?: Suggestion | null;
+  prefill?: { telefone: string; nonce: number } | null;
 }) {
   const saveFn = useServerFn(setConsultorTelefone);
   const [telefone, setTelefone] = useState("");
   const [saving, setSaving] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  // A sugestão apenas pré-preenche o campo; a gravação continua a ser manual.
-  const sugerido = sugestao?.telefone ?? null;
-  const [applied, setApplied] = useState(false);
+  // A sugestão só entra no campo depois de o utilizador clicar em
+  // "Aplicar sugestão" no painel de contactos. A gravação continua manual.
   useEffect(() => {
-    if (sugerido && !applied && telefone.trim() === "") {
-      setTelefone(sugerido);
-      setApplied(true);
-    }
-  }, [sugerido]);
+    if (prefill?.telefone) setTelefone(prefill.telefone);
+  }, [prefill?.nonce]);
+
 
   // Update em massa: o mesmo número é aplicado a TODAS as procuras deste
   // consultor. Quando é mais do que uma, exige confirmação visual explícita.
@@ -455,7 +476,8 @@ function ContactoCard({
   };
 
   return (
-    <Card className="p-5 space-y-4">
+    <Card id={`contacto-${item.key}`} className="p-5 space-y-4 scroll-mt-24">
+
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <Badge variant="outline">
           <Phone className="w-3 h-3 mr-1" /> Sem telefone
@@ -487,10 +509,23 @@ function ContactoCard({
             }}
           />
           {sugestao?.telefone && (
-            <p className="text-xs text-muted-foreground mt-1">
-              Sugerido de <span className="font-medium">{sugestao.contacto_nome}</span> (
-              {Math.round(sugestao.score * 100)}% de correspondência)
-            </p>
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              <p className="text-xs text-muted-foreground">
+                Sugerido de <span className="font-medium">{sugestao.contacto_nome}</span> (
+                {Math.round(sugestao.score * 100)}% de correspondência)
+              </p>
+              {telefone.trim() !== sugestao.telefone && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => setTelefone(sugestao.telefone ?? "")}
+                >
+                  Aplicar sugestão
+                </Button>
+              )}
+            </div>
           )}
           <p className="text-xs text-muted-foreground mt-1">
             Este número vai ser aplicado a {item.procuras_afetadas} procura(s) deste consultor.

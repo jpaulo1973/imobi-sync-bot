@@ -8,7 +8,7 @@ import { useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Contact, Upload, X } from "lucide-react";
+import { Check, Contact, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   buildSuggestions,
@@ -23,9 +23,11 @@ export type SuggestionMap = Map<string, Suggestion>;
 export function ContactSuggestPanel({
   items,
   onSuggestions,
+  onApply,
 }: {
   items: ConsultorSemTelefone[];
   onSuggestions: (map: SuggestionMap) => void;
+  onApply?: (s: Suggestion) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -149,6 +151,7 @@ export function ContactSuggestPanel({
                       <th className="text-left px-2 py-1">Contacto de origem</th>
                       <th className="text-left px-2 py-1">%</th>
                       <th className="text-left px-2 py-1">Procuras</th>
+                      <th className="text-right px-2 py-1">Ação</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -166,13 +169,25 @@ export function ContactSuggestPanel({
                           )}
                         </td>
                         <td className="px-2 py-1 tabular-nums">{s.procuras_afetadas}</td>
+                        <td className="px-2 py-1 text-right whitespace-nowrap">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="h-7 px-2 text-[11px]"
+                            onClick={() => onApply?.(s)}
+                          >
+                            <Check className="w-3 h-3 mr-1" /> Aplicar sugestão
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+
               </div>
               <p className="text-muted-foreground">
-                As sugestões aparecem pré-preenchidas no cartão de cada consultor, em baixo.
+                Clique em “Aplicar sugestão” para pré-preencher o campo de telefone no cartão do
+                consultor, em baixo. Nada é gravado até clicar “Guardar” nesse cartão.
               </p>
             </div>
           )}
