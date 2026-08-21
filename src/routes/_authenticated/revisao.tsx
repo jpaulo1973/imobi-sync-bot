@@ -241,7 +241,13 @@ function RevisaoPage() {
         onSaved={(id, resolved) => {
           if (resolved) setResolvedIds((cur) => (cur.includes(id) ? cur : [...cur, id]));
         }}
+        onDeleted={(id) => {
+          // Release 1.3.2 — a procura deixou de existir: sai de todas as listas.
+          setResolvedIds((cur) => (cur.includes(id) ? cur : [...cur, id]));
+          reload();
+        }}
       />
+
     </div>
     </SearchEditContext.Provider>
   );
