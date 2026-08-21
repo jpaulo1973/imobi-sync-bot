@@ -253,16 +253,10 @@ export const updateReviewSearch = createServerFn({ method: "POST" })
     return { ok: true, resolved: data.resolve };
   });
 
-export const deleteReviewSearch = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d) => z.object({ id: z.string().uuid() }).parse(d))
-  .handler(async ({ data, context }) => {
-    const { supabase, userId } = context;
-    await assertAdmin(supabase, userId);
-    const { error } = await supabase.from("active_searches").delete().eq("id", data.id);
-    if (error) throw new Error(error.message);
-    return { ok: true };
-  });
+// Release 1.3.2 — a eliminação de procuras passou para `deleteReviewSearch`
+// (RPC admin_delete_search), que limpa também os dependentes. Ver mais abaixo.
+
+
 
 // Release 1.2 — Nova Revisão: apenas contactos do consultor são editáveis.
 // Nome, telefone, WhatsApp e email do consultor podem ser adicionados ou
@@ -1173,6 +1167,57 @@ export const discardSearches = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true as const, discarded: Number(n ?? 0) };
   });
+
+/**
+ * Release 1.3.2 — apaga permanentemente uma procura e só os registos que
+ * dependem dela (notificações, estados e oportunidades dessa procura).
+ * Nunca toca em clientes, imóveis, perfis ou outras procuras.
+ * `apply: false` devolve apenas a simulação (contagens) para o diálogo de
+ * confirmação. Só admin (guard aqui e dentro da RPC SECURITY DEFINER).
+ */
+export type DeleteSearchResult = {
+  aplicado: boolean;
+  encontrada: boolean;
+  nome: string | null;
+  origem: string | null;
+  notificacoes_removidas: number;
+  estados_removidos: number;
+  oportunidades_removidas: number;
+  apagada: number;
+};
+
+export const deleteReviewSearch = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z
+      .object({
+        id: z.string().uuid(),
+        apply: z.boolean().default(false),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }): Promise<DeleteSearchResult> => {
+    const { supabase, userId } = context;
+    await assertAdmin(supabase, userId);
+    const { data: res, error } = await (supabase as any).rpc("admin_delete_search", {
+      p_id: data.id,
+      p_apply: data.apply,
+    });
+    if (error) throw new Error(error.message);
+    const r = (res ?? {}) as Record<string, unknown>;
+    const n = (v: unknown) => Number(v ?? 0);
+    return {
+      aplicado: !!r.aplicado,
+      encontrada: !!r.encontrada,
+      nome: typeof r.nome === "string" ? r.nome : null,
+      origem: typeof r.origem === "string" ? r.origem : null,
+      notificacoes_removidas: n(r.notificacoes_removidas),
+      estados_removidos: n(r.estados_removidos),
+      oportunidades_removidas: n(r.oportunidades_removidas),
+      apagada: n(r.apagada),
+    };
+  });
+
 
 export const restoreSearch = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])

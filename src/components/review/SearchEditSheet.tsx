@@ -9,17 +9,29 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2, Save, Sparkles } from "lucide-react";
+import { Loader2, Save, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
+  deleteReviewSearch,
   getReviewSearch,
   updateReviewSearch,
+  type DeleteSearchResult,
   type ReviewSearchDetail,
 } from "@/lib/review.functions";
 import { CATEGORY_LABELS, type PropertyCategory } from "@/lib/property-taxonomy";
 import { LocationSelector } from "@/components/entity-selector/LocationSelector";
 import { OriginalMessage } from "@/components/OriginalMessage";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,8 +44,19 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 
+
+/** Release 1.3.2 — tipo de negócio da procura (valores reais na BD). */
+export type Finalidade = "venda" | "arrendamento" | "indefinido";
+
+export const FINALIDADE_LABELS: Record<Finalidade, string> = {
+  venda: "Comprador",
+  arrendamento: "Arrendatário",
+  indefinido: "Indefinido",
+};
+
 /** Estado editável do formulário (números como texto para permitir vazio). */
 type FormState = {
+  finalidade: Finalidade;
   budget_min: string;
   budget_max: string;
   area_min: string;
@@ -48,7 +71,9 @@ type FormState = {
 
 export function toFormState(d: ReviewSearchDetail): FormState {
   const n = (v: number | null) => (v === null ? "" : String(v));
+  const f = d.criteria.finalidade;
   return {
+    finalidade: f === "venda" || f === "arrendamento" ? f : "indefinido",
     budget_min: n(d.criteria.budget_min),
     budget_max: n(d.criteria.budget_max),
     area_min: n(d.criteria.area_min),
@@ -61,6 +86,7 @@ export function toFormState(d: ReviewSearchDetail): FormState {
     contact_telefone: d.contact_telefone ?? "",
   };
 }
+
 
 /** Converte "" → null e texto numérico → número; devolve `undefined` se inválido. */
 function numOrNull(raw: string): number | null | undefined {
@@ -84,7 +110,9 @@ function listOrNull(raw: string): string[] | null {
  */
 export function buildUpdatePayload(initial: FormState, form: FormState) {
   const criteria: Record<string, unknown> = {};
+  if (form.finalidade !== initial.finalidade) criteria.finalidade = form.finalidade;
   const numericKeys = ["budget_min", "budget_max", "area_min", "quartos_min"] as const;
+
   for (const k of numericKeys) {
     if (form[k].trim() === initial[k].trim()) continue;
     const v = numOrNull(form[k]);
@@ -116,19 +144,26 @@ export function SearchEditSheet({
   searchId,
   onClose,
   onSaved,
+  onDeleted,
 }: {
   searchId: string | null;
   onClose: () => void;
   /** Chamado com `resolved=true` quando a procura saiu da Revisão. */
   onSaved: (id: string, resolved: boolean) => void;
+  /** Release 1.3.2 — chamado após apagar permanentemente a procura. */
+  onDeleted?: (id: string) => void;
 }) {
   const loadFn = useServerFn(getReviewSearch);
   const saveFn = useServerFn(updateReviewSearch);
+  const deleteFn = useServerFn(deleteReviewSearch);
   const [detail, setDetail] = useState<ReviewSearchDetail | null>(null);
   const [initial, setInitial] = useState<FormState | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [preview, setPreview] = useState<DeleteSearchResult | null>(null);
+
 
   useEffect(() => {
     if (!searchId) {
@@ -192,12 +227,50 @@ export function SearchEditSheet({
     }
   };
 
+  /** Abre o diálogo de confirmação já com o impacto real (modo simulação). */
+  const askDelete = async () => {
+    if (!searchId) return;
+    setConfirmOpen(true);
+    setPreview(null);
+    try {
+      setPreview(await deleteFn({ data: { id: searchId, apply: false } }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao preparar eliminação");
+      setConfirmOpen(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!searchId) return;
+    setBusy(true);
+    try {
+      const r = await deleteFn({ data: { id: searchId, apply: true } });
+      if (!r.encontrada) {
+        toast.error("Procura já não existe.");
+      } else {
+        toast.success(
+          `Procura apagada. Removidas ${r.oportunidades_removidas} oportunidades, ` +
+            `${r.notificacoes_removidas} notificações e ${r.estados_removidos} estados.`,
+        );
+      }
+      setConfirmOpen(false);
+      onDeleted?.(searchId);
+      onClose();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao apagar");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onOpenChange = useCallback(
     (open: boolean) => {
       if (!open) onClose();
     },
     [onClose],
   );
+
+
 
   return (
     <Sheet open={!!searchId} onOpenChange={onOpenChange}>
@@ -242,6 +315,27 @@ export function SearchEditSheet({
             </div>
 
             <div className="space-y-2">
+              <Label className="text-xs">Tipo de negócio</Label>
+              <div className="flex flex-wrap gap-2">
+                {(Object.keys(FINALIDADE_LABELS) as Finalidade[]).map((f) => (
+                  <Button
+                    key={f}
+                    type="button"
+                    size="sm"
+                    variant={form.finalidade === f ? "default" : "outline"}
+                    onClick={() => set("finalidade", f)}
+                  >
+                    {FINALIDADE_LABELS[f]}
+                  </Button>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Trespasses são tratados no bloco “Tipo de imóvel (categorias)”.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+
               <Label className="text-xs">Tipo de imóvel (categorias)</Label>
               <div className="flex flex-wrap gap-2">
                 {(Object.keys(CATEGORY_LABELS) as PropertyCategory[]).map((c) => (
@@ -319,18 +413,71 @@ export function SearchEditSheet({
               />
             </div>
 
-            <div className="flex flex-wrap gap-2 border-t pt-4">
+            <div className="flex flex-wrap items-center gap-2 border-t pt-4">
               <Button type="button" variant="outline" disabled={busy} onClick={() => void submit(false)}>
                 <Save className="mr-1 h-4 w-4" /> {busy ? "A guardar…" : "Guardar"}
               </Button>
               <Button type="button" disabled={busy} onClick={() => void submit(true)}>
                 <Sparkles className="mr-1 h-4 w-4" /> Guardar e resolver
               </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                className="ml-auto"
+                disabled={busy}
+                onClick={() => void askDelete()}
+              >
+                <Trash2 className="mr-1 h-4 w-4" /> Apagar procura
+              </Button>
             </div>
           </div>
         )}
+
+        <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Apagar esta procura permanentemente?</AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-2 text-sm">
+                  <p>
+                    Esta ação é permanente e não pode ser desfeita. Clientes, imóveis, perfis e
+                    outras procuras não são afetados.
+                  </p>
+                  {preview === null ? (
+                    <p className="text-muted-foreground">A calcular impacto…</p>
+                  ) : !preview.encontrada ? (
+                    <p className="text-muted-foreground">A procura já não existe na base.</p>
+                  ) : (
+                    <ul className="list-disc pl-5 text-muted-foreground">
+                      <li>
+                        Procura: {preview.nome ?? "(sem nome)"}
+                        {preview.origem ? ` · ${preview.origem}` : ""}
+                      </li>
+                      <li>Oportunidades removidas: {preview.oportunidades_removidas}</li>
+                      <li>Notificações removidas: {preview.notificacoes_removidas}</li>
+                      <li>Estados de match removidos: {preview.estados_removidos}</li>
+                    </ul>
+                  )}
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={busy}>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={busy || preview === null}
+                onClick={(e) => {
+                  e.preventDefault();
+                  void confirmDelete();
+                }}
+              >
+                {busy ? "A apagar…" : "Apagar definitivamente"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </SheetContent>
     </Sheet>
+
   );
 }
 

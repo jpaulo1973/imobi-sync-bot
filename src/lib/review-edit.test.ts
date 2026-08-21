@@ -96,3 +96,43 @@ describe("editor de procura — diff de critérios", () => {
     expect(f.categorias).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Release 1.3.2 — tipo de negócio (finalidade) editável no editor lateral.
+// ---------------------------------------------------------------------------
+describe("editor de procura — tipo de negócio", () => {
+  it("alterar a finalidade envia só esse campo", () => {
+    const initial = toFormState(detail);
+    expect(
+      buildUpdatePayload(initial, { ...initial, finalidade: "arrendamento" }),
+    ).toEqual({ criteria: { finalidade: "arrendamento" } });
+  });
+
+  it("não tocar na finalidade não a envia (protege as procuras 'venda')", () => {
+    const initial = toFormState(detail);
+    expect(initial.finalidade).toBe("venda");
+    expect(buildUpdatePayload(initial, { ...initial, tipologia: "T3" })).toEqual({
+      criteria: { tipologia: "T3" },
+    });
+  });
+
+  it("finalidade ausente/nula no critério mapeia para 'indefinido'", () => {
+    const f = toFormState({
+      ...detail,
+      criteria: { ...detail.criteria, finalidade: null },
+    });
+    expect(f.finalidade).toBe("indefinido");
+  });
+
+  it("finalidade e área alteradas viajam no mesmo patch (um só write)", () => {
+    const initial = toFormState(detail);
+    expect(
+      buildUpdatePayload(initial, {
+        ...initial,
+        finalidade: "indefinido",
+        area_min: "500",
+      }),
+    ).toEqual({ criteria: { finalidade: "indefinido", area_min: 500 } });
+  });
+});
+

@@ -1076,6 +1076,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_delete_search: {
+        Args: { p_apply?: boolean; p_id: string }
+        Returns: Json
+      }
       admin_discard_searches: {
         Args: { p_ids: string[]; p_motivo: string }
         Returns: number
