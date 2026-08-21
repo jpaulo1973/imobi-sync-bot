@@ -23,6 +23,20 @@ import { normalizeGeoText } from "@/lib/geo/geo-context";
 import { LocationSelector } from "@/components/entity-selector/LocationSelector";
 import { OriginalMessage } from "@/components/OriginalMessage";
 import { SearchEditSheet } from "@/components/review/SearchEditSheet";
+import {
+  ContactSuggestPanel,
+  type SuggestionMap,
+} from "@/components/review/ContactSuggestPanel";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   downloadReviewCsv,
@@ -30,6 +44,7 @@ import {
   parseFilledReviewFile,
   type ParsedImportFile,
 } from "@/lib/review-export";
+import type { Suggestion } from "@/lib/contacts-file";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -104,6 +119,8 @@ function RevisaoPage() {
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [resolvedIds, setResolvedIds] = useState<string[]>([]);
+  // Release 1.2.18 — sugestões vindas do ficheiro de contactos (só em memória).
+  const [suggestions, setSuggestions] = useState<SuggestionMap>(new Map());
 
   const reload = () => {
     setLoading(true);
@@ -165,6 +182,8 @@ function RevisaoPage() {
             </DropdownMenu>
           </div>
 
+          <ContactSuggestPanel items={items} onSuggestions={setSuggestions} />
+
           <ReimportPanel onDone={reload} />
 
           {loading ? (
@@ -175,7 +194,12 @@ function RevisaoPage() {
             </Card>
           ) : (
             items.map((it) => (
-              <ContactoCard key={it.key} item={it} onSaved={() => removeLocal(it.key)} />
+              <ContactoCard
+                key={it.key}
+                item={it}
+                sugestao={suggestions.get(it.key) ?? null}
+                onSaved={() => removeLocal(it.key)}
+              />
             ))
           )}
         </TabsContent>
@@ -380,13 +404,36 @@ function SemTipoPanel({ resolvedIds }: { resolvedIds: string[] }) {
 function ContactoCard({
   item,
   onSaved,
+  sugestao,
 }: {
   item: ConsultorSemTelefone;
   onSaved: () => void;
+  sugestao?: Suggestion | null;
 }) {
   const saveFn = useServerFn(setConsultorTelefone);
   const [telefone, setTelefone] = useState("");
   const [saving, setSaving] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  // A sugestão apenas pré-preenche o campo; a gravação continua a ser manual.
+  const sugerido = sugestao?.telefone ?? null;
+  const [applied, setApplied] = useState(false);
+  useEffect(() => {
+    if (sugerido && !applied && telefone.trim() === "") {
+      setTelefone(sugerido);
+      setApplied(true);
+    }
+  }, [sugerido]);
+
+  // Update em massa: o mesmo número é aplicado a TODAS as procuras deste
+  // consultor. Quando é mais do que uma, exige confirmação visual explícita.
+  const requestSave = () => {
+    if (!telefone.trim()) {
+      toast.error("Introduza um número de telefone.");
+      return;
+    }
+    if (item.procuras_afetadas > 1) setConfirmOpen(true);
+    else void save();
+  };
 
   const save = async () => {
     const t = telefone.trim();
@@ -394,6 +441,7 @@ function ContactoCard({
       toast.error("Introduza um número de telefone.");
       return;
     }
+    setConfirmOpen(false);
     setSaving(true);
     try {
       await saveFn({ data: { search_ids: item.search_ids, telefone: t } });
@@ -435,15 +483,58 @@ function ContactoCard({
             inputMode="tel"
             autoComplete="tel"
             onKeyDown={(e) => {
-              if (e.key === "Enter") void save();
+              if (e.key === "Enter") requestSave();
             }}
           />
+          {sugestao?.telefone && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Sugerido de <span className="font-medium">{sugestao.contacto_nome}</span> (
+              {Math.round(sugestao.score * 100)}% de correspondência)
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground mt-1">
+            Este número vai ser aplicado a {item.procuras_afetadas} procura(s) deste consultor.
+          </p>
         </div>
-        <Button size="sm" onClick={save} disabled={saving}>
+        <Button size="sm" onClick={requestSave} disabled={saving}>
           <Save className="w-4 h-4 mr-1" />
           {saving ? "A guardar…" : "Guardar"}
         </Button>
       </div>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Aplicar a {item.procuras_afetadas} procuras?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  O número <span className="font-mono">{telefone.trim()}</span> vai ser gravado em{" "}
+                  <strong>{item.procuras_afetadas} procuras</strong> de{" "}
+                  {item.nome ?? "(sem nome)"} — ou seja, também nas{" "}
+                  {item.procuras_afetadas - 1} outras procuras deste consultor, não só numa.
+                </p>
+                {item.amostras.length > 0 && (
+                  <ul className="list-disc pl-4 text-xs">
+                    {item.amostras.map((a) => (
+                      <li key={a.id}>
+                        {a.origem ? `${a.origem} · ` : ""}
+                        {a.created_at?.slice(0, 10)} — {(a.texto ?? "").slice(0, 80) || "(sem texto)"}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void save()}>
+              Guardar nas {item.procuras_afetadas} procuras
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {item.amostras[0]?.texto && (
         <details className="text-xs text-muted-foreground">
