@@ -509,10 +509,23 @@ function ContactoCard({
             }}
           />
           {sugestao?.telefone && (
-            <p className="text-xs text-muted-foreground mt-1">
-              Sugerido de <span className="font-medium">{sugestao.contacto_nome}</span> (
-              {Math.round(sugestao.score * 100)}% de correspondência)
-            </p>
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              <p className="text-xs text-muted-foreground">
+                Sugerido de <span className="font-medium">{sugestao.contacto_nome}</span> (
+                {Math.round(sugestao.score * 100)}% de correspondência)
+              </p>
+              {telefone.trim() !== sugestao.telefone && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => setTelefone(sugestao.telefone ?? "")}
+                >
+                  Aplicar sugestão
+                </Button>
+              )}
+            </div>
           )}
           <p className="text-xs text-muted-foreground mt-1">
             Este número vai ser aplicado a {item.procuras_afetadas} procura(s) deste consultor.
