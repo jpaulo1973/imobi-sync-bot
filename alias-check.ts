@@ -1,0 +1,12 @@
+import { readFileSync } from "node:fs";
+import { indexSnapshot } from "@/lib/geo/location-repository";
+import { resolveRecordLocation } from "@/lib/geo/geo-resolve-record";
+const j=(f:string)=>JSON.parse(readFileSync(`/tmp/impact/${f}.json`,"utf8")||"[]");
+const aliases=j("aliases");
+const snap=indexSnapshot(6,j("locations"),aliases,j("relations"),j("fzm"));
+const fields={distrito:"Aveiro",concelho:"Vagos",freguesia:"União das freguesias de Vagos e Santo António",zona:"União das freguesias de Vagos e Santo António"};
+const r=resolveRecordLocation(fields,snap);
+console.log("sem alias:", r.location_id, snap.byId.get(r.location_id!)?.nome, snap.byId.get(r.location_id!)?.tipo, JSON.stringify(r.discarded));
+const snap2=indexSnapshot(6,j("locations"),[...aliases,{alias_normalizado:"uniao das freguesias de vagos e santo antonio",location_ids:["7a98b740-05ef-44ab-8257-3df1e65173a9"],aprovado:true}],j("relations"),j("fzm"));
+const r2=resolveRecordLocation(fields,snap2);
+console.log("com alias:", r2.location_id, snap2.byId.get(r2.location_id!)?.nome, snap2.byId.get(r2.location_id!)?.tipo);
