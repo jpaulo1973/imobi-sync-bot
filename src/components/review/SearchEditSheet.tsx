@@ -32,8 +32,18 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 
+/** Release 1.3.2 — tipo de negócio da procura (valores reais na BD). */
+export type Finalidade = "venda" | "arrendamento" | "indefinido";
+
+export const FINALIDADE_LABELS: Record<Finalidade, string> = {
+  venda: "Comprador",
+  arrendamento: "Arrendatário",
+  indefinido: "Indefinido",
+};
+
 /** Estado editável do formulário (números como texto para permitir vazio). */
 type FormState = {
+  finalidade: Finalidade;
   budget_min: string;
   budget_max: string;
   area_min: string;
@@ -48,7 +58,9 @@ type FormState = {
 
 export function toFormState(d: ReviewSearchDetail): FormState {
   const n = (v: number | null) => (v === null ? "" : String(v));
+  const f = d.criteria.finalidade;
   return {
+    finalidade: f === "venda" || f === "arrendamento" ? f : "indefinido",
     budget_min: n(d.criteria.budget_min),
     budget_max: n(d.criteria.budget_max),
     area_min: n(d.criteria.area_min),
@@ -61,6 +73,7 @@ export function toFormState(d: ReviewSearchDetail): FormState {
     contact_telefone: d.contact_telefone ?? "",
   };
 }
+
 
 /** Converte "" → null e texto numérico → número; devolve `undefined` se inválido. */
 function numOrNull(raw: string): number | null | undefined {
