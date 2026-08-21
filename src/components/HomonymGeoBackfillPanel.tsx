@@ -26,13 +26,19 @@ export function HomonymGeoBackfillPanel() {
   const run = useServerFn(backfillHomonymGeo);
   const [loading, setLoading] = useState<"dry" | "apply" | null>(null);
   const [especializa, setEspecializa] = useState(false);
+  const [excluirPerdaNivel, setExcluirPerdaNivel] = useState(true);
   const [result, setResult] = useState<HomonymBackfillResult | null>(null);
 
   async function exec(apply: boolean) {
     setLoading(apply ? "apply" : "dry");
     try {
       const res = await run({
-        data: { apply, incluir_especializa: especializa, sample: 40 },
+        data: {
+          apply,
+          incluir_especializa: especializa,
+          excluir_perda_nivel: excluirPerdaNivel,
+          sample: 40,
+        },
       });
       setResult(res);
       toast.success(
@@ -76,6 +82,19 @@ export function HomonymGeoBackfillPanel() {
         </Label>
       </div>
 
+      <div className="flex items-center gap-2">
+        <Switch
+          id="excluir-perda-nivel"
+          checked={excluirPerdaNivel}
+          disabled={loading !== null}
+          onCheckedChange={setExcluirPerdaNivel}
+        />
+        <Label htmlFor="excluir-perda-nivel" className="text-sm">
+          Excluir mudanças que <em>perdem nível</em> (freguesia → concelho, por união de freguesias
+          em falta na biblioteca) — ligado por omissão
+        </Label>
+      </div>
+
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" disabled={loading !== null} onClick={() => exec(false)}>
           <FlaskConical className="w-4 h-4 mr-2" />
@@ -99,6 +118,11 @@ export function HomonymGeoBackfillPanel() {
             </span>
             <Badge variant="outline">Biblioteca v{result.geo_library_version}</Badge>
             {result.incluir_especializa && <Badge variant="secondary">Especializa incluído</Badge>}
+            {result.excluir_perda_nivel && result.imoveis.excluidos_perda_nivel > 0 && (
+              <Badge variant="secondary">
+                {result.imoveis.excluidos_perda_nivel} imóveis excluídos (perdem nível)
+              </Badge>
+            )}
             {result.recompute && (
               <Badge variant="outline">
                 Recompute: {result.recompute.procuras} procuras / {result.recompute.oportunidades}{" "}
