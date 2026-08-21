@@ -23,9 +23,11 @@ export type SuggestionMap = Map<string, Suggestion>;
 export function ContactSuggestPanel({
   items,
   onSuggestions,
+  onApply,
 }: {
   items: ConsultorSemTelefone[];
   onSuggestions: (map: SuggestionMap) => void;
+  onApply?: (s: Suggestion) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
