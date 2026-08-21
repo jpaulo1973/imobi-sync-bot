@@ -227,12 +227,50 @@ export function SearchEditSheet({
     }
   };
 
+  /** Abre o diálogo de confirmação já com o impacto real (modo simulação). */
+  const askDelete = async () => {
+    if (!searchId) return;
+    setConfirmOpen(true);
+    setPreview(null);
+    try {
+      setPreview(await deleteFn({ data: { id: searchId, apply: false } }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao preparar eliminação");
+      setConfirmOpen(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!searchId) return;
+    setBusy(true);
+    try {
+      const r = await deleteFn({ data: { id: searchId, apply: true } });
+      if (!r.encontrada) {
+        toast.error("Procura já não existe.");
+      } else {
+        toast.success(
+          `Procura apagada. Removidas ${r.oportunidades_removidas} oportunidades, ` +
+            `${r.notificacoes_removidas} notificações e ${r.estados_removidos} estados.`,
+        );
+      }
+      setConfirmOpen(false);
+      onDeleted?.(searchId);
+      onClose();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao apagar");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onOpenChange = useCallback(
     (open: boolean) => {
       if (!open) onClose();
     },
     [onClose],
   );
+
+
 
   return (
     <Sheet open={!!searchId} onOpenChange={onOpenChange}>
