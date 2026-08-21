@@ -131,19 +131,26 @@ export function SearchEditSheet({
   searchId,
   onClose,
   onSaved,
+  onDeleted,
 }: {
   searchId: string | null;
   onClose: () => void;
   /** Chamado com `resolved=true` quando a procura saiu da Revisão. */
   onSaved: (id: string, resolved: boolean) => void;
+  /** Release 1.3.2 — chamado após apagar permanentemente a procura. */
+  onDeleted?: (id: string) => void;
 }) {
   const loadFn = useServerFn(getReviewSearch);
   const saveFn = useServerFn(updateReviewSearch);
+  const deleteFn = useServerFn(deleteReviewSearch);
   const [detail, setDetail] = useState<ReviewSearchDetail | null>(null);
   const [initial, setInitial] = useState<FormState | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [preview, setPreview] = useState<DeleteSearchResult | null>(null);
+
 
   useEffect(() => {
     if (!searchId) {
