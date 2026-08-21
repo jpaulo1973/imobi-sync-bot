@@ -277,27 +277,24 @@ export async function resolveLocationIdFromParsed(parsed: ParsedProperty): Promi
   unresolved_text: string | null;
 }> {
   const snap = await LocationRepository.getSnapshot();
-  const candidates = (
-    [
-      [parsed.freguesia, "freguesia"],
-      [parsed.concelho, "concelho"],
-      [parsed.zona, "zona"],
-      [parsed.distrito, "distrito"],
-    ] as Array<[string | null | undefined, "freguesia" | "concelho" | "zona" | "distrito"]>
-  )
-    .map(([v, field]) => [(v ?? "").trim(), field] as const)
-    .filter(([v]) => v.length > 0);
-  for (const [text, field] of candidates) {
-    const res = parseLocations(text, snap, { field });
-    if (res.resolved.length > 0) {
-      return { location_id: res.resolved[0], geo_library_version: snap.version, unresolved_text: null };
-    }
-  }
+  const { resolveRecordLocation } = await import("./geo/geo-resolve-record");
+  // Comando 3/3 — resolução hierárquica: distrito/concelho fixam o contexto e
+  // nenhum candidato fora dele pode ancorar o imóvel (homónimos distrito/concelho).
+  const res = resolveRecordLocation(
+    {
+      distrito: parsed.distrito ?? null,
+      concelho: parsed.concelho ?? null,
+      freguesia: parsed.freguesia ?? null,
+      zona: parsed.zona ?? null,
+    },
+    snap,
+  );
   return {
-    location_id: null,
+    location_id: res.location_id,
     geo_library_version: snap.version,
-    unresolved_text: candidates[0]?.[0] ?? null,
+    unresolved_text: res.unresolved_text,
   };
+
 }
 
 export async function extractPropertyFromUrl(url: string) {
