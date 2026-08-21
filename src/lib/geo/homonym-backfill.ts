@@ -31,6 +31,16 @@ const NIVEL: Record<string, number> = {
  * Estes casos ficam fora do "Aplicar" por omissão: primeiro acrescenta-se o
  * alias/freguesia à biblioteca, depois corrige-se com o nível certo.
  */
+/**
+ * Exceção pontual validada manualmente (21/08/2026): estes imóveis têm hoje
+ * uma freguesia de OUTRO distrito ("Santo António", Lisboa) quando o texto
+ * indica Vagos (Aveiro). Corrigir para o concelho de Vagos é uma melhoria,
+ * não uma perda — a união "Vagos e Santo António" ainda não existe na
+ * biblioteca. Todos os restantes casos freguesia → concelho continuam
+ * excluídos pelo interruptor "Excluir mudanças que perdem nível".
+ */
+export const PERDA_NIVEL_EXCECOES = new Set<string>(["C0440-00971", "C0440-00969"]);
+
 export function losesLevel(
   currentId: string | null,
   nextId: string | null,
