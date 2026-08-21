@@ -65,7 +65,7 @@ export const backfillHomonymGeo = createServerFn({ method: "POST" })
 
     const { LocationRepository, fetchAllRows } = await import("./geo/location-repository");
     const { resolveRecordLocation } = await import("./geo/geo-resolve-record");
-    const { classifyProperty, classifySearch, losesLevel } = await import("./geo/homonym-backfill");
+    const { classifyProperty, classifySearch, losesLevel, PERDA_NIVEL_EXCECOES } = await import("./geo/homonym-backfill");
     const { setRequestClient } = await import("@/lib/privileged.server");
     setRequestClient(context.supabase);
     const db = context.supabase as any;
@@ -98,8 +98,12 @@ export const backfillHomonymGeo = createServerFn({ method: "POST" })
       );
       const classe = classifyProperty(p.location_id ?? null, res, snap);
       imoveis[classe]++;
+      // Exceção pontual validada manualmente: mantém-se dentro do Aplicar.
+      const excecao = PERDA_NIVEL_EXCECOES.has((p.referencia ?? "").trim());
       const perdeNivel =
-        gravar(classe) && losesLevel(p.location_id ?? null, res.location_id, snap);
+        gravar(classe) &&
+        !excecao &&
+        losesLevel(p.location_id ?? null, res.location_id, snap);
       if (perdeNivel && data.excluir_perda_nivel) imoveis.excluidos_perda_nivel++;
       if (classe !== "mantem" && amostra.length < data.sample) {
         amostra.push({
@@ -112,6 +116,7 @@ export const backfillHomonymGeo = createServerFn({ method: "POST" })
           classe,
           descartados: [
             perdeNivel && data.excluir_perda_nivel ? "excluído: perde nível (freguesia em falta na biblioteca)" : "",
+            excecao ? "exceção validada manualmente: incluído apesar de freguesia → concelho" : "",
             res.discarded.map((d) => `${d.field}="${d.raw}" (${d.reason})`).join("; "),
           ]
             .filter(Boolean)
