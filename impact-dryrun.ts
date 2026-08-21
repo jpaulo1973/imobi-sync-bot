@@ -56,8 +56,9 @@ for (const s of allSearches) {
 }
 
 const propCorrige = propPlans.filter((p) => p.classe === "corrige");
-const propCorrigeAplicar = propCorrige.filter((p) => !p.perde);
-const propExcluidos = propCorrige.filter((p) => p.perde);
+const EXCL = new Set(["C0440-00971","C0440-00969"]);
+const propCorrigeAplicar = propCorrige.filter((p) => !EXCL.has(p.ref ?? ""));
+const propExcluidos = propCorrige.filter((p) => EXCL.has(p.ref ?? ""));
 const searchCorrige = searchPlans.filter((s) => s.classe === "corrige");
 
 console.log("=== PLANO ===");
