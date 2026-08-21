@@ -253,16 +253,10 @@ export const updateReviewSearch = createServerFn({ method: "POST" })
     return { ok: true, resolved: data.resolve };
   });
 
-export const deleteReviewSearch = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d) => z.object({ id: z.string().uuid() }).parse(d))
-  .handler(async ({ data, context }) => {
-    const { supabase, userId } = context;
-    await assertAdmin(supabase, userId);
-    const { error } = await supabase.from("active_searches").delete().eq("id", data.id);
-    if (error) throw new Error(error.message);
-    return { ok: true };
-  });
+// Release 1.3.2 — a eliminação de procuras passou para `deleteReviewSearch`
+// (RPC admin_delete_search), que limpa também os dependentes. Ver mais abaixo.
+
+
 
 // Release 1.2 — Nova Revisão: apenas contactos do consultor são editáveis.
 // Nome, telefone, WhatsApp e email do consultor podem ser adicionados ou
