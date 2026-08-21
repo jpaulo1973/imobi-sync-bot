@@ -427,24 +427,23 @@ function ContactoCard({
   item,
   onSaved,
   sugestao,
+  prefill,
 }: {
   item: ConsultorSemTelefone;
   onSaved: () => void;
   sugestao?: Suggestion | null;
+  prefill?: { telefone: string; nonce: number } | null;
 }) {
   const saveFn = useServerFn(setConsultorTelefone);
   const [telefone, setTelefone] = useState("");
   const [saving, setSaving] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  // A sugestão apenas pré-preenche o campo; a gravação continua a ser manual.
-  const sugerido = sugestao?.telefone ?? null;
-  const [applied, setApplied] = useState(false);
+  // A sugestão só entra no campo depois de o utilizador clicar em
+  // "Aplicar sugestão" no painel de contactos. A gravação continua manual.
   useEffect(() => {
-    if (sugerido && !applied && telefone.trim() === "") {
-      setTelefone(sugerido);
-      setApplied(true);
-    }
-  }, [sugerido]);
+    if (prefill?.telefone) setTelefone(prefill.telefone);
+  }, [prefill?.nonce]);
+
 
   // Update em massa: o mesmo número é aplicado a TODAS as procuras deste
   // consultor. Quando é mais do que uma, exige confirmação visual explícita.
