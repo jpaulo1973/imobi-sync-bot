@@ -413,18 +413,71 @@ export function SearchEditSheet({
               />
             </div>
 
-            <div className="flex flex-wrap gap-2 border-t pt-4">
+            <div className="flex flex-wrap items-center gap-2 border-t pt-4">
               <Button type="button" variant="outline" disabled={busy} onClick={() => void submit(false)}>
                 <Save className="mr-1 h-4 w-4" /> {busy ? "A guardar…" : "Guardar"}
               </Button>
               <Button type="button" disabled={busy} onClick={() => void submit(true)}>
                 <Sparkles className="mr-1 h-4 w-4" /> Guardar e resolver
               </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                className="ml-auto"
+                disabled={busy}
+                onClick={() => void askDelete()}
+              >
+                <Trash2 className="mr-1 h-4 w-4" /> Apagar procura
+              </Button>
             </div>
           </div>
         )}
+
+        <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Apagar esta procura permanentemente?</AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-2 text-sm">
+                  <p>
+                    Esta ação é permanente e não pode ser desfeita. Clientes, imóveis, perfis e
+                    outras procuras não são afetados.
+                  </p>
+                  {preview === null ? (
+                    <p className="text-muted-foreground">A calcular impacto…</p>
+                  ) : !preview.encontrada ? (
+                    <p className="text-muted-foreground">A procura já não existe na base.</p>
+                  ) : (
+                    <ul className="list-disc pl-5 text-muted-foreground">
+                      <li>
+                        Procura: {preview.nome ?? "(sem nome)"}
+                        {preview.origem ? ` · ${preview.origem}` : ""}
+                      </li>
+                      <li>Oportunidades removidas: {preview.oportunidades_removidas}</li>
+                      <li>Notificações removidas: {preview.notificacoes_removidas}</li>
+                      <li>Estados de match removidos: {preview.estados_removidos}</li>
+                    </ul>
+                  )}
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={busy}>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={busy || preview === null}
+                onClick={(e) => {
+                  e.preventDefault();
+                  void confirmDelete();
+                }}
+              >
+                {busy ? "A apagar…" : "Apagar definitivamente"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </SheetContent>
     </Sheet>
+
   );
 }
 
