@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { callLovableAI } from "./ai-gateway.server";
 import { LocationRepository } from "./geo/location-repository";
-import { parseLocations } from "./geo";
 
 export const EssentialPropertySchema = z.object({
   referencia: z.string().nullable().optional(),
@@ -262,14 +261,10 @@ export function buildPropertyInsert(parsed: ParsedProperty): {
 }
 
 /**
- * Sprint 1.2.2 — resolve o `location_id` canónico a partir dos campos
- * textuais extraídos pela IA, usando exclusivamente o parser único
- * (`parseLocations` sobre o snapshot do `LocationRepository`). Não
- * duplica lógica geográfica nem heurísticas próprias.
- *
- * Tenta do mais específico ao menos específico e devolve o primeiro
- * `location_id` resolvido. Se nada resolver, devolve `null` e o texto
- * tentado — o caller decide se sinaliza para revisão.
+ * Comando 3/3 — resolve o `location_id` canónico a partir dos campos
+ * textuais, delegando no resolutor hierárquico único
+ * (`resolveRecordLocation` sobre o snapshot do `LocationRepository`).
+ * Não duplica lógica geográfica nem heurísticas próprias.
  */
 export async function resolveLocationIdFromParsed(parsed: ParsedProperty): Promise<{
   location_id: string | null;
