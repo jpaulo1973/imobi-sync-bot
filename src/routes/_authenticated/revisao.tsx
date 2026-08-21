@@ -476,7 +476,8 @@ function ContactoCard({
   };
 
   return (
-    <Card className="p-5 space-y-4">
+    <Card id={`contacto-${item.key}`} className="p-5 space-y-4 scroll-mt-24">
+
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <Badge variant="outline">
           <Phone className="w-3 h-3 mr-1" /> Sem telefone
