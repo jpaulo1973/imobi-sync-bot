@@ -9,17 +9,29 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2, Save, Sparkles } from "lucide-react";
+import { Loader2, Save, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
+  deleteReviewSearch,
   getReviewSearch,
   updateReviewSearch,
+  type DeleteSearchResult,
   type ReviewSearchDetail,
 } from "@/lib/review.functions";
 import { CATEGORY_LABELS, type PropertyCategory } from "@/lib/property-taxonomy";
 import { LocationSelector } from "@/components/entity-selector/LocationSelector";
 import { OriginalMessage } from "@/components/OriginalMessage";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +43,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+
 
 /** Release 1.3.2 — tipo de negócio da procura (valores reais na BD). */
 export type Finalidade = "venda" | "arrendamento" | "indefinido";
