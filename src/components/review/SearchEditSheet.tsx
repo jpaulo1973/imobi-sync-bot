@@ -97,7 +97,9 @@ function listOrNull(raw: string): string[] | null {
  */
 export function buildUpdatePayload(initial: FormState, form: FormState) {
   const criteria: Record<string, unknown> = {};
+  if (form.finalidade !== initial.finalidade) criteria.finalidade = form.finalidade;
   const numericKeys = ["budget_min", "budget_max", "area_min", "quartos_min"] as const;
+
   for (const k of numericKeys) {
     if (form[k].trim() === initial[k].trim()) continue;
     const v = numOrNull(form[k]);
