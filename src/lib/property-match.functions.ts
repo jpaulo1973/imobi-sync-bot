@@ -13,6 +13,12 @@ import {
 } from "./matching-engine";
 import { LocationRepository } from "./geo";
 import { loadConsultorMeta, loadConsultorDirectory, resolveConsultor } from "./opportunity-privacy";
+import {
+  criteriaToBuyer,
+  buyerIdentityKey,
+  dedupByIdentity,
+  countMatchesForProperties,
+} from "./property-match-counts";
 
 // ---------------------------------------------------------------------------
 // Release 1.2 — Property Opportunities
@@ -66,80 +72,9 @@ export type Opportunity = {
   isOwner: boolean;
 };
 
-function criteriaToBuyer(c: any, location_ids: string[] = []): BuyerLike {
-  const finalidade = c?.finalidade === "indefinido" ? undefined : c?.finalidade;
-  const gar = ((c?.caracteristicas ?? []) as string[]).some((x) => /garagem/i.test(x));
-  const ele = ((c?.caracteristicas ?? []) as string[]).some((x) => /elevador/i.test(x));
-  return {
-    finalidade,
-    tipo_imovel: c?.tipo_imovel ?? null,
-    tipologia: c?.tipologia ?? null,
-    location_ids,
-    budget_min: c?.budget_min ?? null,
-    categorias: Array.isArray(c?.categorias) ? c.categorias : null,
-    categoria_origem: typeof c?.categoria_origem === "string" ? c.categoria_origem : null,
-    budget_max_obras: c?.budget_max_obras ?? null,
-    budget_max_pronto: c?.budget_max_pronto ?? null,
-    estado_desejado: c?.estado_desejado ?? null,
-    budget_max: c?.budget_max ?? null,
-    area_min: c?.area_min ?? null,
-    quartos_min: c?.quartos_min ?? null,
-    garagem_obrigatoria: gar,
-    elevador_obrigatorio: ele,
-    proximity: c?.proximity ?? null,
-    caracteristicas: Array.isArray(c?.caracteristicas) ? c.caracteristicas : null,
-  };
-}
+// Helpers puros (identidade/dedup/criteriaToBuyer) vivem em
+// ./property-match-counts para poderem ser testados sem server functions.
 
-// ---------------------------------------------------------------------------
-// Sprint 1.2.3 — Deduplicação de oportunidades
-//
-// Regra funcional: para a mesma combinação (Property, Buyer) só existe uma
-// oportunidade apresentada; caso existam múltiplos resultados para a mesma
-// combinação, manter apenas a oportunidade com maior Match Score.
-//
-// Como o mesmo comprador pode surgir simultaneamente em `buyer_clients` e
-// em várias `active_searches` (importações WhatsApp/Excel repetidas), a
-// deduplicação é feita por *identidade do comprador* — telefone normalizado
-// ou, em fallback, nome normalizado — e não apenas por buyer_ref.
-// ---------------------------------------------------------------------------
-function normDedupPhone(v: unknown): string {
-  if (v == null) return "";
-  let s = String(v).replace(/\D+/g, "");
-  if (s.startsWith("00")) s = s.slice(2);
-  if (s.startsWith("351") && s.length > 9) s = s.slice(-9);
-  return s.length >= 9 ? s : "";
-}
-function normDedupName(v: unknown): string {
-  if (typeof v !== "string") return "";
-  return v
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-}
-function buyerIdentityKey(
-  telefone: string | null | undefined,
-  nome: string | null | undefined,
-  fallback: string,
-): string {
-  const phone = normDedupPhone(telefone);
-  if (phone) return `phone:${phone}`;
-  const name = normDedupName(nome);
-  if (name) return `name:${name}`;
-  return fallback;
-}
-function dedupByIdentity<T extends { score: number }>(
-  items: Array<{ identity: string; opp: T }>,
-): T[] {
-  const best = new Map<string, { identity: string; opp: T }>();
-  for (const it of items) {
-    const prev = best.get(it.identity);
-    if (!prev || it.opp.score > prev.opp.score) best.set(it.identity, it);
-  }
-  return Array.from(best.values()).map((v) => v.opp);
-}
 
 export const runPropertyOpportunities = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -379,16 +314,32 @@ export const countPropertyOpportunities = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase, userId } = context;
-    const [{ data: properties }, { data: buyers }] = await Promise.all([
-      supabase.from("properties").select("*").eq("user_id", userId).eq("ativo", true),
-      supabase.from("buyer_clients").select("*").eq("user_id", userId).eq("ativo", true),
-    ]);
-    const { setRequestClient, poolActiveSearches } = await import("@/lib/privileged.server");
+    const { setRequestClient, poolActiveSearches, poolProperties, poolBuyerClients } =
+      await import("@/lib/privileged.server");
     setRequestClient(supabase);
-    const searches = await poolActiveSearches();
+    const [allProperties, allBuyers, searches] = await Promise.all([
+      poolProperties(),
+      poolBuyerClients(),
+      poolActiveSearches(),
+    ]);
+
+    // A contagem é feita na perspetiva do dono real de cada imóvel: o Admin
+    // vê imóveis de outros consultores e essas contagens têm de refletir os
+    // compradores desses consultores, não os da sessão.
+    const properties = (allProperties ?? []).filter((p: any) => p.ativo !== false);
+    const buyersByOwner = new Map<string, any[]>();
+    for (const b of allBuyers ?? []) {
+      if ((b as any).ativo === false) continue;
+      const owner = (b as any).user_id as string;
+      const arr = buyersByOwner.get(owner);
+      if (arr) arr.push(b);
+      else buyersByOwner.set(owner, [b]);
+    }
 
     const geoIndex = buildGeoMatchIndex(await LocationRepository.getSnapshot());
     // Estados marcados como 'nao_interessado' — filtrados da contagem.
+    // Nota: match_states é pessoal (RLS por utilizador), logo só descarta
+    // pares do próprio utilizador da sessão.
     const { data: stateRows } = await supabase
       .from("match_states")
       .select("property_id, buyer_source, buyer_ref, state")
@@ -398,55 +349,21 @@ export const countPropertyOpportunities = createServerFn({ method: "POST" })
     for (const s of stateRows ?? []) {
       dismissed.add(`${(s as any).property_id}|${(s as any).buyer_source}-${(s as any).buyer_ref}`);
     }
-    const counts: Record<string, number> = {};
-    for (const p of properties ?? []) {
-      // Sprint 1.2.3 — contar identidades únicas por (property, buyer),
-      // não linhas cruas. Aceita apenas o melhor score por identidade.
-      const bestByIdentity = new Map<string, number>();
-      const bump = (id: string, sc: number) => {
-        const prev = bestByIdentity.get(id);
-        if (prev == null || sc > prev) bestByIdentity.set(id, sc);
-      };
-      for (const b of buyers ?? []) {
-        if (dismissed.has(`${p.id}|cliente-${b.id}`)) continue;
-        const r = scoreMatch(b as BuyerLike, p as any, { geoIndex });
-        if (!r.compatible) continue;
-        bump(
-          buyerIdentityKey((b as any).telefone, (b as any).nome, `cliente:${b.id}`),
-          r.score,
-        );
-      }
-      for (const q of searches ?? []) {
-        if (dismissed.has(`${p.id}|search-${q.id}`)) continue;
-        const r = scoreMatch(
-          {
-            ...criteriaToBuyer(q.criteria, (q as any).location_ids ?? []),
-            resumo: (q as any).resumo ?? null,
-            texto_original: (q as any).texto_original ?? null,
-          },
-          p as any,
-          { geoIndex },
-        );
-        if (!r.compatible) continue;
-        const c = (q.criteria ?? {}) as any;
-        const rawPhone =
-          (typeof (q as any).contact_telefone === "string" && (q as any).contact_telefone.trim()) ||
-          (typeof c?.telefone === "string" && c.telefone.trim()) ||
-          null;
-        const rawName =
-          (typeof (q as any).contact_nome === "string" && (q as any).contact_nome.trim()) ||
-          (typeof c?.nome === "string" && c.nome.trim()) ||
-          null;
-        bump(buyerIdentityKey(rawPhone, rawName, `search:${q.id}`), r.score);
-      }
-      counts[p.id] = bestByIdentity.size;
-    }
+
+    const counts = countMatchesForProperties({
+      properties,
+      buyersByOwner,
+      searches: searches ?? [],
+      geoIndex,
+      dismissed,
+    });
     return {
       counts,
-      totalBuyers: (buyers ?? []).length,
+      totalBuyers: (buyersByOwner.get(userId) ?? []).length,
       totalGlobal: (searches ?? []).length,
     };
   });
+
 
 export const runPropertyMatch = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
