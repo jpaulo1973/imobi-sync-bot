@@ -15,7 +15,7 @@
 // ---------------------------------------------------------------------------
 
 import { normalizePhone, normalizeTextKey } from "./dedup";
-import { DUPLICATE_SIM_THRESHOLD } from "./duplicates.server";
+
 
 export type ContactEntry = {
   nome: string;
@@ -52,7 +52,10 @@ export function nameSimilarity(a?: string | null, b?: string | null): number {
   return uni ? inter / uni : 0;
 }
 
-export const NAME_MATCH_THRESHOLD = DUPLICATE_SIM_THRESHOLD;
+// Mesmo valor de `DUPLICATE_SIM_THRESHOLD` (0,80) dos Duplicados. Replicado aqui
+// (não importado) porque `duplicates.server.ts` está bloqueado no bundle do
+// cliente; `contacts-file.test.ts` fixa a paridade dos dois valores.
+export const NAME_MATCH_THRESHOLD = 0.8;
 
 // --- vCard ------------------------------------------------------------------
 
