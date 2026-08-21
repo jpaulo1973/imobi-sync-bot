@@ -182,7 +182,23 @@ function RevisaoPage() {
             </DropdownMenu>
           </div>
 
-          <ContactSuggestPanel items={items} onSuggestions={setSuggestions} />
+          <ContactSuggestPanel
+            items={items}
+            onSuggestions={(m) => {
+              setSuggestions(m);
+              setPrefills(new Map());
+            }}
+            onApply={(s) => {
+              setPrefills((prev) => {
+                const next = new Map(prev);
+                next.set(s.key, { telefone: s.telefone ?? "", nonce: Date.now() });
+                return next;
+              });
+              document
+                .getElementById(`contacto-${s.key}`)
+                ?.scrollIntoView({ behavior: "smooth", block: "center" });
+            }}
+          />
 
           <ReimportPanel onDone={reload} />
 
@@ -198,10 +214,12 @@ function RevisaoPage() {
                 key={it.key}
                 item={it}
                 sugestao={suggestions.get(it.key) ?? null}
+                prefill={prefills.get(it.key) ?? null}
                 onSaved={() => removeLocal(it.key)}
               />
             ))
           )}
+
         </TabsContent>
 
         <TabsContent value="localizacao">
