@@ -247,3 +247,65 @@ describe("Release 1.2.12 — filtro de tipo para indecidíveis", () => {
     expect(r.compatible).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Release 1.3.1 — fim do fail-open de categoria do lado do IMÓVEL.
+// Caso real: procura "Lar de Idosos / ERPI" (Marco Gomes, categorias
+// ["trespasses"]) cruzava com o imóvel C0440-01014 (categoria e tipo_imovel
+// NULL) a 88%. Passa a falhar e a pedir revisão de categoria.
+// ---------------------------------------------------------------------------
+describe("Release 1.3.1 — categoria do imóvel sem fail-open", () => {
+  const marcoGomes: BuyerLike = {
+    finalidade: "venda",
+    tipo_imovel: [],
+    categorias: ["trespasses"],
+    categoria_origem: "inferido_texto",
+    tipologia: null,
+    location_ids: [LISBOA],
+    budget_max: 1000000,
+  };
+
+  it("imóvel sem categoria nem tipo: FAIL com needsReview de categoria", () => {
+    const property: PropertyLike = {
+      finalidade: "venda",
+      tipo_imovel: null,
+      categoria: null,
+      tipologia: "T1",
+      location_id: LISBOA,
+      preco: 250000,
+    };
+    const r = scoreMatch(marcoGomes, property, { geoIndex });
+    expect(r.compatible).toBe(false);
+    expect(r.rejectReason).toBe("TIPO_IMOVEL");
+    expect(r.needsReview?.reviewReason).toBe("categoria_imovel");
+    expect(r.score).toBeLessThan(88);
+  });
+
+  it("depois da inferência (T1 -> casas_apartamentos): FAIL por categoria incompatível, sem revisão", () => {
+    const property: PropertyLike = {
+      finalidade: "venda",
+      tipo_imovel: null,
+      categoria: "casas_apartamentos",
+      tipologia: "T1",
+      location_id: LISBOA,
+      preco: 250000,
+    };
+    const r = scoreMatch(marcoGomes, property, { geoIndex });
+    expect(r.compatible).toBe(false);
+    expect(r.rejectReason).toBe("TIPO_IMOVEL");
+    expect(r.needsReview?.reviewReason).not.toBe("categoria_imovel");
+  });
+
+  it("imóvel com categoria compatível continua a passar", () => {
+    const property: PropertyLike = {
+      finalidade: "venda",
+      tipo_imovel: null,
+      categoria: "trespasses",
+      tipologia: null,
+      location_id: LISBOA,
+      preco: 250000,
+    };
+    const r = scoreMatch(marcoGomes, property, { geoIndex });
+    expect(r.rejectReason).not.toBe("TIPO_IMOVEL");
+  });
+});

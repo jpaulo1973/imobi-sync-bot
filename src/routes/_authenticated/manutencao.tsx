@@ -31,6 +31,7 @@ import {
 import { DuplicatesPanel } from "@/components/DuplicatesPanel";
 import { ContactsBackfillPanel } from "@/components/ContactsBackfillPanel";
 import { CategoryBackfillPanel } from "@/components/CategoryBackfillPanel";
+import { PropertyCategoryBackfillPanel } from "@/components/PropertyCategoryBackfillPanel";
 import { PurgeExpiredPanel } from "@/components/PurgeExpiredPanel";
 import {
   backfillContactsFromSearches,
@@ -397,6 +398,7 @@ function ManutencaoPage() {
 
       <CategoryBackfillPanel />
       <CategoryBackfillPanel scope="multi_uso_features" />
+      <PropertyCategoryBackfillPanel />
 
       <Card id="ajuda-sugestoes" className="p-6 space-y-4 scroll-mt-20">
         <div>

@@ -195,7 +195,9 @@ export type MatchCategoryResult = {
 
 export type ReviewReason =
   | "freguesia_em_falta"
-  | "area_em_falta";
+  | "area_em_falta"
+  /** Release 1.3.1 — imóvel sem categoria resolvida (fim do fail-open). */
+  | "categoria_imovel";
 
 export type NeedsReview = { reviewReason: ReviewReason; reason: string };
 
@@ -351,6 +353,20 @@ function tipoFilter(buyer: BuyerLike, property: PropertyLike): HardFilterResult 
     ? resolveCategories(buyer.categorias)
     : resolveCategories(buyer.tipo_imovel ?? []);
   const pCat = resolveCategory(property.categoria) ?? resolveCategory(property.tipo_imovel);
+  // Release 1.3.1 — fim do fail-open do lado do imóvel: se a procura declara
+  // categorias e o imóvel não tem categoria resolúvel, o par NÃO passa. Fica
+  // marcado para revisão manual de categoria (mesmo padrão da localização).
+  if (buyerCats.length > 0 && !pCat) {
+    return {
+      ok: false,
+      rejectReason: "TIPO_IMOVEL",
+      needsReview: {
+        reviewReason: "categoria_imovel",
+        reason: "Categoria do imóvel indeterminada — requer revisão",
+      },
+      category: cat("tipo", "Tipo", false, "Categoria do imóvel indeterminada — requer revisão"),
+    };
+  }
   if (buyerCats.length > 0 && pCat) {
     if (!buyerCats.includes(pCat)) {
       return {

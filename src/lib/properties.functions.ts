@@ -36,11 +36,18 @@ export const importPropertyFromUrl = createServerFn({ method: "POST" })
       }
     }
 
+    // Release 1.3.1 — nenhum imóvel novo entra sem decisão de categoria: a
+    // fonte raramente devolve `categoria`, e sem ela o Motor cruzava o imóvel
+    // com procuras de qualquer categoria.
+    const { inferPropertyCategory } = await import("./property-category-infer");
+    const categoria = inferPropertyCategory(values as Record<string, unknown>).categoria;
+
     const { data: saved, error } = await supabase
       .from("properties")
       .insert({
         user_id: userId,
         ...values,
+        ...(categoria ? { categoria } : {}),
       })
       .select()
       .single();
