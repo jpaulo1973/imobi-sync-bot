@@ -121,6 +121,10 @@ function RevisaoPage() {
   const [resolvedIds, setResolvedIds] = useState<string[]>([]);
   // Release 1.2.18 — sugestões vindas do ficheiro de contactos (só em memória).
   const [suggestions, setSuggestions] = useState<SuggestionMap>(new Map());
+  // Sugestões efetivamente aplicadas (clique explícito em "Aplicar sugestão").
+  const [prefills, setPrefills] = useState<Map<string, { telefone: string; nonce: number }>>(
+    new Map(),
+  );
 
   const reload = () => {
     setLoading(true);
