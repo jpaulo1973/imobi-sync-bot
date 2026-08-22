@@ -34,6 +34,7 @@ import { CategoryBackfillPanel } from "@/components/CategoryBackfillPanel";
 import { PropertyCategoryBackfillPanel } from "@/components/PropertyCategoryBackfillPanel";
 import { PurgeExpiredPanel } from "@/components/PurgeExpiredPanel";
 import { HomonymGeoBackfillPanel } from "@/components/HomonymGeoBackfillPanel";
+import { GeoTextEnrichPanel } from "@/components/GeoTextEnrichPanel";
 import {
   backfillContactsFromSearches,
   type ContactsBackfillResult,
@@ -402,6 +403,8 @@ function ManutencaoPage() {
       <PropertyCategoryBackfillPanel />
 
       <HomonymGeoBackfillPanel />
+
+      <GeoTextEnrichPanel />
 
       <Card id="ajuda-sugestoes" className="p-6 space-y-4 scroll-mt-20">
         <div>
