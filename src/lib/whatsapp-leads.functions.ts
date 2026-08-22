@@ -555,9 +555,27 @@ RESPOSTA: APENAS JSON válido:
     // 3) Para cada lead ACEITE, correr o motor contra toda a carteira. Leads
     //    em revisão continuam a devolver os melhores matches para o consultor
     //    poder decidir manualmente; anúncios já foram filtrados.
+    const { enrichRecordGeo } = await import("./geo/geo-enrich-from-text");
     const results: LeadMatchResult[] = acceptedLeads.map((lead) => {
-      const location_ids = lead.zona ? parseLocations(lead.zona, snap).resolved : [];
+      let location_ids = lead.zona ? parseLocations(lead.zona, snap).resolved : [];
+      // B2 — se a zona do lead não resolveu ou ficou só a nível distrito,
+      // enriquecer com a mensagem original (nunca sobrepõe algo mais fino).
+      const soDistrito =
+        location_ids.length === 0 ||
+        location_ids.every((id) => snap.byId.get(id)?.tipo === "distrito");
+      if (soDistrito) {
+        const en = enrichRecordGeo(
+          {
+            fields: { zona: lead.zona ?? null },
+            texto: lead.mensagem_original ?? lead.resumo ?? null,
+            current_ids: location_ids,
+          },
+          snap,
+        );
+        if (en.classe === "preenche") location_ids = en.location_ids;
+      }
       const buyer = { ...leadToBuyer(lead), location_ids };
+
       const scored = (properties ?? [])
         .map((p) => ({ p, s: scoreMatch(buyer, p, { geoIndex }) }))
         .filter((x) => x.s.compatible)

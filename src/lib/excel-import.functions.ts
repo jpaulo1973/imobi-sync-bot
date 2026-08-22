@@ -18,7 +18,7 @@ import {
 } from "./search-acceptance";
 import { normalizeSearchBedrooms } from "./bedrooms-normalize";
 import { LocationRepository } from "./geo/location-repository";
-import { parseLocations } from "./geo";
+import { parseLocations, enrichRecordGeo } from "./geo";
 import { knownPhoneFor, lookupContacts, type KnownContact } from "./contacts.server";
 import { computeExpiresAt } from "./expiry";
 import { withInferredCategories } from "./category-infer";
@@ -598,10 +598,42 @@ async function processOneRow(
           }
           if (firstUnresolvedGeoText == null) firstUnresolvedGeoText = text;
         }
+        // B2 — quando a cascata estruturada só chegou ao distrito (ou a nada),
+        // tentar enriquecer a partir do texto original. Nunca sobrepõe um
+        // valor mais fino já resolvido; divergência/baixa confiança vão para
+        // revisão manual em vez de escrita silenciosa.
+        let geoEnrichReason: string | null = null;
+        const soDistrito =
+          resolvedLocationIds.length === 0 ||
+          resolvedLocationIds.every((id) => geoSnap.byId.get(id)?.tipo === "distrito");
+        if (soDistrito) {
+          const en = enrichRecordGeo(
+            {
+              fields: {
+                distrito,
+                concelho: spMunicipio,
+                freguesia: spFreguesia,
+                zona: spZona,
+              },
+              texto: rawText,
+              current_ids: resolvedLocationIds,
+            },
+            geoSnap,
+          );
+          if (en.classe === "preenche") {
+            resolvedLocationIds.length = 0;
+            resolvedLocationIds.push(...en.location_ids);
+          } else if (en.classe === "divergencia" || en.classe === "baixa_confianca") {
+            geoEnrichReason = `Geo por revisão (${en.classe}): ${en.motivo ?? ""}`.trim();
+          }
+        }
         const geoFlag =
           resolvedLocationIds.length === 0 && firstUnresolvedGeoText
             ? { flagged: true, reason: `Zona por interpretar: "${firstUnresolvedGeoText}"` }
-            : null;
+            : geoEnrichReason
+              ? { flagged: true, reason: geoEnrichReason }
+              : null;
+
 
         const row: UpsertRow = {
           dedup_key,
