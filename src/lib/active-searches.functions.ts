@@ -107,17 +107,47 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
     const zonaText = geoCandidate?.text ?? null;
     let resolvedLocationIds: string[] = [];
     let zonaUnresolved = false;
-    if (geoCandidate) {
-      try {
-        const snap = await LocationRepository.getSnapshot();
-        const { parseLocations } = await import("./geo");
+    let geoEnrichReason: string | null = null;
+    try {
+      const snap = await LocationRepository.getSnapshot();
+      const { parseLocations } = await import("./geo");
+      if (geoCandidate) {
         const parseRes = parseLocations(geoCandidate.text, snap, { field: geoCandidate.field });
         resolvedLocationIds = parseRes.resolved;
         zonaUnresolved = parseRes.resolved.length === 0;
-      } catch (e) {
-        console.error("[saveActiveSearch] location resolution failed", e);
       }
+      // B2 — a cascata acima só olha para um campo estruturado. Quando o
+      // resultado é vazio ou só a nível distrito, enriquecer a partir do
+      // texto original; divergência/baixa confiança vão para revisão.
+      const soDistrito =
+        resolvedLocationIds.length === 0 ||
+        resolvedLocationIds.every((id) => snap.byId.get(id)?.tipo === "distrito");
+      if (soDistrito) {
+        const { enrichRecordGeo } = await import("./geo/geo-enrich-from-text");
+        const en = enrichRecordGeo(
+          {
+            fields: {
+              distrito: (criteria as any).distrito ?? null,
+              concelho: (criteria as any).municipio ?? null,
+              freguesia: (criteria as any).freguesia ?? null,
+              zona: (criteria as any).zona ?? null,
+            },
+            texto: data.texto_original ?? data.resumo ?? null,
+            current_ids: resolvedLocationIds,
+          },
+          snap,
+        );
+        if (en.classe === "preenche") {
+          resolvedLocationIds = en.location_ids;
+          zonaUnresolved = false;
+        } else if (en.classe === "divergencia" || en.classe === "baixa_confianca") {
+          geoEnrichReason = `geo_revisao (${en.classe}): ${en.motivo ?? ""}`.trim();
+        }
+      }
+    } catch (e) {
+      console.error("[saveActiveSearch] location resolution failed", e);
     }
+
 
     // Release 1.2.12 — decidir a categoria (determinístico, sem LLM) antes de
     // persistir. Nunca sobrepõe `categorias` já presentes no input.
