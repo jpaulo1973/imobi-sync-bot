@@ -18,7 +18,7 @@ import {
 } from "./search-acceptance";
 import { normalizeSearchBedrooms } from "./bedrooms-normalize";
 import { LocationRepository } from "./geo/location-repository";
-import { parseLocations } from "./geo";
+import { parseLocations, enrichRecordGeo } from "./geo";
 import { knownPhoneFor, lookupContacts, type KnownContact } from "./contacts.server";
 import { computeExpiresAt } from "./expiry";
 import { withInferredCategories } from "./category-infer";
