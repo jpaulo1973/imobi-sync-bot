@@ -20,7 +20,7 @@
 
 import type { GeoSnapshot, Location, ParseAuditStep } from "./geo-types";
 import { splitConnectors } from "./geo-context";
-import { parseLocations } from "./geo-parser";
+
 import {
   ancestorChain,
   candidatesForLevel,
