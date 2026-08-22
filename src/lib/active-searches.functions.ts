@@ -205,13 +205,15 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
     }
     // Fase 3 — zona textual que o parser não conseguiu resolver deve ir
     // para Revisão. location_ids já foram gravados atomicamente acima.
-    if (zonaText && zonaUnresolved) {
+    const flagReason =
+      zonaText && zonaUnresolved ? `zona_desconhecida: "${zonaText}"` : geoEnrichReason;
+    if (flagReason) {
       try {
         await supabase
           .from("active_searches")
           .update({
             flagged_for_review: true,
-            decision_reason: `zona_desconhecida: "${zonaText}"`,
+            decision_reason: flagReason.slice(0, 900),
           })
           .eq("id", res.id)
           .eq("user_id", userId);
@@ -219,6 +221,7 @@ export const saveActiveSearch = createServerFn({ method: "POST" })
         console.error("[saveActiveSearch] flag zona_desconhecida failed", e);
       }
     }
+
     return {
       id: res.id,
       expires_at: res.expires_at,
