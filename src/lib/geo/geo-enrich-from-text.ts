@@ -133,27 +133,43 @@ export function enrichRecordGeo(
     return { ...base, classe: "sem_info", motivo: "Sem texto original" };
   }
 
-  // 2) Candidatos do texto livre, segmento a segmento.
+  // 2) Candidatos do texto livre: em cada segmento, janelas de 4→1 palavras
+  //    resolvidas por correspondência exacta na biblioteca (alias/slug/nome),
+  //    do mais longo para o mais curto e sem sobreposição. Determinístico.
   const candidates: GeoEnrichCandidate[] = [];
+  const push = (raw: string, id: string, confidence: number) => {
+    const tipo = snap.byId.get(id)?.tipo;
+    if (!tipo || tipo === "distrito") return;
+    if (candidates.some((c) => c.id === id)) return;
+    candidates.push({
+      raw,
+      id,
+      nome: nomeOf(id, snap),
+      tipo,
+      confidence,
+      within_distrito: distritoId ? isWithin(id, distritoId, snap) : true,
+    });
+  };
+  const CONF: Record<string, number> = { freguesia: 100, concelho: 95, zona_funcional: 90 };
   for (const seg of splitConnectors(texto)) {
-    const r = parseLocations(seg, snap, { field: "livre" });
-    for (const s of r.segments) {
-      if (s.unresolved) continue;
-      for (const id of s.location_ids) {
-        const tipo = snap.byId.get(id)?.tipo;
-        if (!tipo || tipo === "distrito") continue;
-        if (candidates.some((c) => c.id === id)) continue;
-        candidates.push({
-          raw: s.raw,
-          id,
-          nome: nomeOf(id, snap),
-          tipo,
-          confidence: s.confidence,
-          within_distrito: distritoId ? isWithin(id, distritoId, snap) : true,
-        });
+    const words = seg.split(/\s+/).filter(Boolean);
+    const used = new Array(words.length).fill(false);
+    for (let n = Math.min(4, words.length); n >= 1; n--) {
+      for (let i = 0; i + n <= words.length; i++) {
+        if (used.slice(i, i + n).some(Boolean)) continue;
+        const window = words.slice(i, i + n).join(" ");
+        let hit = false;
+        for (const tipo of ["freguesia", "concelho", "zona_funcional"] as const) {
+          const ids = candidatesForLevel(window, snap, tipo);
+          if (ids.length === 0) continue;
+          hit = true;
+          for (const id of ids) push(window, id, CONF[tipo] ?? 90);
+        }
+        if (hit) for (let k = i; k < i + n; k++) used[k] = true;
       }
     }
   }
+
   base.candidates = candidates;
   audit.push({ step: "candidatos_texto", detail: { total: candidates.length } });
 
